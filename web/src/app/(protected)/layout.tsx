@@ -30,6 +30,7 @@ export default async function ProtectedLayout() {
         canManageRegistrations: userContext.canManageRegistrations,
         canAwardCompetitionPoints: userContext.canAwardCompetitionPoints,
         isCamper: userContext.isCamper,
+        inviteType: userContext.inviteType,
       }}
     />
   );

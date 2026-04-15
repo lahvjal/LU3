@@ -1,15 +1,28 @@
-import { signInWithPassword, signUpParentAccount } from "./actions";
-import { Compass, LogIn } from "lucide-react";
-import { Alert } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { signInWithPassword } from "./actions";
 
 type SearchParamValue = string | string[] | undefined;
 type SearchParams =
   | Record<string, SearchParamValue>
   | Promise<Record<string, SearchParamValue>>;
+
+const T = {
+  bg: "#1a1612",
+  bgCard: "#231f1a",
+  bgInput: "#2c2720",
+  border: "#3a332b",
+  text: "#e8e0d4",
+  textMuted: "#9a8e7f",
+  accent: "#d4915e",
+  accentLight: "#e6a872",
+  red: "#c45a5a",
+  redBg: "#351e1e",
+  green: "#6b9e6b",
+  greenBg: "#2a3528",
+  radius: "10px",
+  radiusSm: "6px",
+  font: "'DM Sans', sans-serif",
+  fontDisplay: "'Playfair Display', serif",
+};
 
 export default async function LoginPage({
   searchParams,
@@ -23,106 +36,193 @@ export default async function LoginPage({
   const infoMessage = Array.isArray(info) ? info[0] : info;
 
   return (
-    <main className="min-h-screen px-4 py-12">
-      <Card className="mx-auto w-full max-w-md">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Compass className="h-5 w-5 text-emerald-600" aria-hidden />
-            Young Men Camp Tracker
-          </CardTitle>
-          <p className="text-sm text-slate-600">
-            Sign in to view your ward roster, registration status, and shirt-size
-            progress.
+    <main
+      style={{
+        minHeight: "100vh",
+        background: T.bg,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "24px",
+        fontFamily: T.font,
+      }}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: "420px",
+          background: T.bgCard,
+          borderRadius: T.radius,
+          border: `1px solid ${T.border}`,
+          boxShadow: "0 4px 24px rgba(0,0,0,0.4)",
+          overflow: "hidden",
+        }}
+      >
+        <div style={{ padding: "32px 28px 0" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              marginBottom: "8px",
+            }}
+          >
+            <span style={{ fontSize: "22px" }}>⛺</span>
+            <h1
+              style={{
+                fontFamily: T.fontDisplay,
+                fontSize: "22px",
+                fontWeight: 700,
+                color: T.text,
+                margin: 0,
+              }}
+            >
+              Young Men Camp
+            </h1>
+          </div>
+          <p
+            style={{
+              fontSize: "14px",
+              color: T.textMuted,
+              margin: "0 0 24px",
+              lineHeight: 1.5,
+            }}
+          >
+            Sign in to access your camp information.
           </p>
-        </CardHeader>
-        <CardContent>
-          {infoMessage ? (
-            <Alert variant="success" className="mb-4">
+        </div>
+
+        <div style={{ padding: "0 28px 32px" }}>
+          {infoMessage && (
+            <div
+              style={{
+                padding: "10px 14px",
+                borderRadius: T.radiusSm,
+                background: T.greenBg,
+                color: T.green,
+                fontSize: "13px",
+                marginBottom: "16px",
+                border: `1px solid ${T.green}33`,
+              }}
+            >
               {infoMessage}
-            </Alert>
-          ) : null}
+            </div>
+          )}
 
-          {errorMessage ? (
-            <Alert variant="destructive" className="mb-4">
+          {errorMessage && (
+            <div
+              style={{
+                padding: "10px 14px",
+                borderRadius: T.radiusSm,
+                background: T.redBg,
+                color: T.red,
+                fontSize: "13px",
+                marginBottom: "16px",
+                border: `1px solid ${T.red}33`,
+              }}
+            >
               {errorMessage}
-            </Alert>
-          ) : null}
+            </div>
+          )}
 
-          <form action={signInWithPassword} className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="email">Email</Label>
-              <Input
+          <form action={signInWithPassword}>
+            <div style={{ marginBottom: "16px" }}>
+              <label
+                htmlFor="email"
+                style={{
+                  display: "block",
+                  fontSize: "12px",
+                  fontWeight: 600,
+                  color: T.textMuted,
+                  marginBottom: "6px",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                }}
+              >
+                Email
+              </label>
+              <input
                 id="email"
                 name="email"
                 type="email"
                 required
                 placeholder="leader@example.org"
+                style={{
+                  width: "100%",
+                  padding: "10px 14px",
+                  borderRadius: T.radiusSm,
+                  border: `1px solid ${T.border}`,
+                  background: T.bgInput,
+                  color: T.text,
+                  fontSize: "14px",
+                  fontFamily: T.font,
+                  outline: "none",
+                  boxSizing: "border-box",
+                }}
               />
             </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="password">Password</Label>
-              <Input
+            <div style={{ marginBottom: "24px" }}>
+              <label
+                htmlFor="password"
+                style={{
+                  display: "block",
+                  fontSize: "12px",
+                  fontWeight: 600,
+                  color: T.textMuted,
+                  marginBottom: "6px",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                }}
+              >
+                Password
+              </label>
+              <input
                 id="password"
                 name="password"
                 type="password"
                 required
                 placeholder="••••••••"
+                style={{
+                  width: "100%",
+                  padding: "10px 14px",
+                  borderRadius: T.radiusSm,
+                  border: `1px solid ${T.border}`,
+                  background: T.bgInput,
+                  color: T.text,
+                  fontSize: "14px",
+                  fontFamily: T.font,
+                  outline: "none",
+                  boxSizing: "border-box",
+                }}
               />
             </div>
 
-            <Button type="submit" className="w-full">
-              <LogIn className="h-4 w-4" aria-hidden />
+            <button
+              type="submit"
+              style={{
+                width: "100%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "8px",
+                padding: "12px 16px",
+                borderRadius: T.radiusSm,
+                border: "none",
+                background: T.accent,
+                color: "#1a1612",
+                fontSize: "14px",
+                fontWeight: 700,
+                fontFamily: T.font,
+                cursor: "pointer",
+                letterSpacing: "0.02em",
+              }}
+            >
               Sign In
-            </Button>
+            </button>
           </form>
-
-          <div className="my-6 h-px bg-slate-200" />
-
-          <form action={signUpParentAccount} className="space-y-4">
-            <p className="text-sm font-medium text-slate-700">
-              Parent first-time setup
-            </p>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="full_name">Full Name</Label>
-              <Input
-                id="full_name"
-                name="full_name"
-                required
-                placeholder="Parent/Guardian name"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="signup_email">Email</Label>
-              <Input
-                id="signup_email"
-                name="signup_email"
-                type="email"
-                required
-                placeholder="parent@example.com"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="signup_password">Password</Label>
-              <Input
-                id="signup_password"
-                name="signup_password"
-                type="password"
-                minLength={8}
-                required
-                placeholder="At least 8 characters"
-              />
-            </div>
-
-            <Button type="submit" variant="outline" className="w-full">
-              Create Parent Account
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </main>
   );
 }

@@ -58,6 +58,7 @@ export type UserContext = {
   canManageRegistrations: boolean;
   canAwardCompetitionPoints: boolean;
   isCamper: boolean;
+  inviteType: "leader" | "youth" | "parent" | null;
 };
 
 type GetUserContextOptions = {
@@ -170,6 +171,14 @@ export async function getUserContext(
     }
   }
 
+  let inviteType: "leader" | "youth" | "parent" | null = null;
+  if (!onboardingCompletedAt) {
+    const { data: inviteResult } = await supabase.rpc("detect_user_invite_type");
+    if (typeof inviteResult === "string") {
+      inviteType = inviteResult as "leader" | "youth" | "parent";
+    }
+  }
+
   return {
     user,
     displayName,
@@ -191,5 +200,6 @@ export async function getUserContext(
     canManageRegistrations,
     canAwardCompetitionPoints: isStakeAdmin || isCompetitionStaff,
     isCamper,
+    inviteType,
   };
 }

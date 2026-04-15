@@ -1244,14 +1244,32 @@ const ProfilePage = ({
   );
 };
 
+const ONBOARDING_COPY = {
+  youth: { title: "Welcome, Camper!", subtitle: "Let\u2019s get your camp profile set up.", namePlaceholder: "Your name" },
+  leader: { title: "Welcome, Leader!", subtitle: "Set up your account so you can manage your ward\u2019s camp experience.", namePlaceholder: "Brother Jones" },
+  parent: { title: "Welcome, Parent!", subtitle: "Set up your account to stay connected with your son\u2019s camp experience.", namePlaceholder: "Parent/Guardian name" },
+  default: { title: "Welcome to Camp Tracker", subtitle: "Let\u2019s set up your account details before you jump in.", namePlaceholder: "Your name" },
+};
+
 const OnboardingOverlay = ({
   form,
   setForm,
+  inviteType,
   isCamper,
   profileOptions,
   onComplete,
   completing,
 }) => {
+  const effectiveType = inviteType || (isCamper ? "youth" : "default");
+  const copy = ONBOARDING_COPY[effectiveType] || ONBOARDING_COPY.default;
+  const isYouth = effectiveType === "youth";
+  const isParent = effectiveType === "parent";
+  const showWard = !isParent;
+  const showQuorum = isYouth;
+  const showAge = isYouth;
+  const showShirtSize = !isParent;
+  const showMedicalNotes = isYouth;
+
   const availableQuorums = useMemo(() => {
     const quorums = profileOptions?.quorums ?? [];
     if (!form.wardId) {
@@ -1262,59 +1280,65 @@ const OnboardingOverlay = ({
 
   const hasRequiredFields =
     form.displayName.trim() &&
-    form.age.trim() &&
-    form.wardId &&
-    (!isCamper || form.quorumId) &&
-    form.shirtSizeCode;
+    (!showAge || form.age.trim()) &&
+    (!showWard || form.wardId) &&
+    (!showQuorum || form.quorumId) &&
+    (!showShirtSize || form.shirtSizeCode);
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 140, background: "rgba(0,0,0,0.82)", backdropFilter: "blur(5px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}>
       <div style={{ width: "100%", maxWidth: "680px", maxHeight: "88vh", overflowY: "auto", ...css.card, border: `1px solid ${T.borderLight}` }}>
         <div style={{ marginBottom: "20px" }}>
-          <h2 style={{ color: T.text, fontFamily: T.fontDisplay, fontSize: "30px", margin: 0 }}>Welcome to Camp Tracker</h2>
+          <h2 style={{ color: T.text, fontFamily: T.fontDisplay, fontSize: "30px", margin: 0 }}>{copy.title}</h2>
           <p style={{ color: T.textMuted, marginTop: "8px", fontSize: "14px", lineHeight: 1.6 }}>
-            Let&apos;s set up your account details before you jump in.
+            {copy.subtitle}
           </p>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
           <Field label="Name">
-            <input style={css.input} value={form.displayName} onChange={(event) => setForm((previous) => ({ ...previous, displayName: event.target.value }))} placeholder="Brother Jones" />
+            <input style={css.input} value={form.displayName} onChange={(event) => setForm((previous) => ({ ...previous, displayName: event.target.value }))} placeholder={copy.namePlaceholder} />
           </Field>
           <Field label="Phone Number">
             <input style={css.input} value={form.phone} onChange={(event) => setForm((previous) => ({ ...previous, phone: event.target.value }))} placeholder="(801) 555-0000" />
           </Field>
-          <Field label="Age">
-            <input style={css.input} type="number" min={8} max={99} value={form.age} onChange={(event) => setForm((previous) => ({ ...previous, age: event.target.value }))} placeholder="16" />
-          </Field>
-          <Field label="Shirt Size">
-            <select style={css.select} value={form.shirtSizeCode} onChange={(event) => setForm((previous) => ({ ...previous, shirtSizeCode: event.target.value }))}>
-              <option value="">Select shirt size</option>
-              {(profileOptions?.shirtSizes ?? []).map((shirtSize) => (
-                <option key={shirtSize.code} value={shirtSize.code}>{shirtSize.label}</option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Ward">
-            <select style={css.select} value={form.wardId} onChange={(event) => {
-              const nextWardId = event.target.value;
-              setForm((previous) => {
-                const quorumStillValid = (profileOptions?.quorums ?? []).some(
-                  (quorum) => quorum.id === previous.quorumId && quorum.ward_id === nextWardId,
-                );
-                return {
-                  ...previous,
-                  wardId: nextWardId,
-                  quorumId: quorumStillValid ? previous.quorumId : "",
-                };
-              });
-            }}>
-              <option value="">Select ward</option>
-              {(profileOptions?.wards ?? []).map((ward) => (
-                <option key={ward.id} value={ward.id}>{ward.name}</option>
-              ))}
-            </select>
-          </Field>
-          {isCamper ? (
+          {showAge ? (
+            <Field label="Age">
+              <input style={css.input} type="number" min={8} max={99} value={form.age} onChange={(event) => setForm((previous) => ({ ...previous, age: event.target.value }))} placeholder="16" />
+            </Field>
+          ) : null}
+          {showShirtSize ? (
+            <Field label="Shirt Size">
+              <select style={css.select} value={form.shirtSizeCode} onChange={(event) => setForm((previous) => ({ ...previous, shirtSizeCode: event.target.value }))}>
+                <option value="">Select shirt size</option>
+                {(profileOptions?.shirtSizes ?? []).map((shirtSize) => (
+                  <option key={shirtSize.code} value={shirtSize.code}>{shirtSize.label}</option>
+                ))}
+              </select>
+            </Field>
+          ) : null}
+          {showWard ? (
+            <Field label="Ward">
+              <select style={css.select} value={form.wardId} onChange={(event) => {
+                const nextWardId = event.target.value;
+                setForm((previous) => {
+                  const quorumStillValid = (profileOptions?.quorums ?? []).some(
+                    (quorum) => quorum.id === previous.quorumId && quorum.ward_id === nextWardId,
+                  );
+                  return {
+                    ...previous,
+                    wardId: nextWardId,
+                    quorumId: quorumStillValid ? previous.quorumId : "",
+                  };
+                });
+              }}>
+                <option value="">Select ward</option>
+                {(profileOptions?.wards ?? []).map((ward) => (
+                  <option key={ward.id} value={ward.id}>{ward.name}</option>
+                ))}
+              </select>
+            </Field>
+          ) : null}
+          {showQuorum ? (
             <Field label="Quorum">
               <select style={css.select} value={form.quorumId} onChange={(event) => setForm((previous) => ({ ...previous, quorumId: event.target.value }))}>
                 <option value="">Select quorum</option>
@@ -1325,11 +1349,13 @@ const OnboardingOverlay = ({
             </Field>
           ) : null}
         </div>
-        <Field label="Medical Notes (Optional)">
-          <textarea style={{ ...css.input, minHeight: "80px", resize: "vertical" }} value={form.medicalNotes} onChange={(event) => setForm((previous) => ({ ...previous, medicalNotes: event.target.value }))} placeholder="Allergies, medications, health notes..." />
-        </Field>
+        {showMedicalNotes ? (
+          <Field label="Medical Notes (Optional)">
+            <textarea style={{ ...css.input, minHeight: "80px", resize: "vertical" }} value={form.medicalNotes} onChange={(event) => setForm((previous) => ({ ...previous, medicalNotes: event.target.value }))} placeholder="Allergies, medications, health notes..." />
+          </Field>
+        ) : null}
         <button onClick={onComplete} disabled={!hasRequiredFields || completing} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px", opacity: !hasRequiredFields || completing ? 0.55 : 1 }}>
-          {completing ? "Finishing Setup..." : "Complete Onboarding"}
+          {completing ? "Finishing Setup..." : "Complete Setup"}
         </button>
       </div>
     </div>
@@ -1451,6 +1477,7 @@ export default function CampDesignApp({ initialData, profile }) {
     avatarUrl: null,
     onboardingCompletedAt: null,
     isCamper: false,
+    inviteType: null,
     phone: "",
     wardId: "",
     quorumId: "",
@@ -1615,16 +1642,24 @@ export default function CampDesignApp({ initialData, profile }) {
   const handleCompleteOnboarding = async () => {
     if (completingOnboarding) return;
 
-    const parsedAge = Number(onboardingForm.age);
+    const invType = profileData.inviteType || (profileData.isCamper ? "youth" : null);
+    const isYouth = invType === "youth";
+    const isParent = invType === "parent";
+    const showWard = !isParent;
+    const showQuorum = isYouth;
+    const showAge = isYouth;
+    const showShirtSize = !isParent;
+
+    const parsedAge = showAge ? Number(onboardingForm.age) : null;
     const hasRequiredValues =
       onboardingForm.displayName.trim() &&
-      onboardingForm.age.trim() &&
-      onboardingForm.wardId &&
-      (!profileData.isCamper || onboardingForm.quorumId) &&
-      onboardingForm.shirtSizeCode;
+      (!showAge || onboardingForm.age.trim()) &&
+      (!showWard || onboardingForm.wardId) &&
+      (!showQuorum || onboardingForm.quorumId) &&
+      (!showShirtSize || onboardingForm.shirtSizeCode);
 
-    if (!hasRequiredValues || Number.isNaN(parsedAge)) {
-      window.alert("Please fill out all required onboarding fields.");
+    if (!hasRequiredValues || (showAge && Number.isNaN(parsedAge))) {
+      window.alert("Please fill out all required fields.");
       return;
     }
 
@@ -1634,10 +1669,10 @@ export default function CampDesignApp({ initialData, profile }) {
         displayName: onboardingForm.displayName,
         avatarUrl: profileData.avatarUrl ?? "",
         phone: onboardingForm.phone,
-        wardId: onboardingForm.wardId,
-        quorumId: profileData.isCamper ? onboardingForm.quorumId : null,
-        medicalNotes: onboardingForm.medicalNotes,
-        shirtSizeCode: onboardingForm.shirtSizeCode,
+        wardId: showWard ? onboardingForm.wardId : null,
+        quorumId: showQuorum ? onboardingForm.quorumId : null,
+        medicalNotes: isYouth ? onboardingForm.medicalNotes : "",
+        shirtSizeCode: showShirtSize ? onboardingForm.shirtSizeCode : null,
         age: parsedAge,
         markOnboardingComplete: true,
       });
@@ -1773,6 +1808,7 @@ export default function CampDesignApp({ initialData, profile }) {
         <OnboardingOverlay
           form={onboardingForm}
           setForm={setOnboardingForm}
+          inviteType={profileData.inviteType}
           isCamper={profileData.isCamper}
           profileOptions={profileOptions}
           onComplete={handleCompleteOnboarding}
