@@ -1,0 +1,1262 @@
+"use server";
+
+import { getUserContext } from "@/lib/auth/user-context";
+import type { AppRole } from "@/lib/auth/user-context";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  type CampDesignInitialData,
+  getCampDesignInitialData,
+} from "@/lib/app/camp-design-data";
+
+type ActionResult =
+  | { ok: true; data: CampDesignInitialData; profile?: ProfilePayload }
+  | { ok: false; error: string };
+
+type ProfilePayload = {
+  email: string;
+  displayName: string;
+  avatarUrl: string | null;
+  onboardingCompletedAt: string | null;
+  phone: string | null;
+  wardId: string | null;
+  quorumId: string | null;
+  medicalNotes: string | null;
+  shirtSizeCode: string | null;
+  age: number | null;
+};
+
+type ActivityInput = {
+  title: string;
+  category: string;
+  day: number;
+  time: string;
+  location: string;
+  desc: string;
+};
+
+type AgendaInput = {
+  day: number;
+  time: string;
+  item: string;
+  location: string;
+};
+
+type UnitInput = {
+  name: string;
+  leader: string;
+  leader_email: string;
+};
+
+type CamperInput = {
+  unitId: string;
+  camperName: string;
+};
+
+type CompetitionInput = {
+  name: string;
+  rules: string;
+  status: "upcoming" | "active" | "completed";
+};
+
+type AwardPointsInput = {
+  competitionId: string;
+  wardId: string;
+  points: number;
+  note: string;
+  leader: string;
+};
+
+type RegistrationInput = {
+  child: string;
+  age: number;
+  parent: string;
+  parentEmail: string;
+  phone: string;
+  tshirt: string;
+  wardId?: string | null;
+  unit?: string;
+  medical: string;
+};
+
+type ContactInput = {
+  name: string;
+  role: string;
+  phone: string;
+  email: string;
+  emergency: boolean;
+};
+
+type LeadershipRole = Exclude<AppRole, "young_man">;
+
+type InviteLeaderInput = {
+  email: string;
+  role: LeadershipRole;
+  wardId: string | null;
+  calling: string;
+};
+
+type ProfileUpdateInput = {
+  displayName?: string;
+  avatarUrl?: string;
+  markOnboardingComplete?: boolean;
+  phone?: string;
+  wardId?: string | null;
+  quorumId?: string | null;
+  medicalNotes?: string;
+  shirtSizeCode?: string | null;
+  age?: number | null;
+};
+
+const CAMP_START_DATE = new Date("2026-06-15T00:00:00Z");
+
+const DISPLAY_TO_SHIRT_CODE: Record<string, string> = {
+  YS: "YS",
+  YM: "YM",
+  YL: "YL",
+  S: "AS",
+  M: "AM",
+  L: "AL",
+  XL: "AXL",
+  "2XL": "A2XL",
+  "3XL": "A3XL",
+  AS: "AS",
+  AM: "AM",
+  AL: "AL",
+  AXL: "AXL",
+  A2XL: "A2XL",
+  A3XL: "A3XL",
+};
+
+const LEADERSHIP_ROLES = new Set<LeadershipRole>([
+  "stake_leader",
+  "stake_camp_director",
+  "ward_leader",
+  "camp_committee",
+  "young_men_captain",
+]);
+
+const WARD_SCOPED_LEADERSHIP_ROLES = new Set<LeadershipRole>([
+  "ward_leader",
+  "young_men_captain",
+]);
+
+function fail(error: string): ActionResult {
+  return { ok: false, error };
+}
+
+async function success(profile?: ProfilePayload): Promise<ActionResult> {
+  const data = await getCampDesignInitialData();
+  return { ok: true, data, profile };
+}
+
+function toAgendaDate(day: number) {
+  const value = new Date(CAMP_START_DATE);
+  value.setUTCDate(CAMP_START_DATE.getUTCDate() + day);
+  return value.toISOString().slice(0, 10);
+}
+
+function parseTimeLabel(timeLabel: string) {
+  const match = timeLabel.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!match) {
+    return null;
+  }
+
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const meridian = match[3].toUpperCase();
+
+  if (
+    Number.isNaN(hours) ||
+    Number.isNaN(minutes) ||
+    hours < 1 ||
+    hours > 12 ||
+    minutes < 0 ||
+    minutes > 59
+  ) {
+    return null;
+  }
+
+  const hour24 = meridian === "PM" ? (hours % 12) + 12 : hours % 12;
+  return { hour24, minutes };
+}
+
+function toActivityTimestamp(day: number, timeLabel: string) {
+  const parsed = parseTimeLabel(timeLabel);
+  if (!parsed) {
+    return null;
+  }
+
+  const value = new Date(CAMP_START_DATE);
+  value.setUTCDate(CAMP_START_DATE.getUTCDate() + day);
+  value.setUTCHours(parsed.hour24, parsed.minutes, 0, 0);
+  return value.toISOString();
+}
+
+function splitChildName(childName: string) {
+  const tokens = childName
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (tokens.length === 0) {
+    return null;
+  }
+
+  const firstName = tokens[0];
+  const lastName = tokens.slice(1).join(" ");
+  if (!lastName) {
+    return null;
+  }
+
+  return { firstName, lastName };
+}
+
+function splitCamperName(camperName: string) {
+  const tokens = camperName
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (tokens.length === 0) {
+    return null;
+  }
+
+  const firstName = tokens[0];
+  const lastName = tokens.slice(1).join(" ");
+  return {
+    firstName,
+    lastName: lastName || "Camper",
+  };
+}
+
+function normalizeAvatarUrl(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    return trimmed;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeEmail(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function isLeadershipRole(value: string): value is LeadershipRole {
+  return LEADERSHIP_ROLES.has(value as LeadershipRole);
+}
+
+async function ensureLeadershipUserRole(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  userId: string,
+  role: LeadershipRole,
+  wardId: string | null,
+) {
+  let existingRoleQuery = supabase
+    .from("user_roles")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("role", role);
+
+  existingRoleQuery = wardId
+    ? existingRoleQuery.eq("ward_id", wardId)
+    : existingRoleQuery.is("ward_id", null);
+
+  const { data: existingRole } = await existingRoleQuery.limit(1).maybeSingle();
+  if (existingRole?.id) {
+    return;
+  }
+
+  const { error } = await supabase.from("user_roles").insert({
+    user_id: userId,
+    role,
+    ward_id: wardId,
+    participant_id: null,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+async function removeLeadershipUserRole(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  userId: string,
+  role: LeadershipRole,
+  wardId: string | null,
+) {
+  let deleteQuery = supabase
+    .from("user_roles")
+    .delete()
+    .eq("user_id", userId)
+    .eq("role", role);
+
+  deleteQuery = wardId
+    ? deleteQuery.eq("ward_id", wardId)
+    : deleteQuery.is("ward_id", null);
+
+  const { error } = await deleteQuery;
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+async function resolveCallingId(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  callingName: string,
+) {
+  const normalized = callingName.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const { data: existingCalling } = await supabase
+    .from("leader_callings")
+    .select("id, name")
+    .ilike("name", normalized)
+    .limit(1)
+    .maybeSingle();
+
+  if (existingCalling?.id) {
+    return existingCalling.id;
+  }
+
+  const { data: insertedCalling, error: insertCallingError } = await supabase
+    .from("leader_callings")
+    .insert({ name: normalized })
+    .select("id")
+    .single();
+
+  if (insertCallingError || !insertedCalling?.id) {
+    throw new Error(insertCallingError?.message ?? "Unable to save calling.");
+  }
+
+  return insertedCalling.id;
+}
+
+async function requireContentManager() {
+  const context = await getUserContext();
+  if (!context.canManageContent) {
+    return null;
+  }
+  return context;
+}
+
+async function requireStakeAdmin() {
+  const context = await getUserContext();
+  if (!context.isStakeAdmin) {
+    return null;
+  }
+  return context;
+}
+
+async function requireUnitManager() {
+  const context = await getUserContext();
+  if (!context.canManageUnits) {
+    return null;
+  }
+  return context;
+}
+
+export async function refreshCampDesignDataAction(): Promise<ActionResult> {
+  await getUserContext();
+  return success();
+}
+
+export async function signOutCampAction(): Promise<{
+  ok: boolean;
+  error?: string;
+}> {
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.auth.signOut();
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+
+  return { ok: true };
+}
+
+export async function updateMyProfileAction(
+  input: ProfileUpdateInput,
+): Promise<ActionResult> {
+  const context = await getUserContext();
+  const shouldCompleteOnboarding = input.markOnboardingComplete === true;
+  const displayName =
+    (typeof input.displayName === "string" ? input.displayName : context.displayName).trim();
+  if (!displayName) {
+    return fail("Display name is required.");
+  }
+
+  const avatarRaw =
+    typeof input.avatarUrl === "string"
+      ? input.avatarUrl
+      : (context.avatarUrl ?? "");
+  const avatarUrl = normalizeAvatarUrl(avatarRaw);
+  if (avatarRaw.trim() && !avatarUrl) {
+    return fail("Avatar URL must start with http:// or https://.");
+  }
+
+  const phoneRaw =
+    typeof input.phone === "string" ? input.phone : (context.phone ?? "");
+  const medicalNotesRaw =
+    typeof input.medicalNotes === "string"
+      ? input.medicalNotes
+      : (context.medicalNotes ?? "");
+  const phone = phoneRaw.trim() || null;
+  const medicalNotes = medicalNotesRaw.trim() || null;
+
+  const hasWardIdInput = Object.prototype.hasOwnProperty.call(input, "wardId");
+  const hasQuorumIdInput = Object.prototype.hasOwnProperty.call(input, "quorumId");
+  const hasShirtSizeInput = Object.prototype.hasOwnProperty.call(input, "shirtSizeCode");
+  const hasAgeInput = Object.prototype.hasOwnProperty.call(input, "age");
+
+  const wardInputValue = hasWardIdInput ? input.wardId : context.wardId;
+  const quorumInputValue = hasQuorumIdInput ? input.quorumId : context.quorumId;
+  const shirtSizeInputValue = hasShirtSizeInput
+    ? input.shirtSizeCode
+    : context.shirtSizeCode;
+  const ageInputValue = hasAgeInput ? input.age : context.age;
+
+  let wardId =
+    typeof wardInputValue === "string"
+      ? (wardInputValue.trim() || null)
+      : null;
+  let quorumId =
+    typeof quorumInputValue === "string"
+      ? (quorumInputValue.trim() || null)
+      : null;
+  const shirtSizeCode =
+    typeof shirtSizeInputValue === "string"
+      ? (shirtSizeInputValue.trim() || null)
+      : null;
+
+  let age: number | null = null;
+  if (ageInputValue === null || ageInputValue === undefined) {
+    age = null;
+  } else if (typeof ageInputValue === "number") {
+    age = ageInputValue;
+  } else {
+    age = Number(ageInputValue);
+  }
+
+  if (age !== null && (!Number.isInteger(age) || age < 8 || age > 99)) {
+    return fail("Age must be a whole number between 8 and 99.");
+  }
+
+  if (!context.isCamper) {
+    quorumId = null;
+  }
+
+  const supabase = await createSupabaseServerClient();
+
+  if (wardId) {
+    const { data: wardRow } = await supabase
+      .from("wards")
+      .select("id")
+      .eq("id", wardId)
+      .maybeSingle();
+    if (!wardRow) {
+      return fail("Selected ward could not be found.");
+    }
+  }
+
+  if (quorumId) {
+    const { data: quorumRow } = await supabase
+      .from("quorums")
+      .select("id, ward_id")
+      .eq("id", quorumId)
+      .maybeSingle();
+    if (!quorumRow) {
+      return fail("Selected quorum could not be found.");
+    }
+    if (wardId && quorumRow.ward_id !== wardId) {
+      return fail("Selected quorum must belong to the selected ward.");
+    }
+    wardId = wardId ?? quorumRow.ward_id;
+  }
+
+  if (shirtSizeCode) {
+    const { data: shirtSizeRow } = await supabase
+      .from("shirt_sizes")
+      .select("code")
+      .eq("code", shirtSizeCode)
+      .maybeSingle();
+    if (!shirtSizeRow) {
+      return fail("Selected shirt size is invalid.");
+    }
+  }
+
+  const onboardingCompletedAt = shouldCompleteOnboarding
+    ? new Date().toISOString()
+    : (context.onboardingCompletedAt ?? null);
+
+  const profilePayload: Record<string, string | number | null> = {
+    user_id: context.user.id,
+    user_email: context.user.email?.toLowerCase() ?? null,
+    display_name: displayName,
+    avatar_url: avatarUrl,
+    phone,
+    ward_id: wardId,
+    quorum_id: quorumId,
+    medical_notes: medicalNotes,
+    shirt_size_code: shirtSizeCode,
+    age,
+  };
+
+  if (shouldCompleteOnboarding) {
+    profilePayload.onboarding_completed_at = onboardingCompletedAt;
+  }
+
+  const { error } = await supabase
+    .from("user_profiles")
+    .upsert(profilePayload, { onConflict: "user_id" });
+
+  if (error) {
+    return fail(error.message);
+  }
+
+  return success({
+    email: context.user.email ?? "",
+    displayName,
+    avatarUrl,
+    onboardingCompletedAt,
+    phone,
+    wardId,
+    quorumId,
+    medicalNotes,
+    shirtSizeCode,
+    age,
+  });
+}
+
+export async function createActivityAction(
+  input: ActivityInput,
+): Promise<ActionResult> {
+  const context = await requireContentManager();
+  if (!context) {
+    return fail("You do not have permission to add activities.");
+  }
+
+  const startsAt = toActivityTimestamp(input.day, input.time);
+  if (!startsAt || !input.title.trim()) {
+    return fail("Please provide a valid title and time.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.from("activities").insert({
+    title: input.title.trim(),
+    category: input.category.trim() || "General",
+    starts_at: startsAt,
+    location: input.location.trim() || null,
+    description: input.desc.trim() || null,
+    created_by: context.user.id,
+  });
+
+  if (error) {
+    return fail(error.message);
+  }
+
+  return success();
+}
+
+export async function deleteActivityAction(id: string): Promise<ActionResult> {
+  const context = await requireContentManager();
+  if (!context) {
+    return fail("You do not have permission to delete activities.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.from("activities").delete().eq("id", id);
+  if (error) {
+    return fail(error.message);
+  }
+
+  return success();
+}
+
+export async function createAgendaItemAction(
+  input: AgendaInput,
+): Promise<ActionResult> {
+  const context = await requireContentManager();
+  if (!context) {
+    return fail("You do not have permission to add agenda items.");
+  }
+
+  if (!input.time.trim() || !input.item.trim()) {
+    return fail("Please provide both time and item name.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.from("daily_agenda_items").insert({
+    agenda_date: toAgendaDate(input.day),
+    time_slot: input.time.trim(),
+    title: input.item.trim(),
+    location: input.location.trim() || null,
+    created_by: context.user.id,
+  });
+
+  if (error) {
+    return fail(error.message);
+  }
+
+  return success();
+}
+
+export async function deleteAgendaItemAction(id: string): Promise<ActionResult> {
+  const context = await requireContentManager();
+  if (!context) {
+    return fail("You do not have permission to delete agenda items.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase
+    .from("daily_agenda_items")
+    .delete()
+    .eq("id", id);
+  if (error) {
+    return fail(error.message);
+  }
+
+  return success();
+}
+
+export async function createUnitAction(input: UnitInput): Promise<ActionResult> {
+  const context = await requireStakeAdmin();
+  if (!context) {
+    return fail("Only stake admins can create units.");
+  }
+
+  const name = input.name.trim();
+  if (!name) {
+    return fail("Unit name is required.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { data: ward, error: wardError } = await supabase
+    .from("wards")
+    .upsert(
+      {
+        name,
+        leader_name: input.leader.trim() || null,
+        leader_email: input.leader_email.trim() || null,
+      },
+      { onConflict: "name" },
+    )
+    .select("id")
+    .single();
+
+  if (wardError || !ward?.id) {
+    return fail(wardError?.message ?? "Unable to save unit.");
+  }
+
+  const { error: quorumError } = await supabase.from("quorums").upsert(
+    [
+      { ward_id: ward.id, quorum_type: "deacons", display_name: "Deacons" },
+      { ward_id: ward.id, quorum_type: "teachers", display_name: "Teachers" },
+      { ward_id: ward.id, quorum_type: "priests", display_name: "Priests" },
+    ],
+    { onConflict: "ward_id,quorum_type" },
+  );
+
+  if (quorumError) {
+    return fail(quorumError.message);
+  }
+
+  return success();
+}
+
+export async function deleteUnitAction(unitId: string): Promise<ActionResult> {
+  const context = await requireStakeAdmin();
+  if (!context) {
+    return fail("Only stake admins can delete units.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+
+  const participantDelete = await supabase
+    .from("participants")
+    .delete()
+    .eq("ward_id", unitId);
+  if (participantDelete.error) {
+    return fail(participantDelete.error.message);
+  }
+
+  const quorumDelete = await supabase.from("quorums").delete().eq("ward_id", unitId);
+  if (quorumDelete.error) {
+    return fail(quorumDelete.error.message);
+  }
+
+  const wardDelete = await supabase.from("wards").delete().eq("id", unitId);
+  if (wardDelete.error) {
+    return fail(wardDelete.error.message);
+  }
+
+  return success();
+}
+
+export async function addCamperAction(input: CamperInput): Promise<ActionResult> {
+  const context = await requireUnitManager();
+  if (!context) {
+    return fail("You do not have permission to add campers.");
+  }
+
+  const parsedName = splitCamperName(input.camperName);
+  if (!parsedName) {
+    return fail("Camper name is required.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { data: quorum, error: quorumError } = await supabase
+    .from("quorums")
+    .select("id")
+    .eq("ward_id", input.unitId)
+    .eq("quorum_type", "deacons")
+    .limit(1)
+    .single();
+
+  if (quorumError || !quorum?.id) {
+    return fail("No quorum found for this unit.");
+  }
+
+  const { error } = await supabase.from("participants").insert({
+    ward_id: input.unitId,
+    quorum_id: quorum.id,
+    first_name: parsedName.firstName,
+    last_name: parsedName.lastName,
+    active: true,
+  });
+
+  if (error) {
+    return fail(error.message);
+  }
+
+  return success();
+}
+
+export async function removeCamperAction(
+  participantId: string,
+): Promise<ActionResult> {
+  const context = await requireUnitManager();
+  if (!context) {
+    return fail("You do not have permission to remove campers.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase
+    .from("participants")
+    .delete()
+    .eq("id", participantId);
+
+  if (error) {
+    return fail(error.message);
+  }
+
+  return success();
+}
+
+export async function createCompetitionAction(
+  input: CompetitionInput,
+): Promise<ActionResult> {
+  const context = await requireContentManager();
+  if (!context) {
+    return fail("You do not have permission to create competitions.");
+  }
+
+  const name = input.name.trim();
+  if (!name) {
+    return fail("Competition name is required.");
+  }
+
+  const status =
+    input.status === "active" || input.status === "completed"
+      ? input.status
+      : "upcoming";
+
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.from("competitions").insert({
+    name,
+    rules: input.rules.trim() || null,
+    status,
+    created_by: context.user.id,
+  });
+
+  if (error) {
+    return fail(error.message);
+  }
+
+  return success();
+}
+
+export async function deleteCompetitionAction(
+  competitionId: string,
+): Promise<ActionResult> {
+  const context = await requireContentManager();
+  if (!context) {
+    return fail("You do not have permission to delete competitions.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase
+    .from("competitions")
+    .delete()
+    .eq("id", competitionId);
+
+  if (error) {
+    return fail(error.message);
+  }
+
+  return success();
+}
+
+export async function awardPointsAction(
+  input: AwardPointsInput,
+): Promise<ActionResult> {
+  const context = await getUserContext();
+  if (!context.canAwardCompetitionPoints) {
+    return fail("You do not have permission to award points.");
+  }
+
+  if (
+    !input.competitionId ||
+    !input.wardId ||
+    !Number.isFinite(input.points) ||
+    input.points === 0 ||
+    Math.abs(input.points) > 100
+  ) {
+    return fail("Please provide valid points and targets.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.from("competition_points").insert({
+    competition_id: input.competitionId,
+    ward_id: input.wardId,
+    points: input.points,
+    reason: input.note.trim() || null,
+    awarded_by: context.user.id,
+    awarded_by_name: input.leader.trim() || null,
+  });
+
+  if (error) {
+    return fail(error.message);
+  }
+
+  return success();
+}
+
+export async function createRegistrationAction(
+  input: RegistrationInput,
+): Promise<ActionResult> {
+  await getUserContext();
+
+  const childName = splitChildName(input.child);
+  if (
+    !childName ||
+    !input.parent.trim() ||
+    !input.parentEmail.trim() ||
+    !Number.isFinite(input.age)
+  ) {
+    return fail("Please provide complete registration details.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  let wardId: string | null = null;
+  let preferredUnitName: string | null =
+    typeof input.unit === "string" && input.unit.trim()
+      ? input.unit.trim()
+      : null;
+
+  if (typeof input.wardId === "string" && input.wardId.trim()) {
+    const wardResult = await supabase
+      .from("wards")
+      .select("id, name")
+      .eq("id", input.wardId.trim())
+      .maybeSingle();
+    if (!wardResult.error && wardResult.data?.id) {
+      wardId = wardResult.data.id;
+      preferredUnitName = wardResult.data.name;
+    } else {
+      return fail("Selected ward could not be found.");
+    }
+  } else if (typeof input.unit === "string" && input.unit.trim()) {
+    const wardResult = await supabase
+      .from("wards")
+      .select("id, name")
+      .eq("name", input.unit.trim())
+      .limit(1)
+      .maybeSingle();
+    if (!wardResult.error && wardResult.data?.id) {
+      wardId = wardResult.data.id;
+      preferredUnitName = wardResult.data.name;
+    }
+  }
+
+  const shirtSizeCode = DISPLAY_TO_SHIRT_CODE[input.tshirt.trim().toUpperCase()] ?? null;
+
+  const { error } = await supabase.from("parent_registrations").insert({
+    parent_name: input.parent.trim(),
+    parent_email: input.parentEmail.trim(),
+    parent_phone: input.phone.trim() || null,
+    child_first_name: childName.firstName,
+    child_last_name: childName.lastName,
+    child_age: input.age,
+    preferred_unit_name: preferredUnitName,
+    ward_id: wardId,
+    shirt_size_preference: input.tshirt.trim() || null,
+    shirt_size_code: shirtSizeCode,
+    medical_notes: input.medical.trim() || null,
+    status: "pending",
+  });
+
+  if (error) {
+    return fail(error.message);
+  }
+
+  return success();
+}
+
+export async function updateRegistrationStatusAction(
+  registrationId: string,
+  status: "pending" | "approved" | "waitlisted" | "declined",
+): Promise<ActionResult> {
+  const context = await getUserContext();
+  if (!context.canManageRegistrations) {
+    return fail("You do not have permission to update registrations.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase
+    .from("parent_registrations")
+    .update({
+      status,
+      reviewed_by: context.user.id,
+    })
+    .eq("id", registrationId);
+
+  if (error) {
+    return fail(error.message);
+  }
+
+  return success();
+}
+
+export async function deleteRegistrationAction(
+  registrationId: string,
+): Promise<ActionResult> {
+  const context = await getUserContext();
+  if (!context.canManageContent) {
+    return fail("You do not have permission to delete registrations.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase
+    .from("parent_registrations")
+    .delete()
+    .eq("id", registrationId);
+
+  if (error) {
+    return fail(error.message);
+  }
+
+  return success();
+}
+
+export async function addContactAction(input: ContactInput): Promise<ActionResult> {
+  const context = await requireContentManager();
+  if (!context) {
+    return fail("You do not have permission to add contacts.");
+  }
+
+  if (!input.name.trim()) {
+    return fail("Contact name is required.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.from("contacts").insert({
+    full_name: input.name.trim(),
+    role_title: input.role.trim() || null,
+    phone: input.phone.trim() || null,
+    email: input.email.trim() || null,
+    is_emergency: input.emergency,
+  });
+
+  if (error) {
+    return fail(error.message);
+  }
+
+  return success();
+}
+
+export async function deleteContactAction(contactId: string): Promise<ActionResult> {
+  const context = await requireContentManager();
+  if (!context) {
+    return fail("You do not have permission to delete contacts.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.from("contacts").delete().eq("id", contactId);
+  if (error) {
+    return fail(error.message);
+  }
+
+  return success();
+}
+
+export async function inviteLeaderAction(
+  input: InviteLeaderInput,
+): Promise<ActionResult> {
+  const context = await requireStakeAdmin();
+  if (!context) {
+    return fail("You do not have permission to invite leaders.");
+  }
+
+  const email = normalizeEmail(input.email);
+  if (!email || !email.includes("@")) {
+    return fail("Please enter a valid email address.");
+  }
+
+  if (!isLeadershipRole(input.role)) {
+    return fail("Please select a valid leadership role.");
+  }
+
+  let wardId = input.wardId?.trim() || null;
+  if (WARD_SCOPED_LEADERSHIP_ROLES.has(input.role) && !wardId) {
+    return fail("Please select a ward for ward-level callings.");
+  }
+  if (!WARD_SCOPED_LEADERSHIP_ROLES.has(input.role)) {
+    wardId = null;
+  }
+
+  const callingName = input.calling.trim();
+  if (!callingName) {
+    return fail("Please select or enter a calling.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+
+  if (wardId) {
+    const { data: wardRow } = await supabase
+      .from("wards")
+      .select("id")
+      .eq("id", wardId)
+      .maybeSingle();
+    if (!wardRow?.id) {
+      return fail("Selected ward could not be found.");
+    }
+  }
+
+  let callingId: string | null = null;
+  try {
+    callingId = await resolveCallingId(supabase, callingName);
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : "Unable to save calling.");
+  }
+
+  if (!callingId) {
+    return fail("Unable to save calling.");
+  }
+
+  const { data: userProfile } = await supabase
+    .from("user_profiles")
+    .select("user_id")
+    .ilike("user_email", email)
+    .limit(1)
+    .maybeSingle();
+
+  const invitedUserId = userProfile?.user_id ?? null;
+  const invitationStatus = invitedUserId ? "active" : "pending";
+  const acceptedAt = invitedUserId ? new Date().toISOString() : null;
+
+  let existingInviteQuery = supabase
+    .from("leader_invitations")
+    .select("id")
+    .eq("email", email)
+    .eq("role", input.role);
+  existingInviteQuery = wardId
+    ? existingInviteQuery.eq("ward_id", wardId)
+    : existingInviteQuery.is("ward_id", null);
+
+  const { data: existingInvite } = await existingInviteQuery.limit(1).maybeSingle();
+
+  const invitationPayload = {
+    email,
+    user_id: invitedUserId,
+    role: input.role,
+    ward_id: wardId,
+    calling_id: callingId,
+    status: invitationStatus,
+    invited_by: context.user.id,
+    invited_at: new Date().toISOString(),
+    accepted_at: acceptedAt,
+  };
+
+  const { error: inviteSaveError } = existingInvite?.id
+    ? await supabase
+        .from("leader_invitations")
+        .update(invitationPayload)
+        .eq("id", existingInvite.id)
+    : await supabase.from("leader_invitations").insert(invitationPayload);
+
+  if (inviteSaveError) {
+    return fail(inviteSaveError.message);
+  }
+
+  if (invitedUserId) {
+    try {
+      await ensureLeadershipUserRole(supabase, invitedUserId, input.role, wardId);
+    } catch (error) {
+      return fail(
+        error instanceof Error
+          ? error.message
+          : "Unable to assign the requested role to this user.",
+      );
+    }
+  }
+
+  return success();
+}
+
+export async function updateLeaderInvitationStatusAction(
+  invitationId: string,
+  status: "pending" | "active" | "revoked",
+): Promise<ActionResult> {
+  const context = await requireStakeAdmin();
+  if (!context) {
+    return fail("You do not have permission to update invitations.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { data: invitationRow, error: invitationError } = await supabase
+    .from("leader_invitations")
+    .select("id, email, user_id, role, ward_id, status")
+    .eq("id", invitationId)
+    .maybeSingle();
+
+  if (invitationError || !invitationRow?.id) {
+    return fail(invitationError?.message ?? "Invitation not found.");
+  }
+
+  if (!isLeadershipRole(invitationRow.role)) {
+    return fail("This invitation does not map to a valid leadership role.");
+  }
+
+  let targetUserId = invitationRow.user_id ?? null;
+
+  if (status === "active" && !targetUserId) {
+    const { data: matchedProfile } = await supabase
+      .from("user_profiles")
+      .select("user_id")
+      .ilike("user_email", invitationRow.email)
+      .limit(1)
+      .maybeSingle();
+
+    targetUserId = matchedProfile?.user_id ?? null;
+    if (!targetUserId) {
+      return fail(
+        "This invitation is still pending because the user has not created an account yet.",
+      );
+    }
+  }
+
+  if (targetUserId && (status === "pending" || status === "revoked")) {
+    try {
+      await removeLeadershipUserRole(
+        supabase,
+        targetUserId,
+        invitationRow.role,
+        invitationRow.ward_id,
+      );
+    } catch (error) {
+      return fail(
+        error instanceof Error
+          ? error.message
+          : "Unable to remove the assigned role for this user.",
+      );
+    }
+  }
+
+  if (targetUserId && status === "active") {
+    try {
+      await ensureLeadershipUserRole(
+        supabase,
+        targetUserId,
+        invitationRow.role,
+        invitationRow.ward_id,
+      );
+    } catch (error) {
+      return fail(
+        error instanceof Error
+          ? error.message
+          : "Unable to assign the requested role to this user.",
+      );
+    }
+  }
+
+  const { error: updateError } = await supabase
+    .from("leader_invitations")
+    .update({
+      status,
+      user_id: targetUserId,
+      accepted_at: status === "active" ? new Date().toISOString() : null,
+      invited_by: context.user.id,
+    })
+    .eq("id", invitationId);
+
+  if (updateError) {
+    return fail(updateError.message);
+  }
+
+  return success();
+}
+
+export async function deleteLeaderInvitationAction(
+  invitationId: string,
+): Promise<ActionResult> {
+  const context = await requireStakeAdmin();
+  if (!context) {
+    return fail("You do not have permission to delete invitations.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { data: invitationRow, error: invitationError } = await supabase
+    .from("leader_invitations")
+    .select("id, role, ward_id, user_id")
+    .eq("id", invitationId)
+    .maybeSingle();
+
+  if (invitationError || !invitationRow?.id) {
+    return fail(invitationError?.message ?? "Invitation not found.");
+  }
+
+  if (invitationRow.user_id && isLeadershipRole(invitationRow.role)) {
+    try {
+      await removeLeadershipUserRole(
+        supabase,
+        invitationRow.user_id,
+        invitationRow.role,
+        invitationRow.ward_id,
+      );
+    } catch (error) {
+      return fail(
+        error instanceof Error
+          ? error.message
+          : "Unable to remove assigned role from user.",
+      );
+    }
+  }
+
+  const { error: deleteError } = await supabase
+    .from("leader_invitations")
+    .delete()
+    .eq("id", invitationId);
+  if (deleteError) {
+    return fail(deleteError.message);
+  }
+
+  return success();
+}

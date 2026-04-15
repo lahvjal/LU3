@@ -1,0 +1,47 @@
+@import "tailwindcss";
+
+:root {
+  --background: #eefcf4;
+  --foreground: #143024;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-fredoka);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #08241c;
+    --foreground: #d9f8e8;
+  }
+}
+
+body {
+  background-color: var(--background);
+  background-image:
+    radial-gradient(circle at 12% 12%, rgba(74, 222, 128, 0.2), transparent 38%),
+    radial-gradient(circle at 85% 16%, rgba(56, 189, 248, 0.16), transparent 34%),
+    radial-gradient(circle at 50% 105%, rgba(251, 191, 36, 0.2), transparent 42%);
+  background-attachment: fixed;
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  min-height: 100%;
+}
+
+h1,
+h2,
+h3,
+h4,
+[data-slot="card-title"] {
+  font-family: var(--font-fredoka), var(--font-geist-sans), Arial, Helvetica,
+    sans-serif;
+  letter-spacing: 0.01em;
+}
+
+::selection {
+  background: rgba(16, 185, 129, 0.28);
+}
