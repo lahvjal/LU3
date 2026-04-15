@@ -1361,14 +1361,17 @@ export async function inviteLeaderAction(
 
   const { data: userProfile } = await supabase
     .from("user_profiles")
-    .select("user_id")
+    .select("user_id, onboarding_completed_at")
     .ilike("user_email", email)
     .limit(1)
     .maybeSingle();
 
   const invitedUserId = userProfile?.user_id ?? null;
-  const invitationStatus = invitedUserId ? "active" : "pending";
-  const acceptedAt = invitedUserId ? new Date().toISOString() : null;
+  const onboardingCompleted = Boolean(userProfile?.onboarding_completed_at);
+  const invitationStatus = onboardingCompleted ? "active" : "pending";
+  const acceptedAt = onboardingCompleted
+    ? (userProfile!.onboarding_completed_at as string)
+    : null;
 
   let existingInviteQuery = supabase
     .from("leader_invitations")
