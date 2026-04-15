@@ -1257,6 +1257,9 @@ const OnboardingOverlay = ({
   inviteType,
   isCamper,
   profileOptions,
+  avatarUrl,
+  onUploadAvatar,
+  uploadingAvatar,
   onComplete,
   completing,
 }) => {
@@ -1270,6 +1273,9 @@ const OnboardingOverlay = ({
   const showShirtSize = !isParent;
   const showMedicalNotes = isYouth;
 
+  const [dragActive, setDragActive] = useState(false);
+  const fileInputRef = useRef(null);
+
   const availableQuorums = useMemo(() => {
     const quorums = profileOptions?.quorums ?? [];
     if (!form.wardId) {
@@ -1278,9 +1284,35 @@ const OnboardingOverlay = ({
     return quorums.filter((quorum) => quorum.ward_id === form.wardId);
   }, [form.wardId, profileOptions?.quorums]);
 
+  const processUploadFile = async (file) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      window.alert("Please choose an image file.");
+      return;
+    }
+    if (file.size > MAX_AVATAR_FILE_BYTES) {
+      window.alert("Please upload an image smaller than 12MB.");
+      return;
+    }
+    await onUploadAvatar(file, {
+      displayName: form.displayName,
+      avatarUrl: avatarUrl || "",
+      phone: form.phone,
+      wardId: form.wardId || null,
+      quorumId: form.quorumId || null,
+      medicalNotes: form.medicalNotes,
+      shirtSizeCode: form.shirtSizeCode || null,
+      age: form.age.trim() ? Number(form.age) : null,
+    });
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
   const hasRequiredFields =
     form.displayName.trim() &&
     form.password.length >= 8 &&
+    !!avatarUrl &&
     (!showAge || form.age.trim()) &&
     (!showWard || form.wardId) &&
     (!showQuorum || form.quorumId) &&
@@ -1295,6 +1327,39 @@ const OnboardingOverlay = ({
             {copy.subtitle}
           </p>
         </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: "16px", marginBottom: "16px" }}>
+          <Avatar name={form.displayName || "You"} src={avatarUrl || null} size={64} fontSize={22} />
+          <div style={{ flex: 1 }}>
+            <Field label="Profile Photo *">
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => { if (!uploadingAvatar) fileInputRef.current?.click(); }}
+                onKeyDown={(event) => { if ((event.key === "Enter" || event.key === " ") && !uploadingAvatar) { event.preventDefault(); fileInputRef.current?.click(); } }}
+                onDragEnter={(event) => { event.preventDefault(); if (!uploadingAvatar) setDragActive(true); }}
+                onDragOver={(event) => { event.preventDefault(); if (!uploadingAvatar) setDragActive(true); }}
+                onDragLeave={(event) => { event.preventDefault(); if (event.currentTarget === event.target) setDragActive(false); }}
+                onDrop={(event) => { event.preventDefault(); setDragActive(false); if (!uploadingAvatar) void processUploadFile(event.dataTransfer.files?.[0]); }}
+                style={{
+                  border: `1px dashed ${avatarUrl ? T.accent : dragActive ? T.accent : T.borderLight}`,
+                  borderRadius: T.radiusSm,
+                  padding: "12px 14px",
+                  textAlign: "center",
+                  background: dragActive ? `${T.accent}1A` : T.bgInput,
+                  cursor: uploadingAvatar ? "not-allowed" : "pointer",
+                  opacity: uploadingAvatar ? 0.65 : 1,
+                }}
+              >
+                <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp" style={{ display: "none" }} onChange={(event) => void processUploadFile(event.target.files?.[0])} />
+                <p style={{ color: T.text, fontSize: "13px", margin: 0 }}>
+                  {uploadingAvatar ? "Uploading..." : avatarUrl ? "Change photo" : "Drop image here or click to upload"}
+                </p>
+              </div>
+            </Field>
+          </div>
+        </div>
+
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
           <Field label="Name">
             <input style={css.input} value={form.displayName} onChange={(event) => setForm((previous) => ({ ...previous, displayName: event.target.value }))} placeholder={copy.namePlaceholder} />
@@ -1358,7 +1423,7 @@ const OnboardingOverlay = ({
             <textarea style={{ ...css.input, minHeight: "80px", resize: "vertical" }} value={form.medicalNotes} onChange={(event) => setForm((previous) => ({ ...previous, medicalNotes: event.target.value }))} placeholder="Allergies, medications, health notes..." />
           </Field>
         ) : null}
-        <button onClick={onComplete} disabled={!hasRequiredFields || completing} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px", opacity: !hasRequiredFields || completing ? 0.55 : 1 }}>
+        <button onClick={onComplete} disabled={!hasRequiredFields || completing || uploadingAvatar} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px", opacity: !hasRequiredFields || completing || uploadingAvatar ? 0.55 : 1 }}>
           {completing ? "Finishing Setup..." : "Complete Setup"}
         </button>
       </div>
@@ -1660,13 +1725,14 @@ export default function CampDesignApp({ initialData, profile }) {
     const hasRequiredValues =
       onboardingForm.displayName.trim() &&
       password.length >= 8 &&
+      !!profileData.avatarUrl &&
       (!showAge || onboardingForm.age.trim()) &&
       (!showWard || onboardingForm.wardId) &&
       (!showQuorum || onboardingForm.quorumId) &&
       (!showShirtSize || onboardingForm.shirtSizeCode);
 
     if (!hasRequiredValues || (showAge && Number.isNaN(parsedAge))) {
-      window.alert("Please fill out all required fields. Password must be at least 8 characters.");
+      window.alert("Please fill out all required fields, including a profile photo. Password must be at least 8 characters.");
       return;
     }
 
@@ -1825,6 +1891,9 @@ export default function CampDesignApp({ initialData, profile }) {
           inviteType={profileData.inviteType}
           isCamper={profileData.isCamper}
           profileOptions={profileOptions}
+          avatarUrl={profileData.avatarUrl}
+          onUploadAvatar={handleAvatarUpload}
+          uploadingAvatar={uploadingAvatar}
           onComplete={handleCompleteOnboarding}
           completing={completingOnboarding}
         />
