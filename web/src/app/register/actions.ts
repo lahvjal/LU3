@@ -1,6 +1,7 @@
 "use server";
 
 import { getUserContext } from "@/lib/auth/user-context";
+import { generateMagicLink } from "@/lib/email/magic-link";
 import { sendEmail } from "@/lib/email/resend";
 import { parentInviteEmail, youthInviteEmail } from "@/lib/email/templates";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -289,16 +290,19 @@ export async function sendRegistrationInviteAction(
     ? `${participant.first_name} ${participant.last_name}`.trim()
     : "your camper";
 
-  const template =
-    targetType === "parent"
-      ? parentInviteEmail(camperName)
-      : youthInviteEmail(camperName);
+  const magicLinkUrl = await generateMagicLink(recipientEmail);
+  if (magicLinkUrl) {
+    const template =
+      targetType === "parent"
+        ? parentInviteEmail(camperName, magicLinkUrl)
+        : youthInviteEmail(camperName, magicLinkUrl);
 
-  await sendEmail({
-    to: recipientEmail,
-    subject: template.subject,
-    html: template.html,
-  });
+    await sendEmail({
+      to: recipientEmail,
+      subject: template.subject,
+      html: template.html,
+    });
+  }
 
   return { ok: true };
 }

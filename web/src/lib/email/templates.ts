@@ -30,7 +30,7 @@ function button(label: string, href: string) {
 </div>`.trim();
 }
 
-export function youthInviteEmail(camperName: string) {
+export function youthInviteEmail(camperName: string, magicLinkUrl: string) {
   return {
     subject: `You're invited to Young Men Camp!`,
     html: layout(`
@@ -40,14 +40,17 @@ export function youthInviteEmail(camperName: string) {
       </p>
       <p style="color:#9a8e7f;font-size:14px;line-height:1.6;margin:0 0 16px;">
         You've been invited to join the Lehi Utah 3rd Stake Young Men Camp (June 15&ndash;19, 2026).
-        Sign in to set up your profile and get ready for an awesome week!
+        Click below to set up your profile and get ready for an awesome week!
       </p>
-      ${button("Sign In to Camp Tracker", `${APP_URL}/login`)}
+      ${button("Join Camp Tracker", magicLinkUrl)}
+      <p style="color:#6b6054;font-size:11px;margin:16px 0 0;text-align:center;">
+        This link expires in 24 hours. After setup you'll sign in with your email and password.
+      </p>
     `),
   };
 }
 
-export function parentInviteEmail(camperName: string) {
+export function parentInviteEmail(camperName: string, magicLinkUrl: string) {
   return {
     subject: `Camp invite for ${camperName} – parent action needed`,
     html: layout(`
@@ -57,15 +60,18 @@ export function parentInviteEmail(camperName: string) {
         Lehi Utah 3rd Stake Young Men Camp (June 15&ndash;19, 2026).
       </p>
       <p style="color:#9a8e7f;font-size:14px;line-height:1.6;margin:0 0 16px;">
-        Sign in to review camp details, complete registration, and provide any
+        Click below to review camp details, complete registration, and provide any
         medical or emergency information.
       </p>
-      ${button("Sign In to Camp Tracker", `${APP_URL}/login`)}
+      ${button("Get Started", magicLinkUrl)}
+      <p style="color:#6b6054;font-size:11px;margin:16px 0 0;text-align:center;">
+        This link expires in 24 hours. After setup you'll sign in with your email and password.
+      </p>
     `),
   };
 }
 
-export function leaderInviteEmail(recipientName: string | null, role: string, calling: string) {
+export function leaderInviteEmail(recipientName: string | null, role: string, calling: string, magicLinkUrl: string) {
   const greeting = recipientName
     ? `Hi <strong style="color:#e8e0d4;">${recipientName}</strong>,`
     : "Hello,";
@@ -82,9 +88,12 @@ export function leaderInviteEmail(recipientName: string | null, role: string, ca
         for the Lehi Utah 3rd Stake Young Men Camp (June 15&ndash;19, 2026).
       </p>
       <p style="color:#9a8e7f;font-size:14px;line-height:1.6;margin:0 0 16px;">
-        Sign in to access the camp dashboard, manage your ward, and coordinate activities.
+        Click below to access the camp dashboard and get set up.
       </p>
-      ${button("Sign In to Camp Tracker", `${APP_URL}/login`)}
+      ${button("Join Camp Tracker", magicLinkUrl)}
+      <p style="color:#6b6054;font-size:11px;margin:16px 0 0;text-align:center;">
+        This link expires in 24 hours. After setup you'll sign in with your email and password.
+      </p>
     `),
   };
 }

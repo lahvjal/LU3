@@ -2,6 +2,7 @@
 
 import { getUserContext } from "@/lib/auth/user-context";
 import type { AppRole } from "@/lib/auth/user-context";
+import { generateMagicLink } from "@/lib/email/magic-link";
 import { sendEmail } from "@/lib/email/resend";
 import { leaderInviteEmail } from "@/lib/email/templates";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -1230,12 +1231,15 @@ export async function inviteLeaderAction(
     }
   }
 
-  const template = leaderInviteEmail(null, input.role, callingName);
-  await sendEmail({
-    to: email,
-    subject: template.subject,
-    html: template.html,
-  });
+  const magicLinkUrl = await generateMagicLink(email);
+  if (magicLinkUrl) {
+    const template = leaderInviteEmail(null, input.role, callingName, magicLinkUrl);
+    await sendEmail({
+      to: email,
+      subject: template.subject,
+      html: template.html,
+    });
+  }
 
   return success();
 }

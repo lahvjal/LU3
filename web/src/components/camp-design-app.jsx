@@ -1280,6 +1280,7 @@ const OnboardingOverlay = ({
 
   const hasRequiredFields =
     form.displayName.trim() &&
+    form.password.length >= 8 &&
     (!showAge || form.age.trim()) &&
     (!showWard || form.wardId) &&
     (!showQuorum || form.quorumId) &&
@@ -1297,6 +1298,9 @@ const OnboardingOverlay = ({
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
           <Field label="Name">
             <input style={css.input} value={form.displayName} onChange={(event) => setForm((previous) => ({ ...previous, displayName: event.target.value }))} placeholder={copy.namePlaceholder} />
+          </Field>
+          <Field label="Set Password">
+            <input style={css.input} type="password" minLength={8} value={form.password} onChange={(event) => setForm((previous) => ({ ...previous, password: event.target.value }))} placeholder="At least 8 characters" />
           </Field>
           <Field label="Phone Number">
             <input style={css.input} value={form.phone} onChange={(event) => setForm((previous) => ({ ...previous, phone: event.target.value }))} placeholder="(801) 555-0000" />
@@ -1500,6 +1504,7 @@ export default function CampDesignApp({ initialData, profile }) {
     quorumId: profile?.quorumId ?? "",
     shirtSizeCode: profile?.shirtSizeCode ?? "",
     medicalNotes: profile?.medicalNotes ?? "",
+    password: "",
   }));
 
   const applyData = (data) => {
@@ -1651,20 +1656,29 @@ export default function CampDesignApp({ initialData, profile }) {
     const showShirtSize = !isParent;
 
     const parsedAge = showAge ? Number(onboardingForm.age) : null;
+    const password = onboardingForm.password.trim();
     const hasRequiredValues =
       onboardingForm.displayName.trim() &&
+      password.length >= 8 &&
       (!showAge || onboardingForm.age.trim()) &&
       (!showWard || onboardingForm.wardId) &&
       (!showQuorum || onboardingForm.quorumId) &&
       (!showShirtSize || onboardingForm.shirtSizeCode);
 
     if (!hasRequiredValues || (showAge && Number.isNaN(parsedAge))) {
-      window.alert("Please fill out all required fields.");
+      window.alert("Please fill out all required fields. Password must be at least 8 characters.");
       return;
     }
 
     setCompletingOnboarding(true);
     try {
+      const supabase = createSupabaseBrowserClient();
+      const { error: passwordError } = await supabase.auth.updateUser({ password });
+      if (passwordError) {
+        window.alert(passwordError.message || "Unable to set password.");
+        return;
+      }
+
       const result = await updateMyProfileAction({
         displayName: onboardingForm.displayName,
         avatarUrl: profileData.avatarUrl ?? "",
