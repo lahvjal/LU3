@@ -1766,7 +1766,7 @@ export default function CampDesignApp({ initialData, profile }) {
         <span style={{ fontFamily: T.fontDisplay, fontSize: "16px", color: T.text }}>LU3 Camp</span>
       </div>
       <main className="main-area" style={{ marginLeft: 0, padding: "24px", minHeight: "100vh" }}>
-        <div style={{ maxWidth: "1100px", marginTop: "56px" }} className="main-inner">{pages[page]}</div>
+        <div style={{ width: "100%", marginTop: "56px" }} className="main-inner">{pages[page]}</div>
         <style>{`@media (min-width: 900px) { .main-inner { margin-top: 0 !important; } }`}</style>
       </main>
       {needsOnboarding ? (
