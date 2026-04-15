@@ -88,10 +88,10 @@ const NAV = [
   { key: "dashboard", label: "Dashboard", icon: "home" }, { key: "activities", label: "Activities", icon: "calendar" },
   { key: "agenda", label: "Daily Agenda", icon: "clock" }, { key: "units", label: "Unit Rosters", icon: "users" },
   { key: "wards", label: "Wards", icon: "flag" },
-  { key: "competitions", label: "Competitions", icon: "trophy" }, { key: "registration", label: "Registration", icon: "clipboard" },
+  { key: "competitions", label: "Competitions", icon: "trophy" }, { key: "registration", label: "Registration", icon: "clipboard", leaderOnly: true },
   { key: "photos", label: "Photo Gallery", icon: "camera" }, { key: "contacts", label: "Contacts", icon: "phone" },
-  { key: "rules", label: "Camp Rules", icon: "shield" }, { key: "inspiration", label: "Daily Inspiration", icon: "sun" },
-  { key: "leaders", label: "Leaders", icon: "star" }, { key: "docs", label: "Documentation", icon: "book" },
+  { key: "rules", label: "Camp Rules", icon: "shield" }, { key: "inspiration", label: "Daily Inspiration", icon: "sun", leaderOnly: true },
+  { key: "leaders", label: "Leaders", icon: "star", leaderOnly: true }, { key: "docs", label: "Documentation", icon: "book" },
 ];
 
 const PAGE_TO_PATH = {
@@ -319,7 +319,7 @@ const Dashboard = ({ goTo, units, activities, competitions, pointLog, agenda, in
   );
 };
 
-const ActivitiesPage = ({ activities, applyResult }) => {
+const ActivitiesPage = ({ activities, applyResult, isLeader }) => {
   const [view, setView] = useState("timeline");
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ title: "", category: "Sport", day: 0, time: "", location: "", desc: "" });
@@ -342,7 +342,7 @@ const ActivitiesPage = ({ activities, applyResult }) => {
   return (
     <div>
       <PageHeader icon="calendar" title="Activities" subtitle={`${activities.length} activities scheduled`}
-        action={<div style={{ display: "flex", gap: "8px" }}>{["timeline", "grid"].map(v => <button key={v} onClick={() => setView(v)} style={{ ...css.btn(view === v ? "primary" : "ghost"), padding: "6px 14px", fontSize: "12px", textTransform: "capitalize" }}>{v}</button>)}<button onClick={() => setModal(true)} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> Add</button></div>} />
+        action={<div style={{ display: "flex", gap: "8px" }}>{["timeline", "grid"].map(v => <button key={v} onClick={() => setView(v)} style={{ ...css.btn(view === v ? "primary" : "ghost"), padding: "6px 14px", fontSize: "12px", textTransform: "capitalize" }}>{v}</button>)}{isLeader && <button onClick={() => setModal(true)} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> Add</button>}</div>} />
       <Modal open={modal} onClose={() => setModal(false)} title="New Activity">
         <Field label="Title"><input style={css.input} value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} placeholder="Activity name" /></Field>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
@@ -359,14 +359,14 @@ const ActivitiesPage = ({ activities, applyResult }) => {
       {view === "timeline" ? byDay.map(({ day, acts }) => (
         <div key={day} style={{ marginBottom: "28px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "14px" }}><div style={{ width: "8px", height: "8px", borderRadius: "50%", background: T.accent }} /><h3 style={{ fontFamily: T.fontDisplay, fontSize: "16px", color: T.accentLight, margin: 0 }}>{day}</h3><div style={{ flex: 1, height: "1px", background: T.border }} /></div>
-          {!acts.length ? <p style={{ color: T.textDim, fontSize: "13px", paddingLeft: "20px" }}>No activities</p> : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "12px", paddingLeft: "20px" }}>{acts.map(a => { const cc = CAT_COLORS[a.category] || {}; return (<div key={a.id} style={{ ...css.card, padding: "16px", position: "relative" }}><button onClick={() => del(a.id)} style={{ position: "absolute", top: 10, right: 10, background: "none", border: "none", cursor: "pointer", opacity: 0.4 }}><Icon name="trash" size={14} color={T.red} /></button><div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px", paddingRight: "20px" }}><span style={{ fontWeight: 600, color: T.text }}>{a.title}</span><Badge bg={cc.bg} text={cc.text}>{a.category}</Badge></div><p style={{ fontSize: "13px", color: T.textMuted, margin: "0 0 10px" }}>{a.desc}</p><div style={{ display: "flex", gap: "16px", fontSize: "12px", color: T.textDim }}><span>🕐 {a.time}</span><span>📍 {a.location}</span></div></div>); })}</div>}
+          {!acts.length ? <p style={{ color: T.textDim, fontSize: "13px", paddingLeft: "20px" }}>No activities</p> : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "12px", paddingLeft: "20px" }}>{acts.map(a => { const cc = CAT_COLORS[a.category] || {}; return (<div key={a.id} style={{ ...css.card, padding: "16px", position: "relative" }}>{isLeader && <button onClick={() => del(a.id)} style={{ position: "absolute", top: 10, right: 10, background: "none", border: "none", cursor: "pointer", opacity: 0.4 }}><Icon name="trash" size={14} color={T.red} /></button>}<div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px", paddingRight: isLeader ? "20px" : "0" }}><span style={{ fontWeight: 600, color: T.text }}>{a.title}</span><Badge bg={cc.bg} text={cc.text}>{a.category}</Badge></div><p style={{ fontSize: "13px", color: T.textMuted, margin: "0 0 10px" }}>{a.desc}</p><div style={{ display: "flex", gap: "16px", fontSize: "12px", color: T.textDim }}><span>🕐 {a.time}</span><span>📍 {a.location}</span></div></div>); })}</div>}
         </div>
       )) : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: "14px" }}>{activities.map(a => { const cc = CAT_COLORS[a.category] || {}; return (<div key={a.id} style={{ ...css.card, padding: "16px" }}><Badge bg={cc.bg} text={cc.text}>{a.category}</Badge><h4 style={{ color: T.text, margin: "10px 0 6px" }}>{a.title}</h4><p style={{ fontSize: "13px", color: T.textMuted, margin: "0 0 10px" }}>{a.desc}</p><div style={{ fontSize: "12px", color: T.textDim }}>{CAMP_DAYS[a.day]} · {a.time} · {a.location}</div></div>); })}</div>}
     </div>
   );
 };
 
-const AgendaPage = ({ agenda, applyResult }) => {
+const AgendaPage = ({ agenda, applyResult, isLeader }) => {
   const [day, setDay] = useState(0);
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ time: "", item: "", location: "" });
@@ -390,7 +390,7 @@ const AgendaPage = ({ agenda, applyResult }) => {
   };
   return (
     <div>
-      <PageHeader icon="clock" title="Daily Agenda" subtitle="Day-by-day schedule" action={<button onClick={() => setModal(true)} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> Add Item</button>} />
+      <PageHeader icon="clock" title="Daily Agenda" subtitle="Day-by-day schedule" action={isLeader ? <button onClick={() => setModal(true)} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> Add Item</button> : null} />
       <Modal open={modal} onClose={() => setModal(false)} title="New Agenda Item">
         <Field label="Time"><input style={css.input} value={form.time} onChange={e => setForm(p => ({ ...p, time: e.target.value }))} placeholder="10:00 AM" /></Field>
         <Field label="Activity"><input style={css.input} value={form.item} onChange={e => setForm(p => ({ ...p, item: e.target.value }))} placeholder="Activity name" /></Field>
@@ -403,14 +403,14 @@ const AgendaPage = ({ agenda, applyResult }) => {
           <div style={{ minWidth: "80px", fontFamily: "monospace", fontSize: "13px", fontWeight: 700, color: T.accent }}>{a.time}</div>
           <div style={{ width: "3px", height: "28px", borderRadius: "2px", background: T.accent, opacity: 0.3 }} />
           <div style={{ flex: 1 }}><div style={{ fontWeight: 600, color: T.text, fontSize: "14px" }}>{a.item}</div><div style={{ fontSize: "12px", color: T.textDim, marginTop: "2px" }}>📍 {a.location}</div></div>
-          <button onClick={() => del(a.id)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.4 }}><Icon name="trash" size={14} color={T.red} /></button>
+          {isLeader && <button onClick={() => del(a.id)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.4 }}><Icon name="trash" size={14} color={T.red} /></button>}
         </div>
       ))}</div> : <EmptyState icon="clock" message="No agenda items for this day." />}
     </div>
   );
 };
 
-const UnitsPage = ({ units, applyResult }) => {
+const UnitsPage = ({ units, applyResult, isLeader }) => {
   const [modal, setModal] = useState(null);
   const [unitForm, setUnitForm] = useState({ name: "", leader: "", leader_email: "" });
   const [camperName, setCamperName] = useState("");
@@ -443,7 +443,7 @@ const UnitsPage = ({ units, applyResult }) => {
   };
   return (
     <div>
-      <PageHeader icon="users" title="Unit Rosters" subtitle={`${units.length} camp teams · ${units.reduce((s, u) => s + u.campers.length, 0)} campers`} action={<button onClick={() => setModal("unit")} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> New Unit</button>} />
+      <PageHeader icon="users" title="Unit Rosters" subtitle={`${units.length} camp teams · ${units.reduce((s, u) => s + u.campers.length, 0)} campers`} action={isLeader ? <button onClick={() => setModal("unit")} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> New Unit</button> : null} />
       <Modal open={modal === "unit"} onClose={() => setModal(null)} title="Create New Unit">
         <Field label="Unit Name"><input style={css.input} value={unitForm.name} onChange={e => setUnitForm(p => ({ ...p, name: e.target.value }))} placeholder="Trailblazers" /></Field>
         <Field label="Leader Name"><input style={css.input} value={unitForm.leader} onChange={e => setUnitForm(p => ({ ...p, leader: e.target.value }))} placeholder="Bro. Smith" /></Field>
@@ -455,16 +455,16 @@ const UnitsPage = ({ units, applyResult }) => {
           <div key={u.id} style={{ ...css.card, borderTop: `3px solid ${u.color}` }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
               <h3 style={{ fontFamily: T.fontDisplay, fontSize: "18px", color: T.text, margin: 0 }}>{u.name}</h3>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}><Badge bg={u.color + "22"} text={u.color}>{u.campers.length}</Badge><button onClick={() => delUnit(u.id)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.4 }}><Icon name="trash" size={14} color={T.red} /></button></div>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}><Badge bg={u.color + "22"} text={u.color}>{u.campers.length}</Badge>{isLeader && <button onClick={() => delUnit(u.id)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.4 }}><Icon name="trash" size={14} color={T.red} /></button>}</div>
             </div>
             <div style={{ fontSize: "13px", color: T.textMuted, marginBottom: "14px" }}><Icon name="star" size={14} color={u.color} /> <strong style={{ color: T.text }}>{u.leader}</strong> — {u.leader_email}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "12px" }}>
-              {u.campers.map((c) => (<div key={c.id} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "7px 12px", borderRadius: T.radiusSm, background: T.bg }}><div style={{ width: "26px", height: "26px", borderRadius: "50%", background: u.color + "33", color: u.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700 }}>{c.name[0]}</div><span style={{ fontSize: "13px", color: T.text, flex: 1 }}>{c.name}</span><button onClick={() => removeCamper(c.id)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.3 }}><Icon name="x" size={12} color={T.red} /></button></div>))}
+              {u.campers.map((c) => (<div key={c.id} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "7px 12px", borderRadius: T.radiusSm, background: T.bg }}><div style={{ width: "26px", height: "26px", borderRadius: "50%", background: u.color + "33", color: u.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700 }}>{c.name[0]}</div><span style={{ fontSize: "13px", color: T.text, flex: 1 }}>{c.name}</span>{isLeader && <button onClick={() => removeCamper(c.id)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.3 }}><Icon name="x" size={12} color={T.red} /></button>}</div>))}
             </div>
-            <div style={{ display: "flex", gap: "8px" }}>
+            {isLeader && <div style={{ display: "flex", gap: "8px" }}>
               <input style={{ ...css.input, flex: 1, padding: "8px 12px", fontSize: "13px" }} placeholder="Assign existing camper..." value={addingTo === u.id ? camperName : ""} onFocus={() => { setAddingTo(u.id); setCamperName(""); }} onChange={e => setCamperName(e.target.value)} onKeyDown={e => e.key === "Enter" && addCamper(u.id)} />
               <button onClick={() => addCamper(u.id)} style={{ ...css.btn(), padding: "8px 12px" }}><Icon name="plus" size={14} color="#1a1612" /></button>
-            </div>
+            </div>}
           </div>
         ))}
       </div>
@@ -472,7 +472,7 @@ const UnitsPage = ({ units, applyResult }) => {
   );
 };
 
-const WardsPage = ({ wards, applyResult }) => {
+const WardsPage = ({ wards, applyResult, isLeader }) => {
   const [modal, setModal] = useState(false);
   const [wardForm, setWardForm] = useState({ name: "", leader: "", leader_email: "" });
 
@@ -492,7 +492,7 @@ const WardsPage = ({ wards, applyResult }) => {
 
   return (
     <div>
-      <PageHeader icon="flag" title="Wards" subtitle={`${wards.length} wards in the stake`} action={<button onClick={() => setModal(true)} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> Add Ward</button>} />
+      <PageHeader icon="flag" title="Wards" subtitle={`${wards.length} wards in the stake`} action={isLeader ? <button onClick={() => setModal(true)} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> Add Ward</button> : null} />
       <Modal open={modal} onClose={() => setModal(false)} title="Create Ward" width={560}>
         <Field label="Ward Name"><input style={css.input} value={wardForm.name} onChange={e => setWardForm(p => ({ ...p, name: e.target.value }))} placeholder="Lehi 3rd Ward" /></Field>
         <Field label="Ward Leader"><input style={css.input} value={wardForm.leader} onChange={e => setWardForm(p => ({ ...p, leader: e.target.value }))} placeholder="Bro. Smith" /></Field>
@@ -504,16 +504,16 @@ const WardsPage = ({ wards, applyResult }) => {
       ) : (
         <div style={{ ...css.card, padding: 0, overflow: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", minWidth: "640px" }}>
-            <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>{["Ward", "Leader", "Leader Email", "Campers", ""].map(h => <th key={h} style={{ padding: "11px 14px", textAlign: "left", color: T.textMuted, fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>{h}</th>)}</tr></thead>
+            <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>{["Ward", "Leader", "Leader Email", "Campers", ...(isLeader ? [""] : [])].map(h => <th key={h} style={{ padding: "11px 14px", textAlign: "left", color: T.textMuted, fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>{h}</th>)}</tr></thead>
             <tbody>{wards.map((ward, index) => (
               <tr key={ward.id} style={{ borderBottom: `1px solid ${T.border}`, background: index % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)" }}>
                 <td style={{ padding: "11px 14px", fontWeight: 700, color: T.text }}>{ward.name}</td>
                 <td style={{ padding: "11px 14px", color: T.textMuted }}>{ward.leader || "—"}</td>
                 <td style={{ padding: "11px 14px", color: T.textMuted }}>{ward.leader_email || "—"}</td>
                 <td style={{ padding: "11px 14px", color: T.textMuted }}>{ward.campers.length}</td>
-                <td style={{ padding: "11px 14px", width: "70px" }}>
+                {isLeader && <td style={{ padding: "11px 14px", width: "70px" }}>
                   <button onClick={() => deleteWard(ward.id)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.45 }}><Icon name="trash" size={14} color={T.red} /></button>
-                </td>
+                </td>}
               </tr>
             ))}</tbody>
           </table>
@@ -523,7 +523,7 @@ const WardsPage = ({ wards, applyResult }) => {
   );
 };
 
-const CompetitionsPage = ({ competitions, pointLog, units, leaderNames, applyResult }) => {
+const CompetitionsPage = ({ competitions, pointLog, units, leaderNames, applyResult, isLeader }) => {
   const [expanded, setExpanded] = useState(null);
   const [modal, setModal] = useState(null);
   const [awardComp, setAwardComp] = useState(null);
@@ -565,7 +565,7 @@ const CompetitionsPage = ({ competitions, pointLog, units, leaderNames, applyRes
 
   return (
     <div>
-      <PageHeader icon="trophy" title="Competitions" subtitle="Track scores, award points, view history" action={<button onClick={() => setModal("comp")} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> New Competition</button>} />
+      <PageHeader icon="trophy" title="Competitions" subtitle="Track scores, award points, view history" action={isLeader ? <button onClick={() => setModal("comp")} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> New Competition</button> : null} />
       <Modal open={modal === "comp"} onClose={() => setModal(null)} title="Create Competition">
         <Field label="Name"><input style={css.input} value={compForm.name} onChange={e => setCompForm(p => ({ ...p, name: e.target.value }))} placeholder="Competition name" /></Field>
         <Field label="Rules"><textarea style={{ ...css.input, minHeight: "70px", resize: "vertical" }} value={compForm.rules} onChange={e => setCompForm(p => ({ ...p, rules: e.target.value }))} /></Field>
@@ -612,8 +612,8 @@ const CompetitionsPage = ({ competitions, pointLog, units, leaderNames, applyRes
                 <div style={{ transform: isExp ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.2s" }}><Icon name="chevRight" size={18} color={T.textDim} /></div>
                 <h4 style={{ color: T.text, margin: 0, flex: 1, fontSize: "16px" }}>{c.name}</h4>
                 <StatusBadge status={c.status} />
-                <button onClick={e => { e.stopPropagation(); openAward(c); }} style={{ ...css.btn(), padding: "6px 12px", fontSize: "12px" }}><Icon name="plus" size={14} color="#1a1612" /> Award</button>
-                <button onClick={e => { e.stopPropagation(); delComp(c.id); }} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.4 }}><Icon name="trash" size={14} color={T.red} /></button>
+                {isLeader && <button onClick={e => { e.stopPropagation(); openAward(c); }} style={{ ...css.btn(), padding: "6px 12px", fontSize: "12px" }}><Icon name="plus" size={14} color="#1a1612" /> Award</button>}
+                {isLeader && <button onClick={e => { e.stopPropagation(); delComp(c.id); }} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.4 }}><Icon name="trash" size={14} color={T.red} /></button>}
               </div>
               {isExp && <div style={{ borderTop: `1px solid ${T.border}` }}>
                 <div style={{ padding: "16px 20px", background: "rgba(255,255,255,0.01)" }}><p style={{ fontSize: "13px", color: T.textMuted, margin: 0 }}><strong style={{ color: T.text }}>Rules:</strong> {c.rules}</p></div>
@@ -724,7 +724,7 @@ const RegistrationPage = ({ registrations, wards, applyResult }) => {
   );
 };
 
-const ContactsPage = ({ contacts, applyResult }) => {
+const ContactsPage = ({ contacts, applyResult, isLeader }) => {
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ name: "", role: "", phone: "", email: "", emergency: false });
   const add = async () => {
@@ -742,7 +742,7 @@ const ContactsPage = ({ contacts, applyResult }) => {
   const staff = contacts.filter(c => !c.emergency); const emergency = contacts.filter(c => c.emergency);
   return (
     <div>
-      <PageHeader icon="phone" title="Contacts" subtitle="Camp staff & emergency" action={<button onClick={() => setModal(true)} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> Add</button>} />
+      <PageHeader icon="phone" title="Contacts" subtitle="Camp staff & emergency" action={isLeader ? <button onClick={() => setModal(true)} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> Add</button> : null} />
       <Modal open={modal} onClose={() => setModal(false)} title="Add Contact">
         <Field label="Name"><input style={css.input} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} /></Field>
         <Field label="Role"><input style={css.input} value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value }))} /></Field>
@@ -754,9 +754,9 @@ const ContactsPage = ({ contacts, applyResult }) => {
         <button onClick={add} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px", marginTop: "8px" }}>Add Contact</button>
       </Modal>
       <h3 style={{ fontFamily: T.fontDisplay, fontSize: "17px", color: T.text, margin: "0 0 14px" }}>Camp Staff</h3>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "12px", marginBottom: "32px" }}>{staff.map(c => (<div key={c.id} style={{ ...css.card, position: "relative" }}><button onClick={() => del(c.id)} style={{ position: "absolute", top: 12, right: 12, background: "none", border: "none", cursor: "pointer", opacity: 0.3 }}><Icon name="trash" size={14} color={T.red} /></button><div style={{ fontWeight: 600, color: T.text, fontSize: "15px", marginBottom: "4px" }}>{c.name}</div><div style={{ color: T.textMuted, fontSize: "13px", marginBottom: "10px" }}>{c.role}</div><div style={{ fontSize: "13px", color: T.accent }}>{c.phone}</div>{c.email && <div style={{ fontSize: "12px", color: T.textDim }}>{c.email}</div>}</div>))}</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "12px", marginBottom: "32px" }}>{staff.map(c => (<div key={c.id} style={{ ...css.card, position: "relative" }}>{isLeader && <button onClick={() => del(c.id)} style={{ position: "absolute", top: 12, right: 12, background: "none", border: "none", cursor: "pointer", opacity: 0.3 }}><Icon name="trash" size={14} color={T.red} /></button>}<div style={{ fontWeight: 600, color: T.text, fontSize: "15px", marginBottom: "4px" }}>{c.name}</div><div style={{ color: T.textMuted, fontSize: "13px", marginBottom: "10px" }}>{c.role}</div><div style={{ fontSize: "13px", color: T.accent }}>{c.phone}</div>{c.email && <div style={{ fontSize: "12px", color: T.textDim }}>{c.email}</div>}</div>))}</div>
       <h3 style={{ fontFamily: T.fontDisplay, fontSize: "17px", color: T.text, margin: "0 0 14px", display: "flex", alignItems: "center", gap: "8px" }}><span style={{ color: T.red }}>⚠</span> Emergency Contacts</h3>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "12px" }}>{emergency.map(c => (<div key={c.id} style={{ ...css.card, borderLeft: `3px solid ${T.red}`, position: "relative" }}><button onClick={() => del(c.id)} style={{ position: "absolute", top: 12, right: 12, background: "none", border: "none", cursor: "pointer", opacity: 0.3 }}><Icon name="trash" size={14} color={T.red} /></button><div style={{ fontWeight: 600, color: T.text, fontSize: "15px", marginBottom: "4px" }}>{c.name}</div><div style={{ color: T.textMuted, fontSize: "13px", marginBottom: "8px" }}>{c.role}</div><div style={{ fontSize: "15px", color: T.red, fontWeight: 700, fontFamily: "monospace" }}>{c.phone}</div></div>))}</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "12px" }}>{emergency.map(c => (<div key={c.id} style={{ ...css.card, borderLeft: `3px solid ${T.red}`, position: "relative" }}>{isLeader && <button onClick={() => del(c.id)} style={{ position: "absolute", top: 12, right: 12, background: "none", border: "none", cursor: "pointer", opacity: 0.3 }}><Icon name="trash" size={14} color={T.red} /></button>}<div style={{ fontWeight: 600, color: T.text, fontSize: "15px", marginBottom: "4px" }}>{c.name}</div><div style={{ color: T.textMuted, fontSize: "13px", marginBottom: "8px" }}>{c.role}</div><div style={{ fontSize: "15px", color: T.red, fontWeight: 700, fontFamily: "monospace" }}>{c.phone}</div></div>))}</div>
     </div>
   );
 };
@@ -1472,12 +1472,12 @@ const DocsPage = ({ docs }) => (
   </div>
 );
 
-export const CampSidebar = ({ page, onNavigate, open, setOpen, onSignOut, signingOut, profile }) => (
+export const CampSidebar = ({ page, onNavigate, open, setOpen, onSignOut, signingOut, profile, isLeader }) => (
   <>
     {open && <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 40 }} />}
     <aside style={{ position: "fixed", top: 0, left: 0, bottom: 0, zIndex: 50, width: "260px", background: T.bgSidebar, borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", transform: open ? "translateX(0)" : "translateX(-100%)", transition: "transform 0.25s ease", overflowY: "auto" }} className="sidebar-always">
       <div style={{ padding: "24px 20px 20px", borderBottom: `1px solid ${T.border}` }}><div style={{ display: "flex", alignItems: "center", gap: "10px" }}><div style={{ width: "36px", height: "36px", borderRadius: "8px", background: `linear-gradient(135deg, ${T.accent}, ${T.accentDim})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px" }}>⛺</div><div><div style={{ fontFamily: T.fontDisplay, fontSize: "16px", fontWeight: 700, color: T.text }}>LU3 Camp</div><div style={{ fontSize: "11px", color: T.textDim }}>Young Men&apos;s 2026</div></div></div></div>
-      <nav style={{ padding: "12px 10px", flex: 1 }}>{NAV.map(n => { const active = page === n.key; return (<button key={n.key} onClick={() => { onNavigate(n.key); setOpen(false); }} style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%", padding: "10px 12px", borderRadius: T.radiusSm, border: "none", cursor: "pointer", background: active ? T.accent + "18" : "transparent", color: active ? T.accent : T.textMuted, fontFamily: T.font, fontSize: "13px", fontWeight: active ? 600 : 400, textAlign: "left", transition: "all 0.15s ease", marginBottom: "2px" }}><Icon name={n.icon} size={18} color={active ? T.accent : T.textDim} />{n.label}</button>); })}</nav>
+      <nav style={{ padding: "12px 10px", flex: 1 }}>{NAV.filter(n => !n.leaderOnly || isLeader).map(n => { const active = page === n.key; return (<button key={n.key} onClick={() => { onNavigate(n.key); setOpen(false); }} style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%", padding: "10px 12px", borderRadius: T.radiusSm, border: "none", cursor: "pointer", background: active ? T.accent + "18" : "transparent", color: active ? T.accent : T.textMuted, fontFamily: T.font, fontSize: "13px", fontWeight: active ? 600 : 400, textAlign: "left", transition: "all 0.15s ease", marginBottom: "2px" }}><Icon name={n.icon} size={18} color={active ? T.accent : T.textDim} />{n.label}</button>); })}</nav>
       <div style={{ padding: "10px", borderTop: `1px solid ${T.border}` }}>
         <button
           type="button"
@@ -1827,16 +1827,18 @@ export default function CampDesignApp({ initialData, profile }) {
     }
   };
 
+  const isLeader = profileData.isStakeAdmin || profileData.canManageContent;
+
   const pages = {
     dashboard: <Dashboard goTo={goToPage} units={units} activities={activities} competitions={competitions} pointLog={pointLog} agenda={agenda} inspiration={inspiration} />,
-    activities: <ActivitiesPage activities={activities} applyResult={applyResult} />,
-    agenda: <AgendaPage agenda={agenda} applyResult={applyResult} />,
-    units: <UnitsPage units={units} applyResult={applyResult} />,
-    wards: <WardsPage wards={wards} applyResult={applyResult} />,
-    competitions: <CompetitionsPage competitions={competitions} pointLog={pointLog} units={units} leaderNames={leaderNames} applyResult={applyResult} />,
+    activities: <ActivitiesPage activities={activities} applyResult={applyResult} isLeader={isLeader} />,
+    agenda: <AgendaPage agenda={agenda} applyResult={applyResult} isLeader={isLeader} />,
+    units: <UnitsPage units={units} applyResult={applyResult} isLeader={isLeader} />,
+    wards: <WardsPage wards={wards} applyResult={applyResult} isLeader={isLeader} />,
+    competitions: <CompetitionsPage competitions={competitions} pointLog={pointLog} units={units} leaderNames={leaderNames} applyResult={applyResult} isLeader={isLeader} />,
     registration: <RegistrationPage registrations={registrations} wards={profileOptions.wards} applyResult={applyResult} />,
     photos: <PhotosPage photos={photos} />,
-    contacts: <ContactsPage contacts={contacts} applyResult={applyResult} />,
+    contacts: <ContactsPage contacts={contacts} applyResult={applyResult} isLeader={isLeader} />,
     rules: <RulesPage rules={rules} />,
     inspiration: <InspirationPage inspiration={inspiration} />,
     leaders: <LeadersPage leaders={leaders} wards={profileOptions.wards} callingOptions={leaderCallingOptions} applyResult={applyResult} />,
@@ -1875,6 +1877,7 @@ export default function CampDesignApp({ initialData, profile }) {
         onSignOut={handleSignOut}
         signingOut={signingOut}
         profile={profileData}
+        isLeader={isLeader}
       />
       <div className="mobile-menu" style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 30, height: "56px", background: T.bgSidebar, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", padding: "0 16px", gap: "12px" }}>
         <button onClick={() => setSidebarOpen(true)} style={{ background: "none", border: "none", cursor: "pointer", padding: "4px" }}><Icon name="menu" size={24} color={T.text} /></button>
