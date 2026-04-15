@@ -2,6 +2,8 @@
 
 import { getUserContext } from "@/lib/auth/user-context";
 import type { AppRole } from "@/lib/auth/user-context";
+import { sendEmail } from "@/lib/email/resend";
+import { leaderInviteEmail } from "@/lib/email/templates";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   type CampDesignInitialData,
@@ -1227,6 +1229,13 @@ export async function inviteLeaderAction(
       );
     }
   }
+
+  const template = leaderInviteEmail(null, input.role, callingName);
+  await sendEmail({
+    to: email,
+    subject: template.subject,
+    html: template.html,
+  });
 
   return success();
 }

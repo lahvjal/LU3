@@ -1,6 +1,8 @@
 "use server";
 
 import { getUserContext } from "@/lib/auth/user-context";
+import { sendEmail } from "@/lib/email/resend";
+import { parentInviteEmail, youthInviteEmail } from "@/lib/email/templates";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export type RegisterActionResult =
@@ -259,6 +261,27 @@ export async function sendRegistrationInviteAction(
   if (rosterError) {
     return fail(rosterError.message);
   }
+
+  const { data: participant } = await supabase
+    .from("participants")
+    .select("first_name, last_name")
+    .eq("id", participantId)
+    .maybeSingle();
+
+  const camperName = participant
+    ? `${participant.first_name} ${participant.last_name}`.trim()
+    : "your camper";
+
+  const template =
+    targetType === "parent"
+      ? parentInviteEmail(camperName)
+      : youthInviteEmail(camperName);
+
+  await sendEmail({
+    to: recipientEmail,
+    subject: template.subject,
+    html: template.html,
+  });
 
   return { ok: true };
 }
