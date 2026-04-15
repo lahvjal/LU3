@@ -222,21 +222,38 @@ export async function sendRegistrationInviteAction(
     }
   }
 
-  const { error: inviteError } = await supabase.from("registration_invites").insert({
-    roster_id: rosterId,
-    participant_id: participantId,
-    target_type: targetType,
-    recipient_email: recipientEmail,
-    sent_by: userContext.user.id,
-    parent_invitation_id: parentInvitationId,
-  });
+  const { data: existingSentInvite } = await supabase
+    .from("registration_invites")
+    .select("id")
+    .eq("participant_id", participantId)
+    .eq("target_type", targetType)
+    .ilike("recipient_email", recipientEmail)
+    .eq("status", "sent")
+    .limit(1)
+    .maybeSingle();
 
-  if (inviteError) {
-    if (inviteError.code === "23505") {
-      return fail("An active invite for that email already exists.");
+  if (existingSentInvite?.id) {
+    const { error: resendError } = await supabase
+      .from("registration_invites")
+      .update({ sent_at: new Date().toISOString(), sent_by: userContext.user.id })
+      .eq("id", existingSentInvite.id);
+
+    if (resendError) {
+      return fail(resendError.message);
     }
+  } else {
+    const { error: inviteError } = await supabase.from("registration_invites").insert({
+      roster_id: rosterId,
+      participant_id: participantId,
+      target_type: targetType,
+      recipient_email: recipientEmail,
+      sent_by: userContext.user.id,
+      parent_invitation_id: parentInvitationId,
+    });
 
-    return fail(inviteError.message);
+    if (inviteError) {
+      return fail(inviteError.message);
+    }
   }
 
   if (targetType === "youth") {
