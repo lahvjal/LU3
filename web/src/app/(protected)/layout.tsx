@@ -1,8 +1,17 @@
 import CampDesignApp from "@/components/camp-design-app";
 import { getCampDesignInitialData } from "@/lib/app/camp-design-data";
 import { getUserContext } from "@/lib/auth/user-context";
+import type { ReactNode } from "react";
 
-export default async function ProtectedLayout() {
+export default async function ProtectedLayout({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  if (children != null) {
+    return <>{children}</>;
+  }
+
   const [userContext, initialData] = await Promise.all([
     getUserContext(),
     getCampDesignInitialData(),
