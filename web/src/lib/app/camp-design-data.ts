@@ -103,13 +103,6 @@ type ContactRow = {
   is_emergency: boolean;
 };
 
-type StakeLeaderRow = {
-  id: string;
-  full_name: string;
-  calling: string;
-  email: string;
-};
-
 type LeaderCallingRow = {
   id: string;
   name: string;
@@ -250,6 +243,8 @@ type DesignLeader = {
   ward_name: string;
   status: "pending" | "active" | "revoked";
   invitation_id: string | null;
+  invite_sent_at: string | null;
+  invite_accepted_at: string | null;
 };
 
 type DesignInspiration = {
@@ -450,7 +445,6 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
     { data: contactRows },
     { data: leaderInvitationRows },
     { data: leaderCallingRows },
-    { data: legacyLeaderRows },
     { data: messageRows },
     { data: rulesRows },
     { data: photoRows },
@@ -522,11 +516,6 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
       .select("id, name")
       .order("name"),
     supabase
-      .from("stake_leaders")
-      .select("id, full_name, calling, email")
-      .order("display_order")
-      .order("full_name"),
-    supabase
       .from("daily_messages")
       .select("id, message_date, title, scripture, message")
       .order("message_date"),
@@ -568,7 +557,6 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
   const contactsRaw = (contactRows ?? []) as ContactRow[];
   const leaderInvitationsRaw = (leaderInvitationRows ?? []) as LeaderInvitationRow[];
   const leaderCallingsRaw = (leaderCallingRows ?? []) as LeaderCallingRow[];
-  const legacyLeadersRaw = (legacyLeaderRows ?? []) as StakeLeaderRow[];
   const messagesRaw = (messageRows ?? []) as DailyMessageRow[];
   const latestRules = ((rulesRows ?? [])[0] ?? null) as RulesRow | null;
   const photosRaw = (photoRows ?? []) as PhotoRow[];
@@ -748,53 +736,41 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
     }
   });
 
-  const leaders: DesignLeader[] =
-    leaderInvitationsRaw.length > 0
-      ? leaderInvitationsRaw
-          .map((invitation) => {
-            const profile = invitation.user_id
-              ? userProfileById.get(invitation.user_id)
-              : null;
-            const email = invitation.email || profile?.user_email || "";
-            const fallbackName = email.split("@")[0] || "Pending User";
-            const callingName = resolveRelationName(invitation.calling);
-            const wardName =
-              resolveRelationName(invitation.ward) ||
-              (invitation.ward_id ? wardNameById.get(invitation.ward_id) ?? "" : "");
+  const leaders: DesignLeader[] = leaderInvitationsRaw
+    .map((invitation) => {
+      const profile = invitation.user_id
+        ? userProfileById.get(invitation.user_id)
+        : null;
+      const email = invitation.email || profile?.user_email || "";
+      const fallbackName = email.split("@")[0] || "Pending User";
+      const callingName = resolveRelationName(invitation.calling);
+      const wardName =
+        resolveRelationName(invitation.ward) ||
+        (invitation.ward_id ? wardNameById.get(invitation.ward_id) ?? "" : "");
 
-            return {
-              id: invitation.id,
-              invitation_id: invitation.id,
-              name: profile?.display_name?.trim() || fallbackName,
-              calling: callingName || "Leader",
-              email,
-              role: invitation.role,
-              role_label: LEADER_ROLE_LABELS[invitation.role] ?? invitation.role,
-              ward_id: invitation.ward_id ?? null,
-              ward_name: wardName,
-              status: normalizeLeaderStatus(invitation.status),
-            };
-          })
-          .sort((a, b) => {
-            const statusOrder = { active: 0, pending: 1, revoked: 2 };
-            const statusDelta = statusOrder[a.status] - statusOrder[b.status];
-            if (statusDelta !== 0) {
-              return statusDelta;
-            }
-            return a.name.localeCompare(b.name);
-          })
-      : legacyLeadersRaw.map((leader) => ({
-          id: leader.id,
-          invitation_id: null,
-          name: leader.full_name,
-          calling: leader.calling,
-          email: leader.email,
-          role: "stake_leader",
-          role_label: "Stake Leader",
-          ward_id: null,
-          ward_name: "",
-          status: "active",
-        }));
+      return {
+        id: invitation.id,
+        invitation_id: invitation.id,
+        name: profile?.display_name?.trim() || fallbackName,
+        calling: callingName || "Leader",
+        email,
+        role: invitation.role,
+        role_label: LEADER_ROLE_LABELS[invitation.role] ?? invitation.role,
+        ward_id: invitation.ward_id ?? null,
+        ward_name: wardName,
+        status: normalizeLeaderStatus(invitation.status),
+        invite_sent_at: invitation.invited_at ?? null,
+        invite_accepted_at: invitation.accepted_at ?? null,
+      };
+    })
+    .sort((a, b) => {
+      const statusOrder = { active: 0, pending: 1, revoked: 2 };
+      const statusDelta = statusOrder[a.status] - statusOrder[b.status];
+      if (statusDelta !== 0) {
+        return statusDelta;
+      }
+      return a.name.localeCompare(b.name);
+    });
 
   const leaderCallingOptions = Array.from(
     new Set(
@@ -803,7 +779,6 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
         ...leaderInvitationsRaw
           .map((invitation) => resolveRelationName(invitation.calling))
           .filter(Boolean),
-        ...legacyLeadersRaw.map((leader) => leader.calling).filter(Boolean),
       ]
         .map((value) => value.trim())
         .filter(Boolean),

@@ -191,6 +191,29 @@ export async function sendRegistrationInviteAction(
   const contactRoute = input.isParentEmail ? "parent_email" : "youth_email";
   const supabase = await createSupabaseServerClient();
 
+  const { data: rosterRow } = await supabase
+    .from("registration_roster")
+    .select("status")
+    .eq("id", rosterId)
+    .maybeSingle();
+
+  if (rosterRow?.status === "active") {
+    return fail("This camper has already completed onboarding.");
+  }
+
+  if (targetType === "youth") {
+    const { data: onboardingProfile } = await supabase
+      .from("user_profiles")
+      .select("onboarding_completed_at")
+      .ilike("user_email", recipientEmail)
+      .limit(1)
+      .maybeSingle();
+
+    if (onboardingProfile?.onboarding_completed_at) {
+      return fail("This camper has already completed onboarding.");
+    }
+  }
+
   let parentInvitationId: string | null = null;
   if (targetType === "parent") {
     const { data: pendingInvite } = await supabase

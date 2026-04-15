@@ -40,6 +40,7 @@ type UserProfileRow = {
   user_id: string;
   user_email: string | null;
   display_name: string | null;
+  onboarding_completed_at: string | null;
 };
 
 const LEADER_ROLE_LABELS: Record<LeaderInvitationRole, string> = {
@@ -118,28 +119,60 @@ export default async function StakeLeadersRoutePage() {
         .filter((value): value is string => typeof value === "string" && value.length > 0),
     ),
   ];
+  const invitationEmails = [
+    ...new Set(
+      invitations
+        .map((invitation) => invitation.email.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  ];
 
-  const profileRows = invitedUserIds.length
-    ? (
-        (
-          await supabase
-            .from("user_profiles")
-            .select("user_id, user_email, display_name")
-            .in("user_id", invitedUserIds)
-        ).data ?? []
-      ) as UserProfileRow[]
-    : [];
+  const [profileRowsByUserId, profileRowsByEmail] = await Promise.all([
+    invitedUserIds.length
+      ? (
+          (
+            await supabase
+              .from("user_profiles")
+              .select("user_id, user_email, display_name, onboarding_completed_at")
+              .in("user_id", invitedUserIds)
+          ).data ?? []
+        ) as UserProfileRow[]
+      : [],
+    invitationEmails.length
+      ? (
+          (
+            await supabase
+              .from("user_profiles")
+              .select("user_id, user_email, display_name, onboarding_completed_at")
+              .in("user_email", invitationEmails)
+          ).data ?? []
+        ) as UserProfileRow[]
+      : [],
+  ]);
+  const profileRows = [...profileRowsByUserId, ...profileRowsByEmail];
 
   const userProfileById = new Map<string, UserProfileRow>(
     profileRows.map((profile) => [profile.user_id, profile]),
   );
+  const userProfileByEmail = new Map<string, UserProfileRow>(
+    profileRows
+      .filter((profile): profile is UserProfileRow & { user_email: string } => Boolean(profile.user_email))
+      .map((profile) => [profile.user_email.trim().toLowerCase(), profile]),
+  );
 
   const initialInvitations = invitations.map((invitation) => {
     const role = normalizeLeaderRole(invitation.role);
-    const profile = invitation.user_id
+    const storedStatus = normalizeLeaderStatus(invitation.status);
+    const profileById = invitation.user_id
       ? userProfileById.get(invitation.user_id) ?? null
       : null;
-    const email = (invitation.email || profile?.user_email || "").trim().toLowerCase();
+    const inviteEmail = (invitation.email || profileById?.user_email || "").trim().toLowerCase();
+    const profileByEmail = userProfileByEmail.get(inviteEmail) ?? null;
+    const profile = profileById ?? profileByEmail;
+    const onboardingCompleted = Boolean(profile?.onboarding_completed_at);
+    const effectiveStatus =
+      onboardingCompleted && storedStatus === "pending" ? "active" : storedStatus;
+    const email = inviteEmail;
     const wardName =
       resolveRelationName(invitation.ward) ||
       (invitation.ward_id ? (wardNameById.get(invitation.ward_id) ?? "") : "");
@@ -154,9 +187,12 @@ export default async function StakeLeadersRoutePage() {
       wardId: invitation.ward_id,
       wardName,
       calling: callingName,
-      status: normalizeLeaderStatus(invitation.status),
+      status: effectiveStatus,
       invitedAt: invitation.invited_at,
-      acceptedAt: invitation.accepted_at,
+      acceptedAt:
+        invitation.accepted_at ??
+        (effectiveStatus === "active" ? (profile?.onboarding_completed_at ?? null) : null),
+      onboardingCompleted,
     };
   });
 

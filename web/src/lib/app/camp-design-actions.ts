@@ -5,6 +5,7 @@ import type { AppRole } from "@/lib/auth/user-context";
 import { generateMagicLink } from "@/lib/email/magic-link";
 import { sendEmail } from "@/lib/email/resend";
 import { leaderInviteEmail } from "@/lib/email/templates";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   type CampDesignInitialData,
@@ -114,6 +115,24 @@ type ProfileUpdateInput = {
   medicalNotes?: string;
   shirtSizeCode?: string | null;
   age?: number | null;
+};
+
+type SupabaseActionClient = Awaited<ReturnType<typeof createSupabaseServerClient>>;
+
+type LeaderInvitationClaimRow = {
+  id: string;
+  role: string;
+  ward_id: string | null;
+  status: "pending" | "active" | "revoked";
+  accepted_at: string | null;
+  user_id: string | null;
+};
+
+type RegistrationInviteClaimRow = {
+  id: string;
+  participant_id: string;
+  status: "sent" | "accepted" | "revoked";
+  accepted_at: string | null;
 };
 
 const CAMP_START_DATE = new Date("2026-06-15T00:00:00Z");
@@ -266,7 +285,7 @@ function isLeadershipRole(value: string): value is LeadershipRole {
 }
 
 async function ensureLeadershipUserRole(
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  supabase: SupabaseActionClient,
   userId: string,
   role: LeadershipRole,
   wardId: string | null,
@@ -298,8 +317,162 @@ async function ensureLeadershipUserRole(
   }
 }
 
+async function ensureYoungManUserRole(
+  supabase: SupabaseActionClient,
+  userId: string,
+  participantId: string,
+) {
+  const { data: existingRole } = await supabase
+    .from("user_roles")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("role", "young_man")
+    .eq("participant_id", participantId)
+    .limit(1)
+    .maybeSingle();
+
+  if (existingRole?.id) {
+    return;
+  }
+
+  const { error } = await supabase.from("user_roles").insert({
+    user_id: userId,
+    role: "young_man",
+    ward_id: null,
+    participant_id: participantId,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+async function syncInviteStatusesAfterOnboardingCompletion(
+  userId: string,
+  userEmail: string,
+  onboardingCompletedAt: string,
+) {
+  const normalizedEmail = normalizeEmail(userEmail);
+  if (!normalizedEmail) {
+    return;
+  }
+
+  const admin = createSupabaseAdminClient() as any;
+  const adminClient = admin as unknown as SupabaseActionClient;
+
+  const [leaderByEmailResult, leaderByUserResult, youthInviteResult] = await Promise.all([
+    admin
+      .from("leader_invitations")
+      .select("id, role, ward_id, status, accepted_at, user_id")
+      .ilike("email", normalizedEmail)
+      .in("status", ["pending", "active"]),
+    admin
+      .from("leader_invitations")
+      .select("id, role, ward_id, status, accepted_at, user_id")
+      .eq("user_id", userId)
+      .in("status", ["pending", "active"]),
+    admin
+      .from("registration_invites")
+      .select("id, participant_id, status, accepted_at")
+      .eq("target_type", "youth")
+      .ilike("recipient_email", normalizedEmail)
+      .in("status", ["sent", "accepted"]),
+  ]);
+
+  if (leaderByEmailResult.error) {
+    throw new Error(leaderByEmailResult.error.message);
+  }
+  if (leaderByUserResult.error) {
+    throw new Error(leaderByUserResult.error.message);
+  }
+  if (youthInviteResult.error) {
+    throw new Error(youthInviteResult.error.message);
+  }
+
+  const leaderInvitations = new Map<string, LeaderInvitationClaimRow>();
+  [...(leaderByEmailResult.data ?? []), ...(leaderByUserResult.data ?? [])].forEach((row) => {
+    const casted = row as LeaderInvitationClaimRow;
+    leaderInvitations.set(casted.id, casted);
+  });
+
+  for (const invitation of leaderInvitations.values()) {
+    if (!isLeadershipRole(invitation.role)) {
+      continue;
+    }
+
+    await ensureLeadershipUserRole(
+      adminClient,
+      userId,
+      invitation.role,
+      invitation.ward_id,
+    );
+
+    const nextAcceptedAt = invitation.accepted_at ?? onboardingCompletedAt;
+    const needsUpdate =
+      invitation.status !== "active" ||
+      invitation.user_id !== userId ||
+      invitation.accepted_at === null;
+
+    if (!needsUpdate) {
+      continue;
+    }
+
+    const { error: leaderUpdateError } = await admin
+      .from("leader_invitations")
+      .update({
+        user_id: userId,
+        status: "active",
+        accepted_at: nextAcceptedAt,
+      })
+      .eq("id", invitation.id);
+
+    if (leaderUpdateError) {
+      throw new Error(leaderUpdateError.message);
+    }
+  }
+
+  const youthInvites = (youthInviteResult.data ?? []) as RegistrationInviteClaimRow[];
+  const participantIds = [
+    ...new Set(youthInvites.map((invite) => invite.participant_id).filter(Boolean)),
+  ];
+
+  for (const invite of youthInvites) {
+    await ensureYoungManUserRole(adminClient, userId, invite.participant_id);
+
+    if (invite.status === "accepted" && invite.accepted_at) {
+      continue;
+    }
+
+    const { error: registrationInviteUpdateError } = await admin
+      .from("registration_invites")
+      .update({
+        status: "accepted",
+        accepted_at: invite.accepted_at ?? onboardingCompletedAt,
+      })
+      .eq("id", invite.id);
+
+    if (registrationInviteUpdateError) {
+      throw new Error(registrationInviteUpdateError.message);
+    }
+  }
+
+  if (participantIds.length > 0) {
+    const { error: rosterUpdateError } = await admin
+      .from("registration_roster")
+      .update({
+        status: "active",
+      })
+      .in("participant_id", participantIds)
+      .eq("status", "pending");
+
+    if (rosterUpdateError) {
+      throw new Error(rosterUpdateError.message);
+    }
+  }
+}
+
 async function removeLeadershipUserRole(
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  supabase: SupabaseActionClient,
   userId: string,
   role: LeadershipRole,
   wardId: string | null,
@@ -321,7 +494,7 @@ async function removeLeadershipUserRole(
 }
 
 async function resolveCallingId(
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  supabase: SupabaseActionClient,
   callingName: string,
 ) {
   const normalized = callingName.trim();
@@ -532,6 +705,18 @@ export async function updateMyProfileAction(
 
   if (error) {
     return fail(error.message);
+  }
+
+  if (shouldCompleteOnboarding && onboardingCompletedAt && context.user.email) {
+    try {
+      await syncInviteStatusesAfterOnboardingCompletion(
+        context.user.id,
+        context.user.email,
+        onboardingCompletedAt,
+      );
+    } catch (syncError) {
+      console.error("Failed to sync onboarding invite statuses:", syncError);
+    }
   }
 
   return success({

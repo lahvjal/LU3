@@ -135,6 +135,12 @@ function resolvePageFromPathname(pathname) {
 
 const Badge = ({ children, bg, text }) => <span style={css.badge(bg, text)}>{children}</span>;
 const StatusBadge = ({ status }) => { const c = STATUS_COLORS[status] || {}; return <Badge bg={c.bg} text={c.text}>{status}</Badge>; };
+const formatInviteTimestamp = (value) => {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "—";
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(parsed);
+};
 const PageHeader = ({ icon, title, subtitle, action }) => (
   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "28px", flexWrap: "wrap", gap: "12px" }}>
     <div><div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "4px" }}><Icon name={icon} size={26} color={T.accent} /><h1 style={{ fontFamily: T.fontDisplay, fontSize: "28px", fontWeight: 700, color: T.text, margin: 0 }}>{title}</h1></div>{subtitle && <p style={{ color: T.textMuted, fontSize: "14px", margin: "4px 0 0 38px" }}>{subtitle}</p>}</div>{action}
@@ -774,6 +780,7 @@ const InspirationPage = ({ inspiration }) => {
 const LeadersPage = ({ leaders, wards, callingOptions, applyResult }) => {
   const [modal, setModal] = useState(false);
   const [addingCalling, setAddingCalling] = useState(false);
+  const [resendingLeaderId, setResendingLeaderId] = useState(null);
   const [form, setForm] = useState({
     email: "",
     role: "ward_leader",
@@ -829,6 +836,22 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult }) => {
     applyResult(result);
   };
 
+  const sendOrResendInvite = async (leader) => {
+    if (!leader?.email || !leader?.calling || leader.status === "active") {
+      return;
+    }
+
+    setResendingLeaderId(leader.id);
+    const result = await inviteLeaderAction({
+      email: leader.email.trim(),
+      role: leader.role,
+      wardId: leader.ward_id ?? null,
+      calling: leader.calling.trim(),
+    });
+    setResendingLeaderId(null);
+    applyResult(result);
+  };
+
   return (
     <div>
       <PageHeader icon="star" title="Leaders" subtitle="Manage stake and ward leadership invitations, statuses, and roles" action={<button onClick={() => setModal(true)} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> Invite Leader</button>} />
@@ -872,8 +895,8 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult }) => {
         <EmptyState icon="star" message="No leadership invitations yet." />
       ) : (
         <div style={{ ...css.card, padding: 0, overflow: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", minWidth: "980px" }}>
-            <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>{["Leader", "Role", "Ward", "Calling", "Status", "Actions"].map(h => <th key={h} style={{ padding: "11px 14px", textAlign: "left", color: T.textMuted, fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>{h}</th>)}</tr></thead>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", minWidth: "1120px" }}>
+            <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>{["Leader", "Role", "Ward", "Calling", "Invite", "Status", "Actions"].map(h => <th key={h} style={{ padding: "11px 14px", textAlign: "left", color: T.textMuted, fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>{h}</th>)}</tr></thead>
             <tbody>{leaders.map((leader, index) => (
               <tr key={leader.id} style={{ borderBottom: `1px solid ${T.border}`, background: index % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)" }}>
                 <td style={{ padding: "11px 14px" }}>
@@ -888,6 +911,36 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult }) => {
                 <td style={{ padding: "11px 14px", color: T.textMuted }}>{leader.role_label || leader.role}</td>
                 <td style={{ padding: "11px 14px", color: T.textMuted }}>{leader.ward_name || "Stake-wide"}</td>
                 <td style={{ padding: "11px 14px", color: T.accent }}>{leader.calling}</td>
+                <td style={{ padding: "11px 14px", color: T.textDim, fontSize: "12px", lineHeight: 1.45 }}>
+                  {leader.invitation_id ? (
+                    <>
+                      <div>Sent {formatInviteTimestamp(leader.invite_sent_at)}</div>
+                      <div>{leader.invite_accepted_at ? `Accepted ${formatInviteTimestamp(leader.invite_accepted_at)}` : "Awaiting acceptance"}</div>
+                    </>
+                  ) : (
+                    <span>Role-managed</span>
+                  )}
+                  <div style={{ marginTop: "8px" }}>
+                    <button
+                      onClick={() => sendOrResendInvite(leader)}
+                      style={{ ...css.btn("ghost"), padding: "6px 10px", fontSize: "12px" }}
+                      disabled={
+                        resendingLeaderId === leader.id ||
+                        leader.status === "active" ||
+                        !leader.email ||
+                        !leader.calling
+                      }
+                    >
+                      {resendingLeaderId === leader.id
+                        ? "Sending..."
+                        : leader.status === "active"
+                          ? "Active"
+                          : leader.invitation_id
+                            ? "Send Again"
+                            : "Send Invite"}
+                    </button>
+                  </div>
+                </td>
                 <td style={{ padding: "11px 14px" }}>
                   <StatusBadge status={leader.status} />
                 </td>

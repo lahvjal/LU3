@@ -27,6 +27,7 @@ type ShirtSizeOption = {
 };
 
 type RosterRow = {
+  onboardingCompleted: boolean;
   rosterId: string;
   participantId: string;
   wardId: string;
@@ -35,6 +36,7 @@ type RosterRow = {
     | "not_invited_yet"
     | "invited"
     | "pending"
+    | "active"
     | "confirmed"
     | "declined"
     | "waitlist"
@@ -254,6 +256,7 @@ const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   not_invited_yet: { bg: "#2f2a22", text: "#b4a592" },
   invited: { bg: T.yellowBg, text: T.yellow },
   pending: { bg: T.purpleBg, text: T.purple },
+  active: { bg: T.greenBg, text: T.green },
   confirmed: { bg: T.greenBg, text: T.green },
   declined: { bg: T.redBg, text: T.red },
   waitlist: { bg: "#2f2a22", text: "#ceb682" },
@@ -613,6 +616,14 @@ export default function RegisterDesignPage({
 
   const handleConfirmInvite = async () => {
     if (!inviteModalRow) {
+      return;
+    }
+    if (inviteModalRow.onboardingCompleted || inviteModalRow.status === "active") {
+      setAlertState({
+        type: "error",
+        message: "This camper has already completed onboarding.",
+      });
+      setInviteModalRow(null);
       return;
     }
 
@@ -1077,6 +1088,9 @@ export default function RegisterDesignPage({
             <div>Parent name: {detailsModalRow.parentName || "Missing"}</div>
             <div>Parent phone: {detailsModalRow.parentPhone || "Missing"}</div>
             <div>
+              Onboarding: {detailsModalRow.onboardingCompleted ? "Completed" : "Pending"}
+            </div>
+            <div>
               Contact route:{" "}
               {detailsModalRow.contactRoute === "parent_email"
                 ? "Parent email"
@@ -1248,10 +1262,14 @@ function FragmentRow({
   const latestInviteColor = row.latestInviteStatus
     ? STATUS_COLORS[row.latestInviteStatus]
     : undefined;
+  const inviteLockedByOnboarding = row.onboardingCompleted || row.status === "active";
   const sentInviteAlready = Boolean(row.latestInviteSentAt);
-  const resendInvite = sentInviteAlready && row.status === "pending";
+  const resendInvite =
+    sentInviteAlready && row.status === "pending" && !inviteLockedByOnboarding;
   const inviteButtonLabel = inviting
     ? "Sending..."
+    : inviteLockedByOnboarding
+      ? "Active"
     : resendInvite
       ? "Send Again"
       : "Send Invite";
@@ -1321,7 +1339,11 @@ function FragmentRow({
       case "invite":
         return (
           <td key={columnKey} style={cellStyle(columnKey, { padding: "11px 14px" })}>
-            <button onClick={onOpenInviteModal} style={css.btn()} disabled={inviting}>
+            <button
+              onClick={onOpenInviteModal}
+              style={css.btn()}
+              disabled={inviting || inviteLockedByOnboarding}
+            >
               <Icon name="mail" size={14} color="#1a1612" />
               {inviteButtonLabel}
             </button>

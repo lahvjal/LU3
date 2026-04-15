@@ -37,6 +37,7 @@ type LeaderInvitationRow = {
   status: LeaderInviteStatus;
   invitedAt: string;
   acceptedAt: string | null;
+  onboardingCompleted: boolean;
 };
 
 type AlertState = {
@@ -570,6 +571,16 @@ export default function StakeLeadersDesignPage({
   };
 
   const submitInvite = async () => {
+    if (inviteTarget?.onboardingCompleted || inviteTarget?.status === "active") {
+      setAlertState({
+        type: "error",
+        message: "This leader has already completed onboarding.",
+      });
+      setInviteModalOpen(false);
+      setInviteTarget(null);
+      return;
+    }
+
     const email = inviteDraft.email.trim().toLowerCase();
     if (!isValidEmail(email)) {
       setAlertState({
@@ -793,6 +804,8 @@ export default function StakeLeadersDesignPage({
                     const rowBusy =
                       updatingStatusId === row.invitationId ||
                       removingInviteId === row.invitationId;
+                    const resendDisabled =
+                      rowBusy || row.onboardingCompleted || row.status === "active";
                     const statusColor = STATUS_COLORS[row.status];
                     return (
                       <tr
@@ -840,10 +853,12 @@ export default function StakeLeadersDesignPage({
                             <button
                               onClick={() => openResendInviteModal(row)}
                               style={css.btn("ghost")}
-                              disabled={rowBusy}
+                              disabled={resendDisabled}
                             >
                               <Icon name="mail" size={14} />
-                              Send Again
+                              {row.onboardingCompleted || row.status === "active"
+                                ? "Active"
+                                : "Send Again"}
                             </button>
                             <select
                               style={{

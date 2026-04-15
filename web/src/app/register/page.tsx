@@ -21,6 +21,7 @@ type RosterViewRow = {
     | "not_invited_yet"
     | "invited"
     | "pending"
+    | "active"
     | "confirmed"
     | "declined"
     | "waitlist"
@@ -44,6 +45,40 @@ type ParticipantProfileRow = {
   birth_date: string | null;
   shirt_size_code: string | null;
 };
+
+type YoungManRoleRow = {
+  participant_id: string;
+  user_id: string;
+};
+
+type UserProfileOnboardingRow = {
+  user_id: string;
+  onboarding_completed_at: string | null;
+};
+
+type YouthInviteRow = {
+  participant_id: string;
+  recipient_email: string;
+  sent_at: string;
+};
+
+type UserProfileByEmailRow = {
+  user_email: string | null;
+  onboarding_completed_at: string | null;
+};
+
+type DisplayRosterStatus = RosterViewRow["status"] | "active";
+
+function resolveDisplayStatus(
+  status: RosterViewRow["status"],
+  onboardingCompleted: boolean,
+): DisplayRosterStatus {
+  if (onboardingCompleted && status === "pending") {
+    return "active";
+  }
+
+  return status;
+}
 
 function birthDateToAge(value: string | null) {
   if (!value) {
@@ -110,31 +145,123 @@ export default async function RegisterPage() {
       ) as ParticipantProfileRow[]
     : [];
 
+  const youngManRoleRows = participantIds.length
+    ? (
+        (
+          await supabase
+            .from("user_roles")
+            .select("participant_id, user_id")
+            .eq("role", "young_man")
+            .in("participant_id", participantIds)
+        ).data ?? []
+      ) as YoungManRoleRow[]
+    : [];
+
+  const youngManUserIds = [
+    ...new Set(
+      youngManRoleRows
+        .map((roleRow) => roleRow.user_id)
+        .filter((value): value is string => typeof value === "string" && value.length > 0),
+    ),
+  ];
+
+  const onboardingRows = youngManUserIds.length
+    ? (
+        (
+          await supabase
+            .from("user_profiles")
+            .select("user_id, onboarding_completed_at")
+            .in("user_id", youngManUserIds)
+        ).data ?? []
+      ) as UserProfileOnboardingRow[]
+    : [];
+
+  const youthInviteRows = participantIds.length
+    ? (
+        (
+          await supabase
+            .from("registration_invites")
+            .select("participant_id, recipient_email, sent_at")
+            .eq("target_type", "youth")
+            .in("participant_id", participantIds)
+            .in("status", ["sent", "accepted"])
+            .order("sent_at", { ascending: false })
+        ).data ?? []
+      ) as YouthInviteRow[]
+    : [];
+
+  const youthInviteEmails = [
+    ...new Set(
+      youthInviteRows
+        .map((row) => row.recipient_email?.trim().toLowerCase())
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ];
+
+  const onboardingByEmailRows = youthInviteEmails.length
+    ? (
+        (
+          await supabase
+            .from("user_profiles")
+            .select("user_email, onboarding_completed_at")
+            .in("user_email", youthInviteEmails)
+        ).data ?? []
+      ) as UserProfileByEmailRow[]
+    : [];
+
   const participantProfileById = new Map(
     participantRows.map((row) => [row.id, row]),
   );
+  const onboardingByUserId = new Map(
+    onboardingRows.map((row) => [row.user_id, Boolean(row.onboarding_completed_at)]),
+  );
+  const participantOnboardingById = new Map(
+    youngManRoleRows.map((roleRow) => [
+      roleRow.participant_id,
+      onboardingByUserId.get(roleRow.user_id) === true,
+    ]),
+  );
+  const onboardingByEmail = new Map(
+    onboardingByEmailRows
+      .filter((row): row is UserProfileByEmailRow & { user_email: string } => Boolean(row.user_email))
+      .map((row) => [row.user_email.trim().toLowerCase(), Boolean(row.onboarding_completed_at)]),
+  );
+  const participantOnboardingFromInviteById = new Map<string, boolean>();
 
-  const initialRoster = rosterRows.map((row) => ({
-    rosterId: row.roster_id,
-    participantId: row.participant_id,
-    wardId: row.ward_id,
-    wardName: row.ward_name,
-    status: row.status,
-    fullName: `${row.preferred_name || row.first_name} ${row.last_name}`,
-    age: birthDateToAge(
-      participantProfileById.get(row.participant_id)?.birth_date ?? null,
-    ),
-    shirtSize: participantProfileById.get(row.participant_id)?.shirt_size_code ?? null,
-    youthEmail: row.youth_email,
-    preferredParentEmail: row.preferred_parent_email,
-    parentName: row.parent_guardian_name,
-    parentPhone: row.parent_guardian_phone,
-    contactRoute: row.contact_route,
-    latestInviteTarget: row.latest_invite_target,
-    latestInviteEmail: row.latest_invite_email,
-    latestInviteStatus: row.latest_invite_status,
-    latestInviteSentAt: row.latest_invite_sent_at,
-  }));
+  youthInviteRows.forEach((row) => {
+    const normalizedEmail = row.recipient_email.trim().toLowerCase();
+    if (onboardingByEmail.get(normalizedEmail) === true) {
+      participantOnboardingFromInviteById.set(row.participant_id, true);
+    }
+  });
+
+  const initialRoster = rosterRows.map((row) => {
+    const onboardingCompleted =
+      participantOnboardingById.get(row.participant_id) === true ||
+      participantOnboardingFromInviteById.get(row.participant_id) === true;
+    return {
+      onboardingCompleted,
+      rosterId: row.roster_id,
+      participantId: row.participant_id,
+      wardId: row.ward_id,
+      wardName: row.ward_name,
+      status: resolveDisplayStatus(row.status, onboardingCompleted),
+      fullName: `${row.preferred_name || row.first_name} ${row.last_name}`,
+      age: birthDateToAge(
+        participantProfileById.get(row.participant_id)?.birth_date ?? null,
+      ),
+      shirtSize: participantProfileById.get(row.participant_id)?.shirt_size_code ?? null,
+      youthEmail: row.youth_email,
+      preferredParentEmail: row.preferred_parent_email,
+      parentName: row.parent_guardian_name,
+      parentPhone: row.parent_guardian_phone,
+      contactRoute: row.contact_route,
+      latestInviteTarget: row.latest_invite_target,
+      latestInviteEmail: row.latest_invite_email,
+      latestInviteStatus: row.latest_invite_status,
+      latestInviteSentAt: row.latest_invite_sent_at,
+    };
+  });
 
   return (
     <RegisterDesignPage
