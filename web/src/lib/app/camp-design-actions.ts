@@ -47,6 +47,12 @@ type UnitInput = {
   leader_email: string;
 };
 
+type WardInput = {
+  name: string;
+  leader: string;
+  leader_email: string;
+};
+
 type CamperInput = {
   unitId: string;
   camperName: string;
@@ -60,7 +66,7 @@ type CompetitionInput = {
 
 type AwardPointsInput = {
   competitionId: string;
-  wardId: string;
+  unitId: string;
   points: number;
   note: string;
   leader: string;
@@ -221,9 +227,13 @@ function splitCamperName(camperName: string) {
 
   const firstName = tokens[0];
   const lastName = tokens.slice(1).join(" ");
+  if (!lastName) {
+    return null;
+  }
+
   return {
     firstName,
-    lastName: lastName || "Camper",
+    lastName,
   };
 }
 
@@ -627,14 +637,71 @@ export async function deleteAgendaItemAction(id: string): Promise<ActionResult> 
 }
 
 export async function createUnitAction(input: UnitInput): Promise<ActionResult> {
-  const context = await requireStakeAdmin();
+  const context = await requireUnitManager();
   if (!context) {
-    return fail("Only stake admins can create units.");
+    return fail("You do not have permission to create units.");
   }
 
   const name = input.name.trim();
   if (!name) {
     return fail("Unit name is required.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { data: unit, error: unitError } = await supabase
+    .from("camp_units")
+    .upsert(
+      {
+        name,
+        color: null,
+        leader_name: input.leader.trim() || null,
+        leader_email: input.leader_email.trim() || null,
+        created_by: context.user.id,
+      },
+      { onConflict: "name" },
+    )
+    .select("id")
+    .single();
+
+  if (unitError || !unit?.id) {
+    return fail(unitError?.message ?? "Unable to save unit.");
+  }
+
+  return success();
+}
+
+export async function deleteUnitAction(unitId: string): Promise<ActionResult> {
+  const context = await requireUnitManager();
+  if (!context) {
+    return fail("You do not have permission to delete units.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { data: deletedUnits, error: unitDeleteError } = await supabase
+    .from("camp_units")
+    .delete()
+    .eq("id", unitId)
+    .select("id");
+  if (unitDeleteError) {
+    return fail(unitDeleteError.message);
+  }
+
+  if (!deletedUnits?.length) {
+    return fail("Unit not found. Refresh and try again.");
+  }
+
+  return success();
+}
+
+export async function createWardAction(input: WardInput): Promise<ActionResult> {
+  const context = await requireStakeAdmin();
+  if (!context) {
+    return fail("Only stake admins can create wards.");
+  }
+
+  const name = input.name.trim();
+  if (!name) {
+    return fail("Ward name is required.");
   }
 
   const supabase = await createSupabaseServerClient();
@@ -652,7 +719,7 @@ export async function createUnitAction(input: UnitInput): Promise<ActionResult> 
     .single();
 
   if (wardError || !ward?.id) {
-    return fail(wardError?.message ?? "Unable to save unit.");
+    return fail(wardError?.message ?? "Unable to save ward.");
   }
 
   const { error: quorumError } = await supabase.from("quorums").upsert(
@@ -671,28 +738,34 @@ export async function createUnitAction(input: UnitInput): Promise<ActionResult> 
   return success();
 }
 
-export async function deleteUnitAction(unitId: string): Promise<ActionResult> {
+export async function deleteWardAction(wardId: string): Promise<ActionResult> {
   const context = await requireStakeAdmin();
   if (!context) {
-    return fail("Only stake admins can delete units.");
+    return fail("Only stake admins can delete wards.");
   }
 
   const supabase = await createSupabaseServerClient();
-
-  const participantDelete = await supabase
+  const { count, error: countError } = await supabase
     .from("participants")
-    .delete()
-    .eq("ward_id", unitId);
-  if (participantDelete.error) {
-    return fail(participantDelete.error.message);
+    .select("id", { count: "exact", head: true })
+    .eq("ward_id", wardId);
+
+  if (countError) {
+    return fail(countError.message);
   }
 
-  const quorumDelete = await supabase.from("quorums").delete().eq("ward_id", unitId);
+  if ((count ?? 0) > 0) {
+    return fail(
+      "Cannot delete a ward that still has participants. Reassign or remove campers first.",
+    );
+  }
+
+  const quorumDelete = await supabase.from("quorums").delete().eq("ward_id", wardId);
   if (quorumDelete.error) {
     return fail(quorumDelete.error.message);
   }
 
-  const wardDelete = await supabase.from("wards").delete().eq("id", unitId);
+  const wardDelete = await supabase.from("wards").delete().eq("id", wardId);
   if (wardDelete.error) {
     return fail(wardDelete.error.message);
   }
@@ -708,29 +781,54 @@ export async function addCamperAction(input: CamperInput): Promise<ActionResult>
 
   const parsedName = splitCamperName(input.camperName);
   if (!parsedName) {
-    return fail("Camper name is required.");
+    return fail("Please enter a camper's first and last name.");
   }
 
   const supabase = await createSupabaseServerClient();
-  const { data: quorum, error: quorumError } = await supabase
-    .from("quorums")
+  const { data: unitRow, error: unitError } = await supabase
+    .from("camp_units")
     .select("id")
-    .eq("ward_id", input.unitId)
-    .eq("quorum_type", "deacons")
-    .limit(1)
-    .single();
-
-  if (quorumError || !quorum?.id) {
-    return fail("No quorum found for this unit.");
+    .eq("id", input.unitId)
+    .maybeSingle();
+  if (unitError || !unitRow?.id) {
+    return fail(unitError?.message ?? "Selected unit could not be found.");
   }
 
-  const { error } = await supabase.from("participants").insert({
-    ward_id: input.unitId,
-    quorum_id: quorum.id,
-    first_name: parsedName.firstName,
-    last_name: parsedName.lastName,
-    active: true,
-  });
+  const { data: matches, error: matchError } = await supabase
+    .from("participants")
+    .select("id")
+    .ilike("first_name", parsedName.firstName)
+    .ilike("last_name", parsedName.lastName)
+    .eq("active", true)
+    .limit(5);
+
+  if (matchError) {
+    return fail(matchError.message);
+  }
+
+  if (!matches?.length) {
+    return fail(
+      "No existing camper matched that name. Add him to participants first, then assign him to a unit.",
+    );
+  }
+
+  if (matches.length > 1) {
+    return fail(
+      "Multiple campers matched that name. Use a more specific name before assigning to a unit.",
+    );
+  }
+
+  const { error } = await supabase.from("camp_unit_members").upsert(
+    {
+      unit_id: input.unitId,
+      participant_id: matches[0].id,
+      created_by: context.user.id,
+    },
+    {
+      onConflict: "unit_id,participant_id",
+      ignoreDuplicates: true,
+    },
+  );
 
   if (error) {
     return fail(error.message);
@@ -740,7 +838,7 @@ export async function addCamperAction(input: CamperInput): Promise<ActionResult>
 }
 
 export async function removeCamperAction(
-  participantId: string,
+  unitMemberId: string,
 ): Promise<ActionResult> {
   const context = await requireUnitManager();
   if (!context) {
@@ -748,13 +846,24 @@ export async function removeCamperAction(
   }
 
   const supabase = await createSupabaseServerClient();
-  const { error } = await supabase
-    .from("participants")
+  const { data: removedMembershipRows, error } = await supabase
+    .from("camp_unit_members")
     .delete()
-    .eq("id", participantId);
+    .eq("id", unitMemberId)
+    .select("id");
 
   if (error) {
     return fail(error.message);
+  }
+
+  if (!removedMembershipRows?.length) {
+    const { error: participantDeleteError } = await supabase
+      .from("participants")
+      .delete()
+      .eq("id", unitMemberId);
+    if (participantDeleteError) {
+      return fail(participantDeleteError.message);
+    }
   }
 
   return success();
@@ -824,7 +933,7 @@ export async function awardPointsAction(
 
   if (
     !input.competitionId ||
-    !input.wardId ||
+    !input.unitId ||
     !Number.isFinite(input.points) ||
     input.points === 0 ||
     Math.abs(input.points) > 100
@@ -835,7 +944,8 @@ export async function awardPointsAction(
   const supabase = await createSupabaseServerClient();
   const { error } = await supabase.from("competition_points").insert({
     competition_id: input.competitionId,
-    ward_id: input.wardId,
+    ward_id: null,
+    unit_id: input.unitId,
     points: input.points,
     reason: input.note.trim() || null,
     awarded_by: context.user.id,

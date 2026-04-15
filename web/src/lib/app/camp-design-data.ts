@@ -10,6 +10,20 @@ type WardRow = {
   leader_email: string | null;
 };
 
+type CampUnitRow = {
+  id: string;
+  name: string;
+  color: string | null;
+  leader_name: string | null;
+  leader_email: string | null;
+};
+
+type CampUnitMemberRow = {
+  id: string;
+  unit_id: string;
+  participant_id: string;
+};
+
 type QuorumRow = {
   id: string;
   ward_id: string;
@@ -49,7 +63,8 @@ type CompetitionRow = {
 type CompetitionPointRow = {
   id: string;
   competition_id: string;
-  ward_id: string;
+  ward_id: string | null;
+  unit_id: string | null;
   points: number;
   reason: string | null;
   awarded_at: string;
@@ -156,6 +171,14 @@ type DesignUnit = {
   id: string;
   name: string;
   color: string;
+  leader: string;
+  leader_email: string;
+  campers: Array<{ id: string; name: string }>;
+};
+
+type DesignWard = {
+  id: string;
+  name: string;
   leader: string;
   leader_email: string;
   campers: Array<{ id: string; name: string }>;
@@ -281,6 +304,7 @@ type DesignProfileOptions = {
 
 export type CampDesignInitialData = {
   units: DesignUnit[];
+  wards: DesignWard[];
   activities: DesignActivity[];
   competitions: DesignCompetition[];
   pointLog: DesignPoint[];
@@ -413,6 +437,8 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
 
   const [
     { data: wardRows },
+    { data: campUnitRows },
+    { data: campUnitMemberRows },
     { data: quorumRows },
     { data: shirtSizeRows },
     { data: participantRows },
@@ -436,6 +462,14 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
       .select("id, name, theme_color, leader_name, leader_email")
       .order("created_at"),
     supabase
+      .from("camp_units")
+      .select("id, name, color, leader_name, leader_email")
+      .order("created_at"),
+    supabase
+      .from("camp_unit_members")
+      .select("id, unit_id, participant_id")
+      .order("created_at"),
+    supabase
       .from("quorums")
       .select("id, ward_id, display_name, quorum_type")
       .order("display_name"),
@@ -457,7 +491,9 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
       .order("competition_date", { ascending: true, nullsFirst: false }),
     supabase
       .from("competition_points")
-      .select("id, competition_id, ward_id, points, reason, awarded_at, awarded_by_name")
+      .select(
+        "id, competition_id, ward_id, unit_id, points, reason, awarded_at, awarded_by_name",
+      )
       .order("awarded_at"),
     supabase
       .from("parent_registrations")
@@ -516,6 +552,8 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
   ]);
 
   const wards = (wardRows ?? []) as WardRow[];
+  const campUnitsRaw = (campUnitRows ?? []) as CampUnitRow[];
+  const campUnitMembersRaw = (campUnitMemberRows ?? []) as CampUnitMemberRow[];
   const wardNameById = new Map<string, string>(
     wards.map((ward) => [ward.id, ward.name]),
   );
@@ -537,28 +575,59 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
   const docsRaw = (docRows ?? []) as DocumentationRow[];
   const userProfilesRaw = (userProfileRows ?? []) as UserProfileRow[];
 
-  const units: DesignUnit[] = wards.map((ward, index) => ({
+  const wardsForDisplay: DesignWard[] = wards.map((ward) => ({
     id: ward.id,
     name: ward.name,
-    color: ward.theme_color ?? FALLBACK_UNIT_COLORS[index % FALLBACK_UNIT_COLORS.length],
-    leader: ward.leader_name ?? "Leader TBD",
+    leader: ward.leader_name ?? "",
     leader_email: ward.leader_email ?? "",
     campers: [],
   }));
 
-  const unitByWardId = new Map<string, DesignUnit>();
-  units.forEach((unit) => {
-    unitByWardId.set(unit.id, unit);
+  const wardById = new Map<string, DesignWard>();
+  wardsForDisplay.forEach((ward) => {
+    wardById.set(ward.id, ward);
   });
 
   participants.forEach((participant) => {
-    const unit = unitByWardId.get(participant.ward_id);
-    if (!unit) {
+    const ward = wardById.get(participant.ward_id);
+    if (!ward) {
+      return;
+    }
+
+    ward.campers.push({
+      id: participant.id,
+      name: `${participant.first_name} ${participant.last_name}`,
+    });
+  });
+
+  const units: DesignUnit[] = campUnitsRaw.map((unit, index) => ({
+    id: unit.id,
+    name: unit.name,
+    color: unit.color ?? FALLBACK_UNIT_COLORS[index % FALLBACK_UNIT_COLORS.length],
+    leader: unit.leader_name ?? "Leader TBD",
+    leader_email: unit.leader_email ?? "",
+    campers: [],
+  }));
+
+  const unitById = new Map<string, DesignUnit>();
+  units.forEach((unit) => {
+    unitById.set(unit.id, unit);
+  });
+
+  const participantById = new Map<string, ParticipantRow>();
+  participants.forEach((participant) => {
+    participantById.set(participant.id, participant);
+  });
+
+  campUnitMembersRaw.forEach((membership) => {
+    const unit = unitById.get(membership.unit_id);
+    const participant = participantById.get(membership.participant_id);
+    if (!unit || !participant) {
       return;
     }
 
     unit.campers.push({
-      id: participant.id,
+      id: membership.id,
       name: `${participant.first_name} ${participant.last_name}`,
     });
   });
@@ -582,14 +651,14 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
 
   const pointLog: DesignPoint[] = pointsRaw
     .map((point) => {
-      if (!unitByWardId.has(point.ward_id)) {
+      if (!point.unit_id || !unitById.has(point.unit_id)) {
         return null;
       }
 
       return {
         id: point.id,
         compId: point.competition_id,
-        unitId: point.ward_id,
+        unitId: point.unit_id,
         points: point.points,
         note: point.reason ?? "",
         leader: point.awarded_by_name ?? "Leader",
@@ -763,6 +832,7 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
 
   return {
     units,
+    wards: wardsForDisplay,
     activities,
     competitions,
     pointLog,

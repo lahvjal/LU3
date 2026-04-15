@@ -11,6 +11,7 @@ import {
   createCompetitionAction,
   createRegistrationAction,
   createUnitAction,
+  createWardAction,
   deleteLeaderInvitationAction,
   deleteActivityAction,
   deleteAgendaItemAction,
@@ -18,7 +19,9 @@ import {
   deleteContactAction,
   deleteRegistrationAction,
   deleteUnitAction,
+  deleteWardAction,
   inviteLeaderAction,
+  refreshCampDesignDataAction,
   removeCamperAction,
   signOutCampAction,
   updateLeaderInvitationStatusAction,
@@ -440,7 +443,7 @@ const UnitsPage = ({ units, applyResult }) => {
   };
   return (
     <div>
-      <PageHeader icon="users" title="Unit Rosters" subtitle={`${units.length} units · ${units.reduce((s, u) => s + u.campers.length, 0)} campers`} action={<button onClick={() => setModal("unit")} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> New Unit</button>} />
+      <PageHeader icon="users" title="Unit Rosters" subtitle={`${units.length} camp teams · ${units.reduce((s, u) => s + u.campers.length, 0)} campers`} action={<button onClick={() => setModal("unit")} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> New Unit</button>} />
       <Modal open={modal === "unit"} onClose={() => setModal(null)} title="Create New Unit">
         <Field label="Unit Name"><input style={css.input} value={unitForm.name} onChange={e => setUnitForm(p => ({ ...p, name: e.target.value }))} placeholder="Trailblazers" /></Field>
         <Field label="Leader Name"><input style={css.input} value={unitForm.leader} onChange={e => setUnitForm(p => ({ ...p, leader: e.target.value }))} placeholder="Bro. Smith" /></Field>
@@ -459,7 +462,7 @@ const UnitsPage = ({ units, applyResult }) => {
               {u.campers.map((c) => (<div key={c.id} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "7px 12px", borderRadius: T.radiusSm, background: T.bg }}><div style={{ width: "26px", height: "26px", borderRadius: "50%", background: u.color + "33", color: u.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700 }}>{c.name[0]}</div><span style={{ fontSize: "13px", color: T.text, flex: 1 }}>{c.name}</span><button onClick={() => removeCamper(c.id)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.3 }}><Icon name="x" size={12} color={T.red} /></button></div>))}
             </div>
             <div style={{ display: "flex", gap: "8px" }}>
-              <input style={{ ...css.input, flex: 1, padding: "8px 12px", fontSize: "13px" }} placeholder="Add camper..." value={addingTo === u.id ? camperName : ""} onFocus={() => { setAddingTo(u.id); setCamperName(""); }} onChange={e => setCamperName(e.target.value)} onKeyDown={e => e.key === "Enter" && addCamper(u.id)} />
+              <input style={{ ...css.input, flex: 1, padding: "8px 12px", fontSize: "13px" }} placeholder="Assign existing camper..." value={addingTo === u.id ? camperName : ""} onFocus={() => { setAddingTo(u.id); setCamperName(""); }} onChange={e => setCamperName(e.target.value)} onKeyDown={e => e.key === "Enter" && addCamper(u.id)} />
               <button onClick={() => addCamper(u.id)} style={{ ...css.btn(), padding: "8px 12px" }}><Icon name="plus" size={14} color="#1a1612" /></button>
             </div>
           </div>
@@ -475,7 +478,7 @@ const WardsPage = ({ wards, applyResult }) => {
 
   const addWard = async () => {
     if (!wardForm.name.trim()) return;
-    const result = await createUnitAction(wardForm);
+    const result = await createWardAction(wardForm);
     if (applyResult(result)) {
       setWardForm({ name: "", leader: "", leader_email: "" });
       setModal(false);
@@ -483,7 +486,7 @@ const WardsPage = ({ wards, applyResult }) => {
   };
 
   const deleteWard = async (wardId) => {
-    const result = await deleteUnitAction(wardId);
+    const result = await deleteWardAction(wardId);
     applyResult(result);
   };
 
@@ -549,7 +552,7 @@ const CompetitionsPage = ({ competitions, pointLog, units, leaderNames, applyRes
     if (Math.abs(pts) > 100) return;
     const result = await awardPointsAction({
       competitionId: awardComp.id,
-      wardId: pointForm.unitId,
+      unitId: pointForm.unitId,
       points: pts,
       note: pointForm.note,
       leader: pointForm.leader,
@@ -1422,6 +1425,7 @@ export default function CampDesignApp({ initialData, profile }) {
   const [completingOnboarding, setCompletingOnboarding] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [units, setUnits] = useState(() => initialData?.units ?? EMPTY_ARRAY);
+  const [wards, setWards] = useState(() => initialData?.wards ?? EMPTY_ARRAY);
   const [activities, setActivities] = useState(() => initialData?.activities ?? EMPTY_ARRAY);
   const [competitions, setCompetitions] = useState(() => initialData?.competitions ?? EMPTY_ARRAY);
   const [pointLog, setPointLog] = useState(() => initialData?.pointLog ?? EMPTY_ARRAY);
@@ -1473,6 +1477,7 @@ export default function CampDesignApp({ initialData, profile }) {
 
   const applyData = (data) => {
     setUnits(data.units ?? []);
+    setWards(data.wards ?? []);
     setActivities(data.activities ?? []);
     setCompetitions(data.competitions ?? []);
     setPointLog(data.pointLog ?? []);
@@ -1511,6 +1516,51 @@ export default function CampDesignApp({ initialData, profile }) {
       setPage(routePage);
     }
   }, [pathname, page]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const refreshUnitsData = async () => {
+      if (page !== "units") {
+        return;
+      }
+
+      const result = await refreshCampDesignDataAction();
+      if (cancelled || !result.ok) {
+        return;
+      }
+
+      const data = result.data;
+      setUnits(data.units ?? []);
+      setWards(data.wards ?? []);
+      setActivities(data.activities ?? []);
+      setCompetitions(data.competitions ?? []);
+      setPointLog(data.pointLog ?? []);
+      setRegistrations(data.registrations ?? []);
+      setAgenda(data.agenda ?? {});
+      setContacts(data.contacts ?? []);
+      setLeaders(data.leaders ?? []);
+      setInspiration(data.inspiration ?? []);
+      setRules(data.rules ?? []);
+      setPhotos(data.photos ?? []);
+      setDocs(data.docs ?? []);
+      setUserProfiles(data.userProfiles ?? []);
+      setLeaderCallingOptions(data.leaderCallingOptions ?? []);
+      setProfileOptions(data.profileOptions ?? EMPTY_PROFILE_OPTIONS);
+      if (result.profile) {
+        setProfileData((previous) => ({
+          ...previous,
+          ...result.profile,
+        }));
+      }
+    };
+
+    void refreshUnitsData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [page]);
 
   const goToPage = (nextPage) => {
     const targetPath = PAGE_TO_PATH[nextPage];
@@ -1667,7 +1717,7 @@ export default function CampDesignApp({ initialData, profile }) {
     activities: <ActivitiesPage activities={activities} applyResult={applyResult} />,
     agenda: <AgendaPage agenda={agenda} applyResult={applyResult} />,
     units: <UnitsPage units={units} applyResult={applyResult} />,
-    wards: <WardsPage wards={units} applyResult={applyResult} />,
+    wards: <WardsPage wards={wards} applyResult={applyResult} />,
     competitions: <CompetitionsPage competitions={competitions} pointLog={pointLog} units={units} leaderNames={leaderNames} applyResult={applyResult} />,
     registration: <RegistrationPage registrations={registrations} wards={profileOptions.wards} applyResult={applyResult} />,
     photos: <PhotosPage photos={photos} />,
