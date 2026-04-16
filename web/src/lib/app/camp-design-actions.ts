@@ -14,7 +14,7 @@ import {
 
 type ActionResult =
   | { ok: true; data: CampDesignInitialData; profile?: ProfilePayload }
-  | { ok: true; data: null; onboardingDone: true }
+  | { ok: true; onboardingDone: true }
   | { ok: false; error: string };
 
 type ProfilePayload = {
@@ -103,7 +103,6 @@ type ProfileUpdateInput = {
   markOnboardingComplete?: boolean;
   phone?: string;
   wardId?: string | null;
-  youngMen?: YoungManInput[];
   signatureName?: string;
 };
 
@@ -422,7 +421,7 @@ export async function updateMyProfileAction(
     return fail(error.message);
   }
 
-  if (shouldCompleteOnboarding && onboardingCompletedAt && context.user.email) {
+  if (shouldCompleteOnboarding && onboardingCompletedAt) {
     // If user has a leadership role on their profile, ensure user_roles is in sync
     const { data: profileRow } = await supabase
       .from("user_profiles")
@@ -440,35 +439,10 @@ export async function updateMyProfileAction(
         console.error("[onboarding] failed to sync user_role:", err);
       }
     }
-
-    // Insert young men if provided (parent flow)
-    if (input.youngMen && input.youngMen.length > 0) {
-      const admin = createSupabaseAdminClient() as any;
-
-      const youngMenPayload = input.youngMen
-        .filter((ym) => ym.firstName?.trim() && ym.lastName?.trim())
-        .map((ym) => ({
-          parent_id: context.user.id,
-          first_name: ym.firstName.trim(),
-          last_name: ym.lastName.trim(),
-          age: Number(ym.age) || 12,
-          shirt_size_code: ym.shirtSizeCode?.trim() || null,
-          allergies: ym.allergies?.trim() || null,
-          medical_notes: ym.medicalNotes?.trim() || null,
-        }));
-
-      if (youngMenPayload.length > 0) {
-        const { error: ymError } = await admin.from("young_men").insert(youngMenPayload);
-        if (ymError) {
-          console.error("Failed to insert young men:", ymError);
-          return fail(`Profile saved but young men could not be added: ${ymError.message}`);
-        }
-      }
-    }
   }
 
   if (shouldCompleteOnboarding) {
-    return { ok: true as const, data: null, onboardingDone: true };
+    return { ok: true as const, onboardingDone: true };
   }
 
   return success({
@@ -479,6 +453,48 @@ export async function updateMyProfileAction(
     phone,
     wardId,
   });
+}
+
+/**
+ * Second step for parent onboarding only (mirrors leader flow: profile first,
+ * then a separate small write). Keeps admin young_men insert out of
+ * updateMyProfileAction so the onboarding completion payload matches leaders.
+ */
+export async function saveParentYoungMenAction(input: {
+  youngMen: YoungManInput[];
+}): Promise<ActionResult> {
+  const context = await getUserContext();
+  if (context.profileRole !== "parent") {
+    return fail("Only parent accounts can register young men here.");
+  }
+  if (!context.onboardingCompletedAt) {
+    return fail("Finish profile setup first, then try again.");
+  }
+
+  const rows = (input.youngMen ?? []).filter(
+    (ym) => ym.firstName?.trim() && ym.lastName?.trim(),
+  );
+  if (rows.length === 0) {
+    return { ok: true, onboardingDone: true };
+  }
+
+  const admin = createSupabaseAdminClient() as any;
+  const youngMenPayload = rows.map((ym) => ({
+    parent_id: context.user.id,
+    first_name: ym.firstName.trim(),
+    last_name: ym.lastName.trim(),
+    age: Number(ym.age) || 12,
+    shirt_size_code: ym.shirtSizeCode?.trim() || null,
+    allergies: ym.allergies?.trim() || null,
+    medical_notes: ym.medicalNotes?.trim() || null,
+  }));
+
+  const { error: ymError } = await admin.from("young_men").insert(youngMenPayload);
+  if (ymError) {
+    return fail(`Could not save young men: ${ymError.message}`);
+  }
+
+  return { ok: true, onboardingDone: true };
 }
 
 export async function createActivityAction(

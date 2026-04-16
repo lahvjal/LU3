@@ -24,6 +24,7 @@ import {
   sendParentInviteAction,
   signOutCampAction,
   updateMyProfileAction,
+  saveParentYoungMenAction,
 } from "@/lib/app/camp-design-actions";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
@@ -1883,7 +1884,6 @@ export default function CampDesignApp({ initialData, profile }) {
         phone: onboardingForm.phone,
         wardId: onboardingForm.wardId,
         markOnboardingComplete: true,
-        youngMen: isParent && extraData?.youngMen ? extraData.youngMen : undefined,
         signatureName: isParent && extraData?.signatureName ? extraData.signatureName : undefined,
       });
 
@@ -1892,12 +1892,27 @@ export default function CampDesignApp({ initialData, profile }) {
         return;
       }
 
-      if (result.onboardingDone) {
-        window.location.href = "/";
-        return;
+      if (isParent && extraData?.youngMen?.length) {
+        const youngMenPayload = extraData.youngMen.map((ym) => ({
+          firstName: ym.firstName,
+          lastName: ym.lastName,
+          age: ym.age,
+          shirtSizeCode: ym.shirtSizeCode,
+          allergies: ym.allergies,
+          medicalNotes: ym.medicalNotes,
+        }));
+        const ymResult = await saveParentYoungMenAction({ youngMen: youngMenPayload });
+        if (!ymResult.ok) {
+          window.alert(
+            `${ymResult.error}\n\nYour profile was saved. You can refresh the page and contact support if this keeps happening.`,
+          );
+          return;
+        }
       }
 
-      applyResult(result);
+      if (result.onboardingDone) {
+        window.location.href = "/";
+      }
     } catch (err) {
       window.alert(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
