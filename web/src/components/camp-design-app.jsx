@@ -9,6 +9,7 @@ import {
   createActivityAction,
   createAgendaItemAction,
   createCompetitionAction,
+  completeCompetitionAction,
   createWardAction,
   deleteLeaderInvitationAction,
   deleteActivityAction,
@@ -307,6 +308,44 @@ const EMPTY_PROFILE_OPTIONS = {
   shirtSizes: [],
 };
 
+const NOTE_EDITOR_LINE_HEIGHT = 1.45;
+
+/** Split note into plain text vs roster @Name segments (name must end before space/newline/end). */
+function splitNoteForMentionHighlight(note, youngMen) {
+  const names = Array.from(
+    new Set(youngMen.map((m) => (m.name || "").trim()).filter(Boolean)),
+  ).sort((a, b) => b.length - a.length || a.localeCompare(b));
+  const parts = [];
+  let i = 0;
+  while (i < note.length) {
+    if (note[i] !== "@") {
+      let j = i + 1;
+      while (j < note.length && note[j] !== "@") j++;
+      if (j > i) parts.push({ kind: "text", text: note.slice(i, j) });
+      i = j;
+      continue;
+    }
+    let matched = "";
+    for (const name of names) {
+      if (name && note.startsWith(name, i + 1)) {
+        const after = i + 1 + name.length;
+        if (after >= note.length || /[\s\n]/.test(note[after])) {
+          matched = name;
+          break;
+        }
+      }
+    }
+    if (matched) {
+      parts.push({ kind: "mention", text: `@${matched}` });
+      i += 1 + matched.length;
+    } else {
+      parts.push({ kind: "text", text: "@" });
+      i += 1;
+    }
+  }
+  return parts;
+}
+
 // ═══════════════════════════════════════════
 // PAGES
 // ═══════════════════════════════════════════
@@ -549,12 +588,36 @@ const WardsPage = ({ wards, applyResult, isLeader }) => {
   );
 };
 
-const CompetitionsPage = ({ competitions, pointLog, wards, leaderNames, applyResult, isLeader }) => {
+const CompetitionsPage = ({
+  competitions,
+  pointLog,
+  wards,
+  awardLeaderName,
+  mentionYoungMen = EMPTY_ARRAY,
+  applyResult,
+  isLeader,
+  canCompleteCompetition = false,
+}) => {
   const [expanded, setExpanded] = useState(null);
   const [modal, setModal] = useState(null);
   const [awardComp, setAwardComp] = useState(null);
+  const [completingId, setCompletingId] = useState(null);
   const [compForm, setCompForm] = useState({ name: "", rules: "", status: "upcoming" });
-  const [pointForm, setPointForm] = useState({ wardId: "", points: "", note: "", leader: "" });
+  const [pointForm, setPointForm] = useState({ wardId: "", points: "", note: "" });
+  const [mentionPicker, setMentionPicker] = useState(null);
+  const noteRef = useRef(null);
+  const noteMirrorInnerRef = useRef(null);
+
+  const noteHighlightParts = useMemo(
+    () => splitNoteForMentionHighlight(pointForm.note, mentionYoungMen),
+    [pointForm.note, mentionYoungMen],
+  );
+
+  const syncNoteMirrorScroll = (el) => {
+    const inner = noteMirrorInnerRef.current;
+    if (!inner || !el) return;
+    inner.style.transform = `translate(${-el.scrollLeft}px, ${-el.scrollTop}px)`;
+  };
 
   const totals = useMemo(() => { const t = {}; wards.forEach(w => { t[w.id] = 0; }); pointLog.forEach(p => { t[p.wardId] = (t[p.wardId] || 0) + p.points; }); return t; }, [pointLog, wards]);
   const leaderboard = useMemo(() => Object.entries(totals).map(([wid, pts]) => ({ ward: wards.find(w => w.id === wid), pts })).filter(e => e.ward).sort((a, b) => b.pts - a.pts), [totals, wards]);
@@ -571,23 +634,105 @@ const CompetitionsPage = ({ competitions, pointLog, wards, leaderNames, applyRes
     const result = await deleteCompetitionAction(id);
     applyResult(result);
   };
-  const openAward = (c) => { setAwardComp(c); setPointForm({ wardId: wards[0]?.id || "", points: "", note: "", leader: "" }); setModal("points"); };
+  const markComplete = async (id) => {
+    if (!id || completingId) return;
+    setCompletingId(id);
+    try {
+      const result = await completeCompetitionAction(id);
+      applyResult(result);
+    } finally {
+      setCompletingId(null);
+    }
+  };
+  const openAward = (c) => {
+    if (c.status === "completed") return;
+    setAwardComp(c);
+    setMentionPicker(null);
+    setPointForm({ wardId: wards[0]?.id || "", points: "", note: "" });
+    setModal("points");
+  };
+
+  const displayAwardLeader = (awardLeaderName || "").trim() || "No display name in profile";
+
+  const handlePointsInput = (raw) => {
+    let v = raw.replace(/[^\d-]/g, "");
+    if (v.startsWith("-")) {
+      v = `-${v.slice(1).replace(/-/g, "")}`;
+    } else {
+      v = v.replace(/-/g, "");
+    }
+    setPointForm((p) => ({ ...p, points: v }));
+  };
+
+  const handleNoteChange = (e) => {
+    const note = e.target.value;
+    const sel = typeof e.target.selectionStart === "number" ? e.target.selectionStart : note.length;
+    setPointForm((p) => ({ ...p, note }));
+    const before = note.slice(0, sel);
+    const at = before.lastIndexOf("@");
+    if (at === -1) {
+      setMentionPicker(null);
+      return;
+    }
+    const afterAt = before.slice(at + 1);
+    if (afterAt.includes("\n")) {
+      setMentionPicker(null);
+      return;
+    }
+    setMentionPicker({ anchor: at, caret: sel, query: afterAt });
+  };
+
+  const bumpNoteField = (e) => {
+    handleNoteChange(e);
+    syncNoteMirrorScroll(e.currentTarget);
+  };
+
+  const pickYoungManMention = (ym) => {
+    if (!mentionPicker) return;
+    const { anchor, caret } = mentionPicker;
+    const note = pointForm.note;
+    const name = (ym.name || "").trim();
+    if (!name) return;
+    const next = `${note.slice(0, anchor)}@${name} ${note.slice(caret)}`;
+    setPointForm((p) => ({ ...p, note: next }));
+    setMentionPicker(null);
+    requestAnimationFrame(() => {
+      const el = noteRef.current;
+      if (!el) return;
+      const pos = anchor + name.length + 2;
+      el.focus();
+      try {
+        el.setSelectionRange(pos, pos);
+      } catch {
+        /* ignore */
+      }
+      syncNoteMirrorScroll(el);
+    });
+  };
+
   const award = async () => {
     const pts = parseInt(pointForm.points, 10);
-    if (!pts || !pointForm.wardId || !pointForm.leader || !pointForm.note || !awardComp?.id) return;
-    if (Math.abs(pts) > 100) return;
+    if (!pointForm.wardId || !pointForm.note.trim() || !awardComp?.id) return;
+    if (Number.isNaN(pts) || pts === 0 || Math.abs(pts) > 100) return;
     const result = await awardPointsAction({
       competitionId: awardComp.id,
       wardId: pointForm.wardId,
       points: pts,
       note: pointForm.note,
-      leader: pointForm.leader,
+      leader: (awardLeaderName || "").trim(),
     });
     if (applyResult(result)) {
-      setPointForm({ wardId: wards[0]?.id || "", points: "", note: "", leader: "" });
+      setMentionPicker(null);
+      setPointForm({ wardId: wards[0]?.id || "", points: "", note: "" });
       setModal(null);
     }
   };
+
+  const mentionMatches = useMemo(() => {
+    const q = (mentionPicker?.query ?? "").trim().toLowerCase();
+    if (!q) return mentionYoungMen.slice(0, 12);
+    return mentionYoungMen.filter((m) => m.name.toLowerCase().includes(q)).slice(0, 12);
+  }, [mentionPicker, mentionYoungMen]);
 
   return (
     <div>
@@ -598,14 +743,167 @@ const CompetitionsPage = ({ competitions, pointLog, wards, leaderNames, applyRes
         <Field label="Status"><select style={css.select} value={compForm.status} onChange={e => setCompForm(p => ({ ...p, status: e.target.value }))}><option value="upcoming">Upcoming</option><option value="active">Active</option><option value="completed">Completed</option></select></Field>
         <button onClick={addComp} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px" }}>Create Competition</button>
       </Modal>
-      <Modal open={modal === "points"} onClose={() => setModal(null)} title={`Award Points — ${awardComp?.name || ""}`}>
-        <Field label="Your Name (Leader)"><select style={css.select} value={pointForm.leader} onChange={e => setPointForm(p => ({ ...p, leader: e.target.value }))}><option value="">Select your name...</option>{leaderNames.map(n => <option key={n} value={n}>{n}</option>)}</select></Field>
+      <Modal open={modal === "points"} onClose={() => { setMentionPicker(null); setModal(null); }} title={`Award Points — ${awardComp?.name || ""}`}>
+        <Field label="Awarding as">
+          <div style={{ ...css.input, display: "flex", alignItems: "center", color: T.textMuted, cursor: "default" }}>{displayAwardLeader}</div>
+        </Field>
         <Field label="Ward"><select style={css.select} value={pointForm.wardId} onChange={e => setPointForm(p => ({ ...p, wardId: e.target.value }))}>{wards.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select></Field>
-        <Field label="Points (negative for deductions, max ±100)"><input style={css.input} type="number" min="-100" max="100" value={pointForm.points} onChange={e => setPointForm(p => ({ ...p, points: e.target.value }))} placeholder="25 or -5" /></Field>
-        <Field label="Note (required)"><textarea style={{ ...css.input, minHeight: "60px", resize: "vertical" }} value={pointForm.note} onChange={e => setPointForm(p => ({ ...p, note: e.target.value }))} placeholder="Won round 2, Best presentation..." /></Field>
+        <Field label="Points (negative for deductions, max ±100)">
+          <input
+            style={css.input}
+            type="text"
+            inputMode="decimal"
+            enterKeyHint="done"
+            autoComplete="off"
+            name="competition-points"
+            value={pointForm.points}
+            onChange={(e) => handlePointsInput(e.target.value)}
+            placeholder="25 or -5"
+          />
+        </Field>
+        <Field label="Note (required) — type @ to tag a young man">
+          <div style={{ position: "relative" }}>
+            <div style={{ display: "grid", width: "100%" }}>
+              <div
+                aria-hidden
+                style={{
+                  gridArea: "1 / 1",
+                  minHeight: "60px",
+                  padding: "10px 14px",
+                  borderRadius: T.radiusSm,
+                  border: `1px solid ${T.border}`,
+                  background: T.bgInput,
+                  color: T.text,
+                  fontSize: "14px",
+                  fontFamily: T.font,
+                  lineHeight: NOTE_EDITOR_LINE_HEIGHT,
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  overflow: "hidden",
+                  pointerEvents: "none",
+                  zIndex: 0,
+                  boxSizing: "border-box",
+                  textAlign: "left",
+                }}
+              >
+                <div ref={noteMirrorInnerRef} style={{ transform: "translate(0px, 0px)" }}>
+                  {noteHighlightParts.map((part, idx) =>
+                    part.kind === "mention" ? (
+                      <span
+                        key={idx}
+                        style={{
+                          background: `${T.accent}40`,
+                          color: T.accentLight,
+                          borderRadius: "4px",
+                          padding: "0 3px",
+                          boxDecorationBreak: "clone",
+                          WebkitBoxDecorationBreak: "clone",
+                        }}
+                      >
+                        {part.text}
+                      </span>
+                    ) : (
+                      <span key={idx}>{part.text}</span>
+                    ),
+                  )}
+                </div>
+              </div>
+              <textarea
+                ref={noteRef}
+                style={{
+                  gridArea: "1 / 1",
+                  minHeight: "60px",
+                  padding: "10px 14px",
+                  borderRadius: T.radiusSm,
+                  border: `1px solid ${T.border}`,
+                  background: "transparent",
+                  color: "transparent",
+                  caretColor: T.text,
+                  fontSize: "14px",
+                  fontFamily: T.font,
+                  lineHeight: NOTE_EDITOR_LINE_HEIGHT,
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  resize: "vertical",
+                  overflow: "auto",
+                  outline: "none",
+                  zIndex: 1,
+                  boxSizing: "border-box",
+                }}
+                value={pointForm.note}
+                onChange={bumpNoteField}
+                onKeyUp={bumpNoteField}
+                onClick={bumpNoteField}
+                onSelect={bumpNoteField}
+                onScroll={(e) => syncNoteMirrorScroll(e.currentTarget)}
+                placeholder="Won round 2, Best presentation… Type @ then a name"
+              />
+            </div>
+            {mentionPicker && mentionMatches.length > 0 ? (
+              <div
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  right: 0,
+                  top: "100%",
+                  marginTop: "4px",
+                  maxHeight: "200px",
+                  overflowY: "auto",
+                  background: T.bgCard,
+                  border: `1px solid ${T.border}`,
+                  borderRadius: T.radiusSm,
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+                  zIndex: 50,
+                }}
+              >
+                {mentionMatches.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => pickYoungManMention(m)}
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      textAlign: "left",
+                      padding: "10px 12px",
+                      border: "none",
+                      borderBottom: `1px solid ${T.border}`,
+                      background: "transparent",
+                      color: T.text,
+                      fontSize: "13px",
+                      cursor: "pointer",
+                      fontFamily: T.font,
+                    }}
+                  >
+                    <span style={{ fontWeight: 600 }}>{m.name}</span>
+                    <span style={{ color: T.textDim, fontSize: "11px", marginLeft: "8px" }}>{m.wardName}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </Field>
         <div style={{ display: "flex", gap: "10px" }}>
-          <button onClick={() => setModal(null)} style={{ ...css.btn("ghost"), flex: 1, justifyContent: "center" }}>Cancel</button>
-          <button onClick={award} style={{ ...css.btn(), flex: 1, justifyContent: "center", padding: "12px", opacity: (!pointForm.points || !pointForm.leader || !pointForm.note) ? 0.5 : 1 }}>Award Points</button>
+          <button onClick={() => { setMentionPicker(null); setModal(null); }} style={{ ...css.btn("ghost"), flex: 1, justifyContent: "center" }}>Cancel</button>
+          <button
+            onClick={award}
+            style={{
+              ...css.btn(),
+              flex: 1,
+              justifyContent: "center",
+              padding: "12px",
+              opacity:
+                !pointForm.points ||
+                !pointForm.note.trim() ||
+                Number.isNaN(parseInt(pointForm.points, 10)) ||
+                parseInt(pointForm.points, 10) === 0
+                  ? 0.5
+                  : 1,
+            }}
+          >
+            Award Points
+          </button>
         </div>
       </Modal>
 
@@ -630,16 +928,67 @@ const CompetitionsPage = ({ competitions, pointLog, wards, leaderNames, applyRes
       <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
         {competitions.map(c => {
           const isExp = expanded === c.id;
+          const isComplete = c.status === "completed";
           const logs = pointLog.filter(p => p.compId === c.id);
           const ct = {}; wards.forEach(w => { ct[w.id] = 0; }); logs.forEach(l => { ct[l.wardId] = (ct[l.wardId] || 0) + l.points; });
           return (
-            <div key={c.id} style={{ ...css.card, padding: 0, overflow: "hidden" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "14px", padding: "16px 20px", cursor: "pointer" }} onClick={() => setExpanded(isExp ? null : c.id)}>
+            <div
+              key={c.id}
+              style={{
+                ...css.card,
+                padding: 0,
+                overflow: "hidden",
+                opacity: isComplete ? 0.72 : 1,
+                background: isComplete ? "#1c1916" : T.bgCard,
+                border: `1px solid ${isComplete ? "#2f2a24" : T.border}`,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "16px 20px", cursor: "pointer", flexWrap: "wrap" }} onClick={() => setExpanded(isExp ? null : c.id)}>
                 <div style={{ transform: isExp ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.2s" }}><Icon name="chevRight" size={18} color={T.textDim} /></div>
-                <h4 style={{ color: T.text, margin: 0, flex: 1, fontSize: "16px" }}>{c.name}</h4>
+                <h4 style={{ color: isComplete ? T.textMuted : T.text, margin: 0, flex: "1 1 140px", fontSize: "16px" }}>{c.name}</h4>
                 <StatusBadge status={c.status} />
-                {isLeader && <button onClick={e => { e.stopPropagation(); openAward(c); }} style={{ ...css.btn(), padding: "6px 12px", fontSize: "12px" }}><Icon name="plus" size={14} color="#1a1612" /> Award</button>}
-                {isLeader && <button onClick={e => { e.stopPropagation(); delComp(c.id); }} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.4 }}><Icon name="trash" size={14} color={T.red} /></button>}
+                {canCompleteCompetition && !isComplete ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      markComplete(c.id);
+                    }}
+                    disabled={completingId === c.id}
+                    style={{
+                      ...css.btn("ghost"),
+                      padding: "6px 12px",
+                      fontSize: "12px",
+                      opacity: completingId === c.id ? 0.6 : 1,
+                      cursor: completingId === c.id ? "wait" : "pointer",
+                    }}
+                  >
+                    <Icon name="check" size={14} color={T.textMuted} />
+                    {completingId === c.id ? "Saving…" : "Mark complete"}
+                  </button>
+                ) : null}
+                {isLeader ? (
+                  <button
+                    type="button"
+                    disabled={isComplete}
+                    title={isComplete ? "This competition is completed." : undefined}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!isComplete) openAward(c);
+                    }}
+                    style={{
+                      ...css.btn(),
+                      padding: "6px 12px",
+                      fontSize: "12px",
+                      opacity: isComplete ? 0.45 : 1,
+                      cursor: isComplete ? "not-allowed" : "pointer",
+                      pointerEvents: isComplete ? "none" : "auto",
+                    }}
+                  >
+                    <Icon name="plus" size={14} color={isComplete ? T.textDim : "#1a1612"} /> Award
+                  </button>
+                ) : null}
+                {isLeader && <button type="button" onClick={(e) => { e.stopPropagation(); delComp(c.id); }} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.4 }}><Icon name="trash" size={14} color={T.red} /></button>}
               </div>
               {isExp && <div style={{ borderTop: `1px solid ${T.border}` }}>
                 <div style={{ padding: "16px 20px", background: "rgba(255,255,255,0.01)" }}><p style={{ fontSize: "13px", color: T.textMuted, margin: 0 }}><strong style={{ color: T.text }}>Rules:</strong> {c.rules}</p></div>
@@ -653,7 +1002,7 @@ const CompetitionsPage = ({ competitions, pointLog, wards, leaderNames, applyRes
                         <div style={{ minWidth: "50px", textAlign: "right" }}><span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "15px", color: isNeg ? T.red : T.green }}>{isNeg ? "" : "+"}{l.points}</span></div>
                         <div style={{ width: "10px", height: "10px", borderRadius: "50%", background: wc, marginTop: "5px", flexShrink: 0 }} />
                         <div style={{ flex: 1 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "3px" }}><span style={{ fontWeight: 600, color: T.text, fontSize: "13px" }}>{unit?.name || "?"}</span>{isNeg && <Badge bg={T.redBg} text={T.red}>deduction</Badge>}</div>
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "3px" }}><span style={{ fontWeight: 600, color: T.text, fontSize: "13px" }}>{ward?.name || "?"}</span>{isNeg && <Badge bg={T.redBg} text={T.red}>deduction</Badge>}</div>
                           <p style={{ fontSize: "13px", color: T.textMuted, margin: "0 0 4px", lineHeight: 1.4 }}>{l.note}</p>
                           <div style={{ fontSize: "11px", color: T.textDim }}>by <strong style={{ color: T.textMuted }}>{l.leader}</strong> · {l.timestamp}</div>
                         </div>
@@ -778,6 +1127,12 @@ const RegistrationPage = ({ registrations, applyResult, isLeader }) => {
   };
 
   const del = async (parentId) => {
+    const ok = window.confirm(
+      "Permanently delete this parent’s Supabase login? Their profile, linked young men, and related data will be removed (cascade). This cannot be undone.",
+    );
+    if (!ok) {
+      return;
+    }
     const result = await deleteParentAction(parentId);
     applyResult(result);
   };
@@ -986,6 +1341,12 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult, isLeader }) 
   };
 
   const removeInvite = async (invitationId) => {
+    const ok = window.confirm(
+      "Permanently delete this leader’s Supabase login? Their profile and roles will be removed. They will need a new invite to sign in again.",
+    );
+    if (!ok) {
+      return;
+    }
     const result = await deleteLeaderInvitationAction(invitationId);
     applyResult(result);
   };
@@ -2006,17 +2367,18 @@ export default function CampDesignApp({ initialData, profile }) {
     setPage(nextPage);
   };
 
-  const leaderNames = Array.from(
-    new Set(
-      [
-        ...leaders
-          .filter((leader) => leader.status === "active")
-          .map((leader) => leader.name),
-      ]
-        .map((value) => value.trim())
-        .filter(Boolean),
-    ),
-  );
+  const mentionYoungMen = useMemo(() => {
+    const list = [];
+    for (const w of wards) {
+      for (const c of w.campers ?? []) {
+        const name = (c?.name ?? "").trim();
+        if (!c?.id || !name) continue;
+        list.push({ id: c.id, name, wardName: (w.name ?? "").trim() });
+      }
+    }
+    list.sort((a, b) => a.name.localeCompare(b.name));
+    return list;
+  }, [wards]);
 
   const handleSignOut = async () => {
     if (signingOut) return;
@@ -2232,7 +2594,20 @@ export default function CampDesignApp({ initialData, profile }) {
     agenda: <AgendaPage agenda={agenda} applyResult={applyResult} isLeader={isLeader} />,
     wardRosters: <WardRostersPage wards={wards} leaders={leaders} />,
     wards: <WardsPage wards={wards} applyResult={applyResult} isLeader={isLeader} />,
-    competitions: <CompetitionsPage competitions={competitions} pointLog={pointLog} wards={wards} leaderNames={leaderNames} applyResult={applyResult} isLeader={isLeader} />,
+    competitions: (
+      <CompetitionsPage
+        competitions={competitions}
+        pointLog={pointLog}
+        wards={wards}
+        awardLeaderName={profileData.displayName ?? ""}
+        mentionYoungMen={mentionYoungMen}
+        applyResult={applyResult}
+        isLeader={isLeader}
+        canCompleteCompetition={
+          profileData.canAwardCompetitionPoints || profileData.canManageContent
+        }
+      />
+    ),
     registration: <RegistrationPage registrations={registrations} applyResult={applyResult} isLeader={isLeader} />,
     photos: <PhotosPage photos={photos} />,
     contacts: <ContactsPage contacts={contacts} applyResult={applyResult} isLeader={isLeader} />,

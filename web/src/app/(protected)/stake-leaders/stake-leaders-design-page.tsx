@@ -679,7 +679,7 @@ export default function StakeLeadersDesignPage({
 
   const removeInvite = async (invitationId: string) => {
     const confirmed = window.confirm(
-      "Delete this leader invitation and remove any assigned role?",
+      "Permanently delete this leader’s Supabase login? Their profile and roles will be removed. They will need a new invite to sign in again.",
     );
     if (!confirmed) {
       return;

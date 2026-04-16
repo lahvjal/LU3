@@ -45,7 +45,6 @@ type CompetitionPointRow = {
   id: string;
   competition_id: string;
   ward_id: string | null;
-  unit_id: string | null;
   points: number;
   reason: string | null;
   awarded_at: string;
@@ -443,7 +442,7 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
     supabase
       .from("competition_points")
       .select(
-        "id, competition_id, ward_id, unit_id, points, reason, awarded_at, awarded_by_name",
+        "id, competition_id, ward_id, points, reason, awarded_at, awarded_by_name",
       )
       .order("awarded_at"),
     supabase

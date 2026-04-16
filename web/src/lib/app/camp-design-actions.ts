@@ -733,6 +733,31 @@ export async function deleteCompetitionAction(
   return success();
 }
 
+export async function completeCompetitionAction(
+  competitionId: string,
+): Promise<ActionResult> {
+  const context = await getUserContext();
+  if (!context.canManageContent && !context.canAwardCompetitionPoints) {
+    return fail("You do not have permission to complete competitions.");
+  }
+
+  if (!competitionId) {
+    return fail("Competition is required.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase
+    .from("competitions")
+    .update({ status: "completed" })
+    .eq("id", competitionId);
+
+  if (error) {
+    return fail(error.message);
+  }
+
+  return success();
+}
+
 export async function awardPointsAction(
   input: AwardPointsInput,
 ): Promise<ActionResult> {
@@ -741,11 +766,36 @@ export async function awardPointsAction(
     return fail("You do not have permission to award points.");
   }
 
-  if (!input.competitionId || !input.wardId || input.points <= 0) {
-    return fail("Competition, ward, and a positive point value are required.");
+  if (!input.competitionId || !input.wardId) {
+    return fail("Competition and ward are required.");
   }
 
   const supabase = await createSupabaseServerClient();
+  const { data: competitionRow, error: competitionError } = await supabase
+    .from("competitions")
+    .select("id, status")
+    .eq("id", input.competitionId)
+    .maybeSingle();
+
+  if (competitionError) {
+    return fail(competitionError.message);
+  }
+  if (!competitionRow) {
+    return fail("Competition not found.");
+  }
+  if (competitionRow.status === "completed") {
+    return fail("This competition is completed. Points can no longer be awarded.");
+  }
+
+  if (
+    typeof input.points !== "number" ||
+    Number.isNaN(input.points) ||
+    input.points === 0 ||
+    Math.abs(input.points) > 100
+  ) {
+    return fail("Enter a non-zero point value between -100 and 100.");
+  }
+
   const { error } = await supabase.from("competition_points").insert({
     competition_id: input.competitionId,
     ward_id: input.wardId,
@@ -898,23 +948,29 @@ export async function deleteParentAction(
     return fail("You do not have permission to delete registrations.");
   }
 
+  if (parentUserId === context.user.id) {
+    return fail("You cannot delete your own account.");
+  }
+
   const admin = createSupabaseAdminClient() as any;
 
-  // Null out parent-specific data rather than deleting the auth user
-  const { error } = await admin
+  const { data: profile, error: fetchError } = await admin
     .from("user_profiles")
-    .update({
-      role: null,
-      terms_accepted_at: null,
-      signature_name: null,
-      invited_by: null,
-      invited_at: null,
-    })
+    .select("user_id, role")
     .eq("user_id", parentUserId)
-    .eq("role", "parent");
+    .maybeSingle();
 
-  if (error) {
-    return fail(error.message);
+  if (fetchError || !profile?.user_id) {
+    return fail(fetchError?.message ?? "Parent not found.");
+  }
+
+  if (profile.role !== "parent") {
+    return fail("This row is not a parent registration.");
+  }
+
+  const { error: authError } = await admin.auth.admin.deleteUser(parentUserId);
+  if (authError) {
+    return fail(authError.message);
   }
 
   return success();
@@ -1285,10 +1341,14 @@ export async function deleteLeaderInvitationAction(
     return fail("You do not have permission to delete invitations.");
   }
 
-  const supabase = await createSupabaseServerClient();
-  const { data: profile, error: profileError } = await supabase
+  if (leaderUserId === context.user.id) {
+    return fail("You cannot delete your own account.");
+  }
+
+  const admin = createSupabaseAdminClient() as any;
+  const { data: profile, error: profileError } = await admin
     .from("user_profiles")
-    .select("user_id, role, ward_id")
+    .select("user_id")
     .eq("user_id", leaderUserId)
     .maybeSingle();
 
@@ -1296,39 +1356,9 @@ export async function deleteLeaderInvitationAction(
     return fail(profileError?.message ?? "Leader not found.");
   }
 
-  if (
-    profile.role &&
-    (isCampStaffRole(profile.role) || profile.role === "young_men_captain")
-  ) {
-    try {
-      await removeUserRoleRow(
-        supabase,
-        leaderUserId,
-        profile.role as AppRole,
-        userRolesWardIdForRole(profile.role as AppRole, profile.ward_id),
-      );
-    } catch (error) {
-      return fail(
-        error instanceof Error
-          ? error.message
-          : "Unable to remove assigned role from user.",
-      );
-    }
-  }
-
-  const admin = createSupabaseAdminClient() as any;
-  const { error: updateError } = await admin
-    .from("user_profiles")
-    .update({
-      role: null,
-      calling_id: null,
-      invited_by: null,
-      invited_at: null,
-    })
-    .eq("user_id", leaderUserId);
-
-  if (updateError) {
-    return fail(updateError.message);
+  const { error: authError } = await admin.auth.admin.deleteUser(leaderUserId);
+  if (authError) {
+    return fail(authError.message);
   }
 
   return success();
