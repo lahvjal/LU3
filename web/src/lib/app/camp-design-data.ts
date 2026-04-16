@@ -71,19 +71,32 @@ type CompetitionPointRow = {
   awarded_by_name: string | null;
 };
 
-type ParentRegistrationRow = {
+type ParentRow = {
   id: string;
-  parent_name: string;
-  parent_phone: string | null;
-  child_first_name: string;
-  child_last_name: string;
-  child_age: number;
-  preferred_unit_name: string | null;
-  shirt_size_preference: string | null;
+  user_id: string | null;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string | null;
+  ward_id: string | null;
+  registration_status: "not_invited_yet" | "pending" | "active";
+  invite_status: "not_sent" | "sent" | "accepted";
+  terms_accepted_at: string | null;
+  onboarding_completed_at: string | null;
+  invited_at: string | null;
+  created_at: string;
+};
+
+type YoungManRow = {
+  id: string;
+  parent_id: string;
+  first_name: string;
+  last_name: string;
+  age: number;
+  photo_url: string | null;
   shirt_size_code: string | null;
+  allergies: string | null;
   medical_notes: string | null;
-  status: "pending" | "approved" | "waitlisted" | "declined";
-  ward: { name: string } | { name: string }[] | null;
 };
 
 type AgendaRow = {
@@ -204,16 +217,26 @@ type DesignPoint = {
   timestamp: string;
 };
 
+type DesignRegistrationYoungMan = {
+  id: string;
+  name: string;
+  age: number;
+  shirtSize: string;
+  allergies: string;
+  medical: string;
+};
+
 type DesignRegistration = {
   id: string;
-  child: string;
-  age: number;
-  parent: string;
+  parentName: string;
+  email: string;
   phone: string;
-  tshirt: string;
-  unit: string;
-  medical: string;
-  status: "pending" | "approved" | "waitlisted" | "declined";
+  wardId: string | null;
+  wardName: string;
+  registrationStatus: "not_invited_yet" | "pending" | "active";
+  inviteStatus: "not_sent" | "sent" | "accepted";
+  invitedAt: string | null;
+  youngMen: DesignRegistrationYoungMan[];
 };
 
 type DesignAgendaItem = {
@@ -440,7 +463,8 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
     { data: activityRows },
     { data: competitionRows },
     { data: pointRows },
-    { data: registrationRows },
+    { data: parentRows },
+    { data: youngManRows },
     { data: agendaRows },
     { data: contactRows },
     { data: leaderInvitationRows },
@@ -490,9 +514,15 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
       )
       .order("awarded_at"),
     supabase
-      .from("parent_registrations")
+      .from("parents")
       .select(
-        "id, parent_name, parent_phone, child_first_name, child_last_name, child_age, preferred_unit_name, shirt_size_preference, shirt_size_code, medical_notes, status, ward:wards(name)",
+        "id, user_id, first_name, last_name, email, phone, ward_id, registration_status, invite_status, terms_accepted_at, onboarding_completed_at, invited_at, created_at",
+      )
+      .order("created_at"),
+    supabase
+      .from("young_men")
+      .select(
+        "id, parent_id, first_name, last_name, age, photo_url, shirt_size_code, allergies, medical_notes",
       )
       .order("created_at"),
     supabase
@@ -552,7 +582,8 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
   const activitiesRaw = (activityRows ?? []) as ActivityRow[];
   const competitionsRaw = (competitionRows ?? []) as CompetitionRow[];
   const pointsRaw = (pointRows ?? []) as CompetitionPointRow[];
-  const registrationsRaw = (registrationRows ?? []) as ParentRegistrationRow[];
+  const parentsRaw = (parentRows ?? []) as ParentRow[];
+  const youngMenRaw = (youngManRows ?? []) as YoungManRow[];
   const agendaRaw = (agendaRows ?? []) as AgendaRow[];
   const contactsRaw = (contactRows ?? []) as ContactRow[];
   const leaderInvitationsRaw = (leaderInvitationRows ?? []) as LeaderInvitationRow[];
@@ -655,22 +686,33 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
     })
     .filter((value): value is DesignPoint => value !== null);
 
-  const registrations: DesignRegistration[] = registrationsRaw.map((registration) => {
-    const wardName = resolveWardName(registration.ward);
-    const shirtFromCode = registration.shirt_size_code
-      ? SHIRT_CODE_TO_DISPLAY[registration.shirt_size_code]
-      : "";
+  const youngMenByParent = new Map<string, YoungManRow[]>();
+  youngMenRaw.forEach((ym) => {
+    const list = youngMenByParent.get(ym.parent_id) ?? [];
+    list.push(ym);
+    youngMenByParent.set(ym.parent_id, list);
+  });
 
+  const registrations: DesignRegistration[] = parentsRaw.map((parent) => {
+    const ymRows = youngMenByParent.get(parent.id) ?? [];
     return {
-      id: registration.id,
-      child: `${registration.child_first_name} ${registration.child_last_name}`,
-      age: registration.child_age,
-      parent: registration.parent_name,
-      phone: registration.parent_phone ?? "",
-      tshirt: registration.shirt_size_preference ?? shirtFromCode ?? "",
-      unit: wardName || registration.preferred_unit_name || "",
-      medical: registration.medical_notes ?? "None",
-      status: registration.status,
+      id: parent.id,
+      parentName: `${parent.first_name} ${parent.last_name}`,
+      email: parent.email,
+      phone: parent.phone ?? "",
+      wardId: parent.ward_id,
+      wardName: parent.ward_id ? (wardNameById.get(parent.ward_id) ?? "") : "",
+      registrationStatus: parent.registration_status,
+      inviteStatus: parent.invite_status,
+      invitedAt: parent.invited_at,
+      youngMen: ymRows.map((ym) => ({
+        id: ym.id,
+        name: `${ym.first_name} ${ym.last_name}`,
+        age: ym.age,
+        shirtSize: ym.shirt_size_code ? (SHIRT_CODE_TO_DISPLAY[ym.shirt_size_code] ?? ym.shirt_size_code) : "",
+        allergies: ym.allergies ?? "",
+        medical: ym.medical_notes ?? "",
+      })),
     };
   });
 

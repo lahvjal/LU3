@@ -1,5 +1,6 @@
 import type { User } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export type AppRole =
@@ -94,20 +95,9 @@ export async function getUserContext(
     .select("role, ward_id, participant_id")
     .order("role");
 
-  const roles = (roleRows ?? []) as UserRoleRow[];
+  const roles: UserRoleRow[] = (roleRows ?? []) as UserRoleRow[];
   const roleSet = new Set<AppRole>(roles.map((role) => role.role));
-  const wardIds = [...new Set(roles.map((role) => role.ward_id).filter(Boolean))] as string[];
-
-  const isStakeAdmin =
-    roleSet.has("stake_leader") || roleSet.has("stake_camp_director");
-  const canManageContent = isStakeAdmin || roleSet.has("camp_committee");
-  const canManageUnits = isStakeAdmin || roleSet.has("ward_leader");
-  const canManageRegistrations =
-    canManageContent ||
-    roleSet.has("ward_leader") ||
-    roleSet.has("young_men_captain");
-  const isLeader = canManageRegistrations;
-  const isCamper = roleSet.has("young_man");
+  const wardIds: string[] = [...new Set(roles.map((role) => role.ward_id).filter(Boolean))] as string[];
 
   let displayName =
     (user.user_metadata?.full_name as string | undefined)?.trim() ||
@@ -145,20 +135,6 @@ export async function getUserContext(
     age = profileRow.age ?? null;
   }
 
-  const managedWardIds = isStakeAdmin
-    ? wardIds
-    : ([
-        ...new Set(
-          roles
-            .filter(
-              (role) =>
-                role.role === "ward_leader" || role.role === "young_men_captain",
-            )
-            .map((role) => role.ward_id)
-            .filter(Boolean),
-        ),
-      ] as string[]);
-
   let isCompetitionStaff = false;
   if (user.email) {
     const { data: contactRows, error } = await supabase
@@ -172,6 +148,87 @@ export async function getUserContext(
       isCompetitionStaff = true;
     }
   }
+
+  if (onboardingCompletedAt && roles.length === 0 && user.email) {
+    try {
+      const admin = createSupabaseAdminClient() as any;
+      const normalizedEmail = user.email.trim().toLowerCase();
+      const { data: pendingInvites } = await admin
+        .from("leader_invitations")
+        .select("id, role, ward_id")
+        .ilike("email", normalizedEmail)
+        .eq("status", "pending");
+
+      if (pendingInvites && pendingInvites.length > 0) {
+        for (const inv of pendingInvites as Array<{ id: string; role: string; ward_id: string | null }>) {
+          const roleValue = inv.role as AppRole;
+          if (roleValue === "young_man") continue;
+
+          await admin.from("user_roles").upsert(
+            {
+              user_id: user.id,
+              role: roleValue,
+              ward_id: inv.ward_id ?? null,
+              participant_id: null,
+            },
+            { onConflict: "user_id,role,ward_id" },
+          );
+
+          await admin
+            .from("leader_invitations")
+            .update({
+              user_id: user.id,
+              status: "active",
+              accepted_at: onboardingCompletedAt,
+            })
+            .eq("id", inv.id);
+        }
+
+        const { data: refreshedRoles } = await supabase
+          .from("user_roles")
+          .select("role, ward_id, participant_id")
+          .order("role");
+
+        if (refreshedRoles && refreshedRoles.length > 0) {
+          roles.length = 0;
+          roles.push(...(refreshedRoles as UserRoleRow[]));
+          roleSet.clear();
+          roles.forEach((r) => roleSet.add(r.role));
+          wardIds.length = 0;
+          wardIds.push(
+            ...([...new Set(roles.map((r) => r.ward_id).filter(Boolean))] as string[]),
+          );
+        }
+      }
+    } catch (err) {
+      console.error("Fallback leader sync failed:", err);
+    }
+  }
+
+  const isStakeAdmin =
+    roleSet.has("stake_leader") || roleSet.has("stake_camp_director");
+  const canManageContent = isStakeAdmin || roleSet.has("camp_committee");
+  const canManageUnits = isStakeAdmin || roleSet.has("ward_leader");
+  const canManageRegistrations =
+    canManageContent ||
+    roleSet.has("ward_leader") ||
+    roleSet.has("young_men_captain");
+  const isLeader = canManageRegistrations;
+  const isCamper = roleSet.has("young_man");
+
+  const managedWardIds = isStakeAdmin
+    ? wardIds
+    : ([
+        ...new Set(
+          roles
+            .filter(
+              (role) =>
+                role.role === "ward_leader" || role.role === "young_men_captain",
+            )
+            .map((role) => role.ward_id)
+            .filter(Boolean),
+        ),
+      ] as string[]);
 
   let inviteType: "leader" | "youth" | "parent" | null = null;
   if (!onboardingCompletedAt) {

@@ -5,11 +5,11 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   addCamperAction,
   addContactAction,
+  addParentAction,
   awardPointsAction,
   createActivityAction,
   createAgendaItemAction,
   createCompetitionAction,
-  createRegistrationAction,
   createUnitAction,
   createWardAction,
   deleteLeaderInvitationAction,
@@ -17,15 +17,15 @@ import {
   deleteAgendaItemAction,
   deleteCompetitionAction,
   deleteContactAction,
-  deleteRegistrationAction,
+  deleteParentAction,
   deleteUnitAction,
   deleteWardAction,
   inviteLeaderAction,
   refreshCampDesignDataAction,
   removeCamperAction,
+  sendParentInviteAction,
   signOutCampAction,
   updateMyProfileAction,
-  updateRegistrationStatusAction,
 } from "@/lib/app/camp-design-actions";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
@@ -85,8 +85,9 @@ const css = {
 
 const NAV = [
   { key: "dashboard", label: "Dashboard", icon: "home" }, { key: "activities", label: "Activities", icon: "calendar" },
-  { key: "agenda", label: "Daily Agenda", icon: "clock" }, { key: "units", label: "Unit Rosters", icon: "users" },
-  { key: "wards", label: "Wards", icon: "flag" },
+  { key: "agenda", label: "Daily Agenda", icon: "clock" }, { key: "wardRosters", label: "Ward Rosters", icon: "users" },
+  { key: "wards", label: "Wards", icon: "flag", leaderOnly: true },
+  { key: "units", label: "Unit Rosters", icon: "flag" },
   { key: "competitions", label: "Competitions", icon: "trophy" }, { key: "registration", label: "Registration", icon: "clipboard", leaderOnly: true },
   { key: "photos", label: "Photo Gallery", icon: "camera" }, { key: "contacts", label: "Contacts", icon: "phone" },
   { key: "rules", label: "Camp Rules", icon: "shield" }, { key: "inspiration", label: "Daily Inspiration", icon: "sun", leaderOnly: true },
@@ -97,6 +98,7 @@ const PAGE_TO_PATH = {
   dashboard: "/",
   activities: "/activities",
   agenda: "/agenda",
+  wardRosters: "/ward-rosters",
   units: "/units",
   wards: "/wards",
   competitions: "/competitions",
@@ -117,7 +119,8 @@ function resolvePageFromPathname(pathname) {
 
   if (pathname.startsWith("/activities")) return "activities";
   if (pathname.startsWith("/agenda")) return "agenda";
-  if (pathname.startsWith("/units") || pathname.startsWith("/unit-roster")) return "units";
+  if (pathname.startsWith("/ward-rosters") || pathname.startsWith("/unit-roster")) return "wardRosters";
+  if (pathname.startsWith("/units")) return "units";
   if (pathname.startsWith("/wards")) return "wards";
   if (pathname.startsWith("/competitions")) return "competitions";
   if (pathname.startsWith("/contacts")) return "contacts";
@@ -649,82 +652,162 @@ const CompetitionsPage = ({ competitions, pointLog, units, leaderNames, applyRes
   );
 };
 
-const RegistrationPage = ({ registrations, wards, applyResult }) => {
+const WardRostersPage = ({ wards }) => {
+  return (
+    <div>
+      <PageHeader icon="users" title="Ward Rosters" subtitle={`${wards.length} wards`} />
+      {!wards.length ? (
+        <EmptyState icon="users" message="No wards have been created yet." />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+          {wards.map(ward => (
+            <div key={ward.id} style={{ ...css.card, padding: 0 }}>
+              <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: "12px" }}>
+                <div style={{ width: "10px", height: "10px", borderRadius: "50%", background: T.accent, flexShrink: 0 }} />
+                <div style={{ flex: 1 }}>
+                  <h3 style={{ fontFamily: T.fontDisplay, fontSize: "17px", color: T.text, margin: 0 }}>{ward.name}</h3>
+                  {ward.leader && <p style={{ color: T.textMuted, fontSize: "12px", margin: "2px 0 0" }}>Leader: {ward.leader}{ward.leader_email ? ` · ${ward.leader_email}` : ""}</p>}
+                </div>
+                <Badge bg={T.blueBg} text={T.blue}>{ward.campers.length} young men</Badge>
+              </div>
+              {ward.campers.length > 0 ? (
+                <div style={{ padding: "8px 0" }}>
+                  {ward.campers.map((camper, ci) => (
+                    <div key={camper.id} style={{ padding: "8px 20px", display: "flex", alignItems: "center", gap: "10px", borderBottom: ci < ward.campers.length - 1 ? `1px solid ${T.border}22` : "none" }}>
+                      <div style={{ width: "28px", height: "28px", borderRadius: "50%", background: `${T.accent}22`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700, color: T.accent }}>
+                        {initialsFromName(camper.name)}
+                      </div>
+                      <span style={{ color: T.text, fontSize: "13px" }}>{camper.name}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p style={{ padding: "16px 20px", color: T.textDim, fontSize: "13px" }}>No young men registered yet.</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const INVITE_STATUS_COLORS = {
+  not_invited_yet: { bg: T.yellowBg, text: T.yellow, label: "Not Invited" },
+  not_sent: { bg: T.yellowBg, text: T.yellow, label: "Not Sent" },
+  pending: { bg: T.blueBg, text: T.blue, label: "Pending" },
+  sent: { bg: T.blueBg, text: T.blue, label: "Sent" },
+  active: { bg: T.greenBg, text: T.green, label: "Active" },
+  accepted: { bg: T.greenBg, text: T.green, label: "Accepted" },
+};
+
+const RegistrationPage = ({ registrations, applyResult }) => {
   const [modal, setModal] = useState(false);
-  const [form, setForm] = useState({ child: "", age: "", parent: "", parentEmail: "", phone: "", tshirt: "M", wardId: "", medical: "" });
-  const add = async () => {
-    if (!form.child || !form.parent || !form.parentEmail) return;
-    const result = await createRegistrationAction({
-      child: form.child,
-      age: Number(form.age),
-      parent: form.parent,
+  const [form, setForm] = useState({ parentName: "", parentEmail: "" });
+  const [expanded, setExpanded] = useState({});
+  const [sending, setSending] = useState({});
+
+  const addParent = async () => {
+    if (!form.parentName.trim() || !form.parentEmail.trim()) return;
+    const result = await addParentAction({
+      parentName: form.parentName,
       parentEmail: form.parentEmail,
-      phone: form.phone,
-      tshirt: form.tshirt,
-      wardId: form.wardId,
-      medical: form.medical,
     });
     if (applyResult(result)) {
-      setForm({ child: "", age: "", parent: "", parentEmail: "", phone: "", tshirt: "M", wardId: "", medical: "" });
+      setForm({ parentName: "", parentEmail: "" });
       setModal(false);
     }
   };
-  const setStatus = async (id, s) => {
-    const result = await updateRegistrationStatusAction(id, s);
+
+  const sendInvite = async (parentId) => {
+    setSending(p => ({ ...p, [parentId]: true }));
+    const result = await sendParentInviteAction(parentId);
+    applyResult(result);
+    setSending(p => ({ ...p, [parentId]: false }));
+  };
+
+  const del = async (parentId) => {
+    const result = await deleteParentAction(parentId);
     applyResult(result);
   };
-  const del = async (id) => {
-    const result = await deleteRegistrationAction(id);
-    applyResult(result);
+
+  const toggleExpand = (id) => {
+    setExpanded(p => ({ ...p, [id]: !p[id] }));
   };
+
+  const totalYoungMen = registrations.reduce((s, r) => s + r.youngMen.length, 0);
+
   return (
     <div>
-      <PageHeader icon="clipboard" title="Registration" subtitle={`${registrations.length} registrations`} action={<button onClick={() => setModal(true)} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> Register</button>} />
-      <Modal open={modal} onClose={() => setModal(false)} title="Register a Camper" width={560}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-          <Field label="Child's Name"><input style={css.input} value={form.child} onChange={e => setForm(p => ({ ...p, child: e.target.value }))} placeholder="Full name" /></Field>
-          <Field label="Age"><input style={css.input} type="number" value={form.age} onChange={e => setForm(p => ({ ...p, age: e.target.value }))} placeholder="12" /></Field>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-          <Field label="Parent's Name"><input style={css.input} value={form.parent} onChange={e => setForm(p => ({ ...p, parent: e.target.value }))} placeholder="Parent name" /></Field>
-          <Field label="Parent Email"><input style={css.input} value={form.parentEmail} onChange={e => setForm(p => ({ ...p, parentEmail: e.target.value }))} placeholder="parent@email.com" /></Field>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-          <Field label="Parent Phone"><input style={css.input} value={form.phone} onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} placeholder="(801) 555-0000" /></Field>
-          <Field label="Ward (optional)"><select style={css.select} value={form.wardId} onChange={e => setForm(p => ({ ...p, wardId: e.target.value }))}><option value="">Unassigned</option>{wards.map(ward => <option key={ward.id} value={ward.id}>{ward.name}</option>)}</select></Field>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-          <Field label="T-Shirt Size"><select style={css.select} value={form.tshirt} onChange={e => setForm(p => ({ ...p, tshirt: e.target.value }))}>{["YS", "YM", "YL", "S", "M", "L", "XL", "2XL", "3XL"].map(s => <option key={s}>{s}</option>)}</select></Field>
-          <div />
-        </div>
-        <Field label="Medical Notes"><textarea style={{ ...css.input, minHeight: "60px", resize: "vertical" }} value={form.medical} onChange={e => setForm(p => ({ ...p, medical: e.target.value }))} placeholder="Allergies, medications..." /></Field>
-        <button onClick={add} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px" }}>Submit Registration</button>
+      <PageHeader icon="clipboard" title="Registration" subtitle={`${registrations.length} parents · ${totalYoungMen} young men`} action={<button onClick={() => setModal(true)} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> Invite Parent</button>} />
+      <Modal open={modal} onClose={() => setModal(false)} title="Invite a Parent" width={480}>
+        <Field label="Parent's Full Name"><input style={css.input} value={form.parentName} onChange={e => setForm(p => ({ ...p, parentName: e.target.value }))} placeholder="John Smith" /></Field>
+        <Field label="Parent's Email"><input style={css.input} value={form.parentEmail} onChange={e => setForm(p => ({ ...p, parentEmail: e.target.value }))} placeholder="parent@email.com" /></Field>
+        <button onClick={addParent} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px" }}>Add Parent</button>
       </Modal>
-      <div style={{ ...css.card, padding: 0, overflow: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", minWidth: "750px" }}>
-          <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>{["Camper", "Age", "Parent", "Phone", "Shirt", "Ward", "Medical", "Status", ""].map(h => <th key={h} style={{ padding: "11px 14px", textAlign: "left", color: T.textMuted, fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>{h}</th>)}</tr></thead>
-          <tbody>{registrations.map((r, i) => (
-            <tr key={r.id} style={{ borderBottom: `1px solid ${T.border}`, background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)" }}>
-              <td style={{ padding: "11px 14px", fontWeight: 600, color: T.text }}>{r.child}</td>
-              <td style={{ padding: "11px 14px", color: T.textMuted }}>{r.age}</td>
-              <td style={{ padding: "11px 14px", color: T.textMuted }}>{r.parent}</td>
-              <td style={{ padding: "11px 14px", color: T.textMuted, fontFamily: "monospace", fontSize: "12px" }}>{r.phone}</td>
-              <td style={{ padding: "11px 14px", color: T.textMuted }}>{r.tshirt}</td>
-              <td style={{ padding: "11px 14px", color: T.textMuted }}>{r.unit || "—"}</td>
-              <td style={{ padding: "11px 14px", color: r.medical && r.medical !== "None" ? T.yellow : T.textDim, fontSize: "12px", maxWidth: "140px" }}>{r.medical || "None"}</td>
-              <td style={{ padding: "11px 14px" }}>
-                <div style={{ display: "flex", gap: "4px", alignItems: "center" }}><StatusBadge status={r.status} />
-                  <div style={{ display: "flex", gap: "2px", marginLeft: "6px" }}>
-                    {r.status !== "approved" && <button onClick={() => setStatus(r.id, "approved")} title="Approve" style={{ background: "none", border: "none", cursor: "pointer" }}><Icon name="check" size={14} color={T.green} /></button>}
-                    {r.status !== "waitlisted" && <button onClick={() => setStatus(r.id, "waitlisted")} title="Waitlist" style={{ background: "none", border: "none", cursor: "pointer" }}><Icon name="clock" size={14} color={T.purple} /></button>}
+      {!registrations.length ? (
+        <EmptyState icon="clipboard" message="No parents have been invited yet. Click 'Invite Parent' to get started." />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+          {registrations.map(reg => {
+            const isExpanded = expanded[reg.id];
+            const regStatusColor = INVITE_STATUS_COLORS[reg.registrationStatus] || {};
+            const invStatusColor = INVITE_STATUS_COLORS[reg.inviteStatus] || {};
+            const canSend = reg.inviteStatus === "not_sent" || reg.inviteStatus === "sent";
+            return (
+              <div key={reg.id} style={{ ...css.card, padding: 0 }}>
+                <div style={{ padding: "14px 18px", display: "flex", alignItems: "center", gap: "12px", cursor: reg.youngMen.length > 0 ? "pointer" : "default" }} onClick={() => reg.youngMen.length > 0 && toggleExpand(reg.id)}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                      <span style={{ fontWeight: 700, color: T.text, fontSize: "14px" }}>{reg.parentName}</span>
+                      <span style={{ color: T.textDim, fontSize: "12px" }}>{reg.email}</span>
+                      {reg.wardName && <span style={{ color: T.textMuted, fontSize: "11px" }}>· {reg.wardName}</span>}
+                    </div>
+                    {reg.youngMen.length > 0 && (
+                      <div style={{ display: "flex", gap: "4px", marginTop: "4px", flexWrap: "wrap" }}>
+                        {reg.youngMen.map(ym => (
+                          <span key={ym.id} style={{ fontSize: "11px", color: T.accent, background: `${T.accent}15`, padding: "2px 8px", borderRadius: "10px" }}>{ym.name} ({ym.age})</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
+                    <Badge bg={regStatusColor.bg} text={regStatusColor.text}>{regStatusColor.label}</Badge>
+                    {canSend && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); sendInvite(reg.id); }}
+                        disabled={sending[reg.id]}
+                        style={{ ...css.btn(), fontSize: "11px", padding: "5px 12px", opacity: sending[reg.id] ? 0.5 : 1 }}
+                      >
+                        {sending[reg.id] ? "Sending..." : reg.inviteStatus === "sent" ? "Resend" : "Send Invite"}
+                      </button>
+                    )}
+                    <button onClick={(e) => { e.stopPropagation(); del(reg.id); }} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.4, padding: "4px" }}><Icon name="trash" size={14} color={T.red} /></button>
+                    {reg.youngMen.length > 0 && <Icon name="chevRight" size={16} color={T.textDim} />}
                   </div>
                 </div>
-              </td>
-              <td style={{ padding: "11px 14px" }}><button onClick={() => del(r.id)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.4 }}><Icon name="trash" size={14} color={T.red} /></button></td>
-            </tr>
-          ))}</tbody>
-        </table>
-      </div>
+                {isExpanded && reg.youngMen.length > 0 && (
+                  <div style={{ borderTop: `1px solid ${T.border}`, padding: "4px 0" }}>
+                    {reg.youngMen.map((ym, yi) => (
+                      <div key={ym.id} style={{ padding: "10px 18px 10px 36px", borderBottom: yi < reg.youngMen.length - 1 ? `1px solid ${T.border}22` : "none", display: "flex", alignItems: "center", gap: "12px" }}>
+                        <div style={{ width: "28px", height: "28px", borderRadius: "50%", background: `${T.accent}22`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700, color: T.accent }}>
+                          {initialsFromName(ym.name)}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <span style={{ color: T.text, fontSize: "13px", fontWeight: 600 }}>{ym.name}</span>
+                          <span style={{ color: T.textMuted, fontSize: "12px", marginLeft: "8px" }}>Age {ym.age}</span>
+                        </div>
+                        {ym.shirtSize && <span style={{ color: T.textMuted, fontSize: "11px" }}>Shirt: {ym.shirtSize}</span>}
+                        {ym.allergies && <span style={{ color: T.yellow, fontSize: "11px" }}>Allergies: {ym.allergies}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };
@@ -1289,9 +1372,51 @@ const ProfilePage = ({
 const ONBOARDING_COPY = {
   youth: { title: "Welcome, Camper!", subtitle: "Let\u2019s get your camp profile set up.", namePlaceholder: "Your name" },
   leader: { title: "Welcome, Leader!", subtitle: "Set up your account so you can manage your ward\u2019s camp experience.", namePlaceholder: "Brother Jones" },
-  parent: { title: "Welcome, Parent!", subtitle: "Set up your account to stay connected with your son\u2019s camp experience.", namePlaceholder: "Parent/Guardian name" },
+  parent: { title: "Complete Registration", subtitle: "Set up your account, add your young men, and complete camp registration.", namePlaceholder: "Parent/Guardian name" },
   default: { title: "Welcome to Camp Tracker", subtitle: "Let\u2019s set up your account details before you jump in.", namePlaceholder: "Your name" },
 };
+
+const TERMS_OF_SERVICE_TEXT = `By completing this registration, I acknowledge and agree to the following:
+
+1. ASSUMPTION OF RISK: I understand that participation in the Young Men Camp involves physical activities that carry inherent risks, including but not limited to hiking, water activities, sports, and outdoor camping. I voluntarily assume all risks associated with participation.
+
+2. MEDICAL AUTHORIZATION: In the event of a medical emergency, I authorize camp leaders to seek and consent to emergency medical treatment for my child/ward if I cannot be reached.
+
+3. MEDICAL INFORMATION: I have disclosed all known medical conditions, allergies, and medications for each registered young man. I understand it is my responsibility to keep this information current.
+
+4. CODE OF CONDUCT: My child/ward agrees to follow all camp rules, respect camp leaders, and treat fellow campers with kindness and respect.
+
+5. PHOTO/VIDEO RELEASE: I grant permission for photographs and videos taken during camp to be used for church and camp-related purposes.
+
+6. LIABILITY RELEASE: To the fullest extent permitted by law, I release and hold harmless the camp organizers, leaders, volunteers, and The Church of Jesus Christ of Latter-day Saints from any claims arising from participation in camp activities.
+
+7. PICKUP AUTHORIZATION: I understand that my child/ward will only be released to authorized individuals as designated during registration.
+
+This agreement is binding for all young men registered under my account for the duration of the camp event (June 15-19, 2026).`;
+
+const YoungManFormEntry = ({ entry, index, onUpdate, onRemove, shirtSizes }) => (
+  <div style={{ background: T.bgInput, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "14px", marginBottom: "10px" }}>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+      <span style={{ fontSize: "13px", fontWeight: 700, color: T.accent }}>Young Man #{index + 1}</span>
+      <button onClick={onRemove} style={{ background: "none", border: "none", cursor: "pointer", padding: "2px" }}><Icon name="x" size={16} color={T.red} /></button>
+    </div>
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+      <Field label="First Name"><input style={css.input} value={entry.firstName} onChange={e => onUpdate({ ...entry, firstName: e.target.value })} placeholder="First name" /></Field>
+      <Field label="Last Name"><input style={css.input} value={entry.lastName} onChange={e => onUpdate({ ...entry, lastName: e.target.value })} placeholder="Last name" /></Field>
+      <Field label="Age"><input style={css.input} type="number" min={8} max={18} value={entry.age} onChange={e => onUpdate({ ...entry, age: e.target.value })} placeholder="14" /></Field>
+      <Field label="Shirt Size">
+        <select style={css.select} value={entry.shirtSizeCode} onChange={e => onUpdate({ ...entry, shirtSizeCode: e.target.value })}>
+          <option value="">Select size</option>
+          {shirtSizes.map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
+        </select>
+      </Field>
+    </div>
+    <Field label="Allergies"><input style={css.input} value={entry.allergies} onChange={e => onUpdate({ ...entry, allergies: e.target.value })} placeholder="None" /></Field>
+    <Field label="Medical Information"><textarea style={{ ...css.input, minHeight: "50px", resize: "vertical" }} value={entry.medicalNotes} onChange={e => onUpdate({ ...entry, medicalNotes: e.target.value })} placeholder="Medications, health conditions..." /></Field>
+  </div>
+);
+
+const emptyYoungMan = () => ({ firstName: "", lastName: "", age: "", shirtSizeCode: "", allergies: "", medicalNotes: "", _key: Math.random().toString(36).slice(2) });
 
 const OnboardingOverlay = ({
   form,
@@ -1309,14 +1434,19 @@ const OnboardingOverlay = ({
   const copy = ONBOARDING_COPY[effectiveType] || ONBOARDING_COPY.default;
   const isYouth = effectiveType === "youth";
   const isParent = effectiveType === "parent";
-  const showWard = !isParent;
+  const showWard = true;
   const showQuorum = isYouth;
   const showAge = isYouth;
-  const showShirtSize = !isParent;
+  const showShirtSize = isYouth;
   const showMedicalNotes = isYouth;
+  const showYoungMen = isParent;
+  const showTerms = isParent;
 
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef(null);
+  const [youngMen, setYoungMen] = useState([emptyYoungMan()]);
+  const [termsRead, setTermsRead] = useState(false);
+  const [signatureName, setSignatureName] = useState("");
 
   const availableQuorums = useMemo(() => {
     const quorums = profileOptions?.quorums ?? [];
@@ -1351,23 +1481,36 @@ const OnboardingOverlay = ({
     }
   };
 
+  const addYoungMan = () => setYoungMen(prev => [...prev, emptyYoungMan()]);
+  const removeYoungMan = (idx) => setYoungMen(prev => prev.filter((_, i) => i !== idx));
+  const updateYoungMan = (idx, updated) => setYoungMen(prev => prev.map((ym, i) => i === idx ? updated : ym));
+
+  const youngMenValid = showYoungMen
+    ? youngMen.length > 0 && youngMen.every(ym => ym.firstName.trim() && ym.lastName.trim() && ym.age)
+    : true;
+  const termsValid = showTerms ? termsRead && signatureName.trim().length >= 2 : true;
+
   const hasRequiredFields =
     form.displayName.trim() &&
     form.password.length >= 8 &&
     !!avatarUrl &&
+    form.wardId &&
     (!showAge || form.age.trim()) &&
-    (!showWard || form.wardId) &&
     (!showQuorum || form.quorumId) &&
-    (!showShirtSize || form.shirtSizeCode);
+    (!showShirtSize || form.shirtSizeCode) &&
+    youngMenValid &&
+    termsValid;
+
+  const wrappedComplete = () => {
+    onComplete({ youngMen: showYoungMen ? youngMen : [], signatureName: showTerms ? signatureName : "" });
+  };
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 140, background: "rgba(0,0,0,0.82)", backdropFilter: "blur(5px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}>
-      <div style={{ width: "100%", maxWidth: "680px", maxHeight: "88vh", overflowY: "auto", ...css.card, border: `1px solid ${T.borderLight}` }}>
+      <div style={{ width: "100%", maxWidth: "720px", maxHeight: "90vh", overflowY: "auto", ...css.card, border: `1px solid ${T.borderLight}` }}>
         <div style={{ marginBottom: "20px" }}>
           <h2 style={{ color: T.text, fontFamily: T.fontDisplay, fontSize: "30px", margin: 0 }}>{copy.title}</h2>
-          <p style={{ color: T.textMuted, marginTop: "8px", fontSize: "14px", lineHeight: 1.6 }}>
-            {copy.subtitle}
-          </p>
+          <p style={{ color: T.textMuted, marginTop: "8px", fontSize: "14px", lineHeight: 1.6 }}>{copy.subtitle}</p>
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: "16px", marginBottom: "16px" }}>
@@ -1385,18 +1528,13 @@ const OnboardingOverlay = ({
                 onDrop={(event) => { event.preventDefault(); setDragActive(false); if (!uploadingAvatar) void processUploadFile(event.dataTransfer.files?.[0]); }}
                 style={{
                   border: `1px dashed ${avatarUrl ? T.accent : dragActive ? T.accent : T.borderLight}`,
-                  borderRadius: T.radiusSm,
-                  padding: "12px 14px",
-                  textAlign: "center",
+                  borderRadius: T.radiusSm, padding: "12px 14px", textAlign: "center",
                   background: dragActive ? `${T.accent}1A` : T.bgInput,
-                  cursor: uploadingAvatar ? "not-allowed" : "pointer",
-                  opacity: uploadingAvatar ? 0.65 : 1,
+                  cursor: uploadingAvatar ? "not-allowed" : "pointer", opacity: uploadingAvatar ? 0.65 : 1,
                 }}
               >
                 <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp" style={{ display: "none" }} onChange={(event) => void processUploadFile(event.target.files?.[0])} />
-                <p style={{ color: T.text, fontSize: "13px", margin: 0 }}>
-                  {uploadingAvatar ? "Uploading..." : avatarUrl ? "Change photo" : "Drop image here or click to upload"}
-                </p>
+                <p style={{ color: T.text, fontSize: "13px", margin: 0 }}>{uploadingAvatar ? "Uploading..." : avatarUrl ? "Change photo" : "Drop image here or click to upload"}</p>
               </div>
             </Field>
           </div>
@@ -1412,6 +1550,22 @@ const OnboardingOverlay = ({
           <Field label="Phone Number">
             <input style={css.input} value={form.phone} onChange={(event) => setForm((previous) => ({ ...previous, phone: event.target.value }))} placeholder="(801) 555-0000" />
           </Field>
+          <Field label="Ward">
+            <select style={css.select} value={form.wardId} onChange={(event) => {
+              const nextWardId = event.target.value;
+              setForm((previous) => {
+                const quorumStillValid = (profileOptions?.quorums ?? []).some(
+                  (quorum) => quorum.id === previous.quorumId && quorum.ward_id === nextWardId,
+                );
+                return { ...previous, wardId: nextWardId, quorumId: quorumStillValid ? previous.quorumId : "" };
+              });
+            }}>
+              <option value="">Select ward</option>
+              {(profileOptions?.wards ?? []).map((ward) => (
+                <option key={ward.id} value={ward.id}>{ward.name}</option>
+              ))}
+            </select>
+          </Field>
           {showAge ? (
             <Field label="Age">
               <input style={css.input} type="number" min={8} max={99} value={form.age} onChange={(event) => setForm((previous) => ({ ...previous, age: event.target.value }))} placeholder="16" />
@@ -1423,28 +1577,6 @@ const OnboardingOverlay = ({
                 <option value="">Select shirt size</option>
                 {(profileOptions?.shirtSizes ?? []).map((shirtSize) => (
                   <option key={shirtSize.code} value={shirtSize.code}>{shirtSize.label}</option>
-                ))}
-              </select>
-            </Field>
-          ) : null}
-          {showWard ? (
-            <Field label="Ward">
-              <select style={css.select} value={form.wardId} onChange={(event) => {
-                const nextWardId = event.target.value;
-                setForm((previous) => {
-                  const quorumStillValid = (profileOptions?.quorums ?? []).some(
-                    (quorum) => quorum.id === previous.quorumId && quorum.ward_id === nextWardId,
-                  );
-                  return {
-                    ...previous,
-                    wardId: nextWardId,
-                    quorumId: quorumStillValid ? previous.quorumId : "",
-                  };
-                });
-              }}>
-                <option value="">Select ward</option>
-                {(profileOptions?.wards ?? []).map((ward) => (
-                  <option key={ward.id} value={ward.id}>{ward.name}</option>
                 ))}
               </select>
             </Field>
@@ -1465,8 +1597,47 @@ const OnboardingOverlay = ({
             <textarea style={{ ...css.input, minHeight: "80px", resize: "vertical" }} value={form.medicalNotes} onChange={(event) => setForm((previous) => ({ ...previous, medicalNotes: event.target.value }))} placeholder="Allergies, medications, health notes..." />
           </Field>
         ) : null}
-        <button onClick={onComplete} disabled={!hasRequiredFields || completing || uploadingAvatar} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px", opacity: !hasRequiredFields || completing || uploadingAvatar ? 0.55 : 1 }}>
-          {completing ? "Finishing Setup..." : "Complete Setup"}
+
+        {showYoungMen ? (
+          <div style={{ marginTop: "20px", borderTop: `1px solid ${T.border}`, paddingTop: "20px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
+              <h3 style={{ fontFamily: T.fontDisplay, fontSize: "18px", color: T.text, margin: 0 }}>Your Young Men</h3>
+              <button onClick={addYoungMan} style={css.btn("ghost")}><Icon name="plus" size={14} color={T.accent} /> Add Another</button>
+            </div>
+            <p style={{ color: T.textMuted, fontSize: "13px", marginBottom: "14px", lineHeight: 1.5 }}>
+              Add each young man you are registering for camp. Provide their name, age, shirt size, and any allergy or medical information.
+            </p>
+            {youngMen.map((ym, i) => (
+              <YoungManFormEntry
+                key={ym._key}
+                entry={ym}
+                index={i}
+                onUpdate={(updated) => updateYoungMan(i, updated)}
+                onRemove={() => youngMen.length > 1 && removeYoungMan(i)}
+                shirtSizes={profileOptions?.shirtSizes ?? []}
+              />
+            ))}
+          </div>
+        ) : null}
+
+        {showTerms ? (
+          <div style={{ marginTop: "20px", borderTop: `1px solid ${T.border}`, paddingTop: "20px" }}>
+            <h3 style={{ fontFamily: T.fontDisplay, fontSize: "18px", color: T.text, margin: "0 0 12px" }}>Terms & Conditions</h3>
+            <div style={{ background: T.bgInput, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "16px", maxHeight: "200px", overflowY: "auto", marginBottom: "14px" }}>
+              <pre style={{ color: T.textMuted, fontSize: "12px", lineHeight: 1.7, whiteSpace: "pre-wrap", fontFamily: T.font, margin: 0 }}>{TERMS_OF_SERVICE_TEXT}</pre>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "14px" }}>
+              <input type="checkbox" id="terms-agree" checked={termsRead} onChange={e => setTermsRead(e.target.checked)} style={{ accentColor: T.accent }} />
+              <label htmlFor="terms-agree" style={{ color: T.text, fontSize: "13px", cursor: "pointer" }}>I have read and agree to the terms above</label>
+            </div>
+            <Field label="Type your full name as your signature">
+              <input style={{ ...css.input, fontFamily: "'Playfair Display', serif", fontSize: "18px", fontStyle: "italic" }} value={signatureName} onChange={e => setSignatureName(e.target.value)} placeholder="Your Full Name" />
+            </Field>
+          </div>
+        ) : null}
+
+        <button onClick={wrappedComplete} disabled={!hasRequiredFields || completing || uploadingAvatar} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "14px", marginTop: "16px", fontSize: "15px", opacity: !hasRequiredFields || completing || uploadingAvatar ? 0.55 : 1 }}>
+          {completing ? "Completing Registration..." : isParent ? "Complete Registration" : "Complete Setup"}
         </button>
       </div>
     </div>
@@ -1752,16 +1923,15 @@ export default function CampDesignApp({ initialData, profile }) {
     }
   };
 
-  const handleCompleteOnboarding = async () => {
+  const handleCompleteOnboarding = async (extraData) => {
     if (completingOnboarding) return;
 
     const invType = profileData.inviteType || (profileData.isCamper ? "youth" : null);
     const isYouth = invType === "youth";
     const isParent = invType === "parent";
-    const showWard = !isParent;
     const showQuorum = isYouth;
     const showAge = isYouth;
-    const showShirtSize = !isParent;
+    const showShirtSize = isYouth;
 
     const parsedAge = showAge ? Number(onboardingForm.age) : null;
     const password = onboardingForm.password.trim();
@@ -1769,8 +1939,8 @@ export default function CampDesignApp({ initialData, profile }) {
       onboardingForm.displayName.trim() &&
       password.length >= 8 &&
       !!profileData.avatarUrl &&
+      onboardingForm.wardId &&
       (!showAge || onboardingForm.age.trim()) &&
-      (!showWard || onboardingForm.wardId) &&
       (!showQuorum || onboardingForm.quorumId) &&
       (!showShirtSize || onboardingForm.shirtSizeCode);
 
@@ -1792,12 +1962,14 @@ export default function CampDesignApp({ initialData, profile }) {
         displayName: onboardingForm.displayName,
         avatarUrl: profileData.avatarUrl ?? "",
         phone: onboardingForm.phone,
-        wardId: showWard ? onboardingForm.wardId : null,
+        wardId: onboardingForm.wardId,
         quorumId: showQuorum ? onboardingForm.quorumId : null,
         medicalNotes: isYouth ? onboardingForm.medicalNotes : "",
         shirtSizeCode: showShirtSize ? onboardingForm.shirtSizeCode : null,
         age: parsedAge,
         markOnboardingComplete: true,
+        youngMen: isParent && extraData?.youngMen ? extraData.youngMen : undefined,
+        signatureName: isParent && extraData?.signatureName ? extraData.signatureName : undefined,
       });
 
       if (applyResult(result)) {
@@ -1876,10 +2048,11 @@ export default function CampDesignApp({ initialData, profile }) {
     dashboard: <Dashboard goTo={goToPage} units={units} activities={activities} competitions={competitions} pointLog={pointLog} agenda={agenda} inspiration={inspiration} />,
     activities: <ActivitiesPage activities={activities} applyResult={applyResult} isLeader={isLeader} />,
     agenda: <AgendaPage agenda={agenda} applyResult={applyResult} isLeader={isLeader} />,
+    wardRosters: <WardRostersPage wards={wards} />,
     units: <UnitsPage units={units} applyResult={applyResult} isLeader={isLeader} />,
     wards: <WardsPage wards={wards} applyResult={applyResult} isLeader={isLeader} />,
     competitions: <CompetitionsPage competitions={competitions} pointLog={pointLog} units={units} leaderNames={leaderNames} applyResult={applyResult} isLeader={isLeader} />,
-    registration: <RegistrationPage registrations={registrations} wards={profileOptions.wards} applyResult={applyResult} />,
+    registration: <RegistrationPage registrations={registrations} applyResult={applyResult} />,
     photos: <PhotosPage photos={photos} />,
     contacts: <ContactsPage contacts={contacts} applyResult={applyResult} isLeader={isLeader} />,
     rules: <RulesPage rules={rules} />,

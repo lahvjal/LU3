@@ -50,20 +50,23 @@ export function youthInviteEmail(camperName: string, magicLinkUrl: string) {
   };
 }
 
-export function parentInviteEmail(camperName: string, magicLinkUrl: string) {
+export function parentInviteEmail(parentName: string, magicLinkUrl: string) {
   return {
-    subject: `Camp invite for ${camperName} – parent action needed`,
+    subject: `Young Men Camp – Complete Registration`,
     html: layout(`
-      <h2 style="color:#e8e0d4;font-size:20px;margin:0 0 12px;">Your Son is Invited to Camp!</h2>
+      <h2 style="color:#e8e0d4;font-size:20px;margin:0 0 12px;">Camp Registration</h2>
       <p style="color:#9a8e7f;font-size:14px;line-height:1.6;margin:0 0 16px;">
-        <strong style="color:#e8e0d4;">${camperName}</strong> has been invited to attend the
+        Hi <strong style="color:#e8e0d4;">${parentName}</strong>,
+      </p>
+      <p style="color:#9a8e7f;font-size:14px;line-height:1.6;margin:0 0 16px;">
+        You've been invited to register your young men for the
         Lehi Utah 3rd Stake Young Men Camp (June 15&ndash;19, 2026).
       </p>
       <p style="color:#9a8e7f;font-size:14px;line-height:1.6;margin:0 0 16px;">
-        Click below to review camp details, complete registration, and provide any
-        medical or emergency information.
+        Click below to create your account, add your young men's information,
+        and complete registration.
       </p>
-      ${button("Get Started", magicLinkUrl)}
+      ${button("Complete Registration", magicLinkUrl)}
       <p style="color:#6b6054;font-size:11px;margin:16px 0 0;text-align:center;">
         This link expires in 24 hours. After setup you'll sign in with your email and password.
       </p>

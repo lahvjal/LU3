@@ -4,7 +4,7 @@ import { getUserContext } from "@/lib/auth/user-context";
 import type { AppRole } from "@/lib/auth/user-context";
 import { generateMagicLink } from "@/lib/email/magic-link";
 import { sendEmail } from "@/lib/email/resend";
-import { leaderInviteEmail } from "@/lib/email/templates";
+import { leaderInviteEmail, parentInviteEmail } from "@/lib/email/templates";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
@@ -76,16 +76,9 @@ type AwardPointsInput = {
   leader: string;
 };
 
-type RegistrationInput = {
-  child: string;
-  age: number;
-  parent: string;
+type AddParentInput = {
+  parentName: string;
   parentEmail: string;
-  phone: string;
-  tshirt: string;
-  wardId?: string | null;
-  unit?: string;
-  medical: string;
 };
 
 type ContactInput = {
@@ -105,6 +98,15 @@ type InviteLeaderInput = {
   calling: string;
 };
 
+type YoungManInput = {
+  firstName: string;
+  lastName: string;
+  age: string;
+  shirtSizeCode: string;
+  allergies: string;
+  medicalNotes: string;
+};
+
 type ProfileUpdateInput = {
   displayName?: string;
   avatarUrl?: string;
@@ -115,6 +117,8 @@ type ProfileUpdateInput = {
   medicalNotes?: string;
   shirtSizeCode?: string | null;
   age?: number | null;
+  youngMen?: YoungManInput[];
+  signatureName?: string;
 };
 
 type SupabaseActionClient = Awaited<ReturnType<typeof createSupabaseServerClient>>;
@@ -347,7 +351,7 @@ async function ensureYoungManUserRole(
   }
 }
 
-async function syncInviteStatusesAfterOnboardingCompletion(
+async function syncLeaderInvitationsForUser(
   userId: string,
   userEmail: string,
   onboardingCompletedAt: string,
@@ -360,7 +364,7 @@ async function syncInviteStatusesAfterOnboardingCompletion(
   const admin = createSupabaseAdminClient() as any;
   const adminClient = admin as unknown as SupabaseActionClient;
 
-  const [leaderByEmailResult, leaderByUserResult, youthInviteResult] = await Promise.all([
+  const [leaderByEmailResult, leaderByUserResult] = await Promise.all([
     admin
       .from("leader_invitations")
       .select("id, role, ward_id, status, accepted_at, user_id")
@@ -371,23 +375,7 @@ async function syncInviteStatusesAfterOnboardingCompletion(
       .select("id, role, ward_id, status, accepted_at, user_id")
       .eq("user_id", userId)
       .in("status", ["pending", "active"]),
-    admin
-      .from("registration_invites")
-      .select("id, participant_id, status, accepted_at")
-      .eq("target_type", "youth")
-      .ilike("recipient_email", normalizedEmail)
-      .in("status", ["sent", "accepted"]),
   ]);
-
-  if (leaderByEmailResult.error) {
-    throw new Error(leaderByEmailResult.error.message);
-  }
-  if (leaderByUserResult.error) {
-    throw new Error(leaderByUserResult.error.message);
-  }
-  if (youthInviteResult.error) {
-    throw new Error(youthInviteResult.error.message);
-  }
 
   const leaderInvitations = new Map<string, LeaderInvitationClaimRow>();
   [...(leaderByEmailResult.data ?? []), ...(leaderByUserResult.data ?? [])].forEach((row) => {
@@ -400,73 +388,32 @@ async function syncInviteStatusesAfterOnboardingCompletion(
       continue;
     }
 
-    await ensureLeadershipUserRole(
-      adminClient,
-      userId,
-      invitation.role,
-      invitation.ward_id,
-    );
+    try {
+      await ensureLeadershipUserRole(
+        adminClient,
+        userId,
+        invitation.role,
+        invitation.ward_id,
+      );
 
-    const nextAcceptedAt = invitation.accepted_at ?? onboardingCompletedAt;
-    const needsUpdate =
-      invitation.status !== "active" ||
-      invitation.user_id !== userId ||
-      invitation.accepted_at === null;
+      const nextAcceptedAt = invitation.accepted_at ?? onboardingCompletedAt;
+      const needsUpdate =
+        invitation.status !== "active" ||
+        invitation.user_id !== userId ||
+        invitation.accepted_at === null;
 
-    if (!needsUpdate) {
-      continue;
-    }
-
-    const { error: leaderUpdateError } = await admin
-      .from("leader_invitations")
-      .update({
-        user_id: userId,
-        status: "active",
-        accepted_at: nextAcceptedAt,
-      })
-      .eq("id", invitation.id);
-
-    if (leaderUpdateError) {
-      throw new Error(leaderUpdateError.message);
-    }
-  }
-
-  const youthInvites = (youthInviteResult.data ?? []) as RegistrationInviteClaimRow[];
-  const participantIds = [
-    ...new Set(youthInvites.map((invite) => invite.participant_id).filter(Boolean)),
-  ];
-
-  for (const invite of youthInvites) {
-    await ensureYoungManUserRole(adminClient, userId, invite.participant_id);
-
-    if (invite.status === "accepted" && invite.accepted_at) {
-      continue;
-    }
-
-    const { error: registrationInviteUpdateError } = await admin
-      .from("registration_invites")
-      .update({
-        status: "accepted",
-        accepted_at: invite.accepted_at ?? onboardingCompletedAt,
-      })
-      .eq("id", invite.id);
-
-    if (registrationInviteUpdateError) {
-      throw new Error(registrationInviteUpdateError.message);
-    }
-  }
-
-  if (participantIds.length > 0) {
-    const { error: rosterUpdateError } = await admin
-      .from("registration_roster")
-      .update({
-        status: "active",
-      })
-      .in("participant_id", participantIds)
-      .eq("status", "pending");
-
-    if (rosterUpdateError) {
-      throw new Error(rosterUpdateError.message);
+      if (needsUpdate) {
+        await admin
+          .from("leader_invitations")
+          .update({
+            user_id: userId,
+            status: "active",
+            accepted_at: nextAcceptedAt,
+          })
+          .eq("id", invitation.id);
+      }
+    } catch (err) {
+      console.error(`Failed to sync leader invitation ${invitation.id}:`, err);
     }
   }
 }
@@ -709,13 +656,63 @@ export async function updateMyProfileAction(
 
   if (shouldCompleteOnboarding && onboardingCompletedAt && context.user.email) {
     try {
-      await syncInviteStatusesAfterOnboardingCompletion(
+      await syncLeaderInvitationsForUser(
         context.user.id,
         context.user.email,
         onboardingCompletedAt,
       );
     } catch (syncError) {
-      console.error("Failed to sync onboarding invite statuses:", syncError);
+      console.error("Failed to sync leader invitations:", syncError);
+    }
+
+    if (input.youngMen && input.youngMen.length > 0 && wardId) {
+      try {
+        const admin = createSupabaseAdminClient() as any;
+        const normalizedEmail = context.user.email.toLowerCase().trim();
+
+        const { data: parentRow } = await admin
+          .from("parents")
+          .select("id")
+          .ilike("email", normalizedEmail)
+          .limit(1)
+          .maybeSingle();
+
+        if (parentRow?.id) {
+          await admin
+            .from("parents")
+            .update({
+              user_id: context.user.id,
+              first_name: displayName.split(/\s+/)[0] || displayName,
+              last_name: displayName.split(/\s+/).slice(1).join(" ") || "",
+              phone: input.phone?.trim() || null,
+              ward_id: wardId,
+              registration_status: "active",
+              invite_status: "accepted",
+              onboarding_completed_at: onboardingCompletedAt,
+              terms_accepted_at: input.signatureName ? onboardingCompletedAt : null,
+              signature_name: input.signatureName?.trim() || null,
+            })
+            .eq("id", parentRow.id);
+
+          const youngMenPayload = input.youngMen
+            .filter((ym) => ym.firstName?.trim() && ym.lastName?.trim())
+            .map((ym) => ({
+              parent_id: parentRow.id,
+              first_name: ym.firstName.trim(),
+              last_name: ym.lastName.trim(),
+              age: Number(ym.age) || 12,
+              shirt_size_code: ym.shirtSizeCode?.trim() || null,
+              allergies: ym.allergies?.trim() || null,
+              medical_notes: ym.medicalNotes?.trim() || null,
+            }));
+
+          if (youngMenPayload.length > 0) {
+            await admin.from("young_men").insert(youngMenPayload);
+          }
+        }
+      } catch (parentSyncError) {
+        console.error("Failed to sync parent registration:", parentSyncError);
+      }
     }
   }
 
@@ -1147,68 +1144,44 @@ export async function awardPointsAction(
   return success();
 }
 
-export async function createRegistrationAction(
-  input: RegistrationInput,
+export async function addParentAction(
+  input: AddParentInput,
 ): Promise<ActionResult> {
-  await getUserContext();
+  const context = await getUserContext();
+  if (!context.canManageRegistrations) {
+    return fail("You do not have permission to add registrations.");
+  }
 
-  const childName = splitChildName(input.child);
-  if (
-    !childName ||
-    !input.parent.trim() ||
-    !input.parentEmail.trim() ||
-    !Number.isFinite(input.age)
-  ) {
-    return fail("Please provide complete registration details.");
+  const parentName = splitChildName(input.parentName);
+  if (!parentName) {
+    return fail("Please enter the parent's first and last name.");
+  }
+
+  const email = normalizeEmail(input.parentEmail);
+  if (!email || !email.includes("@")) {
+    return fail("Please enter a valid email address.");
   }
 
   const supabase = await createSupabaseServerClient();
-  let wardId: string | null = null;
-  let preferredUnitName: string | null =
-    typeof input.unit === "string" && input.unit.trim()
-      ? input.unit.trim()
-      : null;
 
-  if (typeof input.wardId === "string" && input.wardId.trim()) {
-    const wardResult = await supabase
-      .from("wards")
-      .select("id, name")
-      .eq("id", input.wardId.trim())
-      .maybeSingle();
-    if (!wardResult.error && wardResult.data?.id) {
-      wardId = wardResult.data.id;
-      preferredUnitName = wardResult.data.name;
-    } else {
-      return fail("Selected ward could not be found.");
-    }
-  } else if (typeof input.unit === "string" && input.unit.trim()) {
-    const wardResult = await supabase
-      .from("wards")
-      .select("id, name")
-      .eq("name", input.unit.trim())
-      .limit(1)
-      .maybeSingle();
-    if (!wardResult.error && wardResult.data?.id) {
-      wardId = wardResult.data.id;
-      preferredUnitName = wardResult.data.name;
-    }
+  const { data: existing } = await supabase
+    .from("parents")
+    .select("id")
+    .ilike("email", email)
+    .limit(1)
+    .maybeSingle();
+
+  if (existing?.id) {
+    return fail("A parent with this email already exists.");
   }
 
-  const shirtSizeCode = DISPLAY_TO_SHIRT_CODE[input.tshirt.trim().toUpperCase()] ?? null;
-
-  const { error } = await supabase.from("parent_registrations").insert({
-    parent_name: input.parent.trim(),
-    parent_email: input.parentEmail.trim(),
-    parent_phone: input.phone.trim() || null,
-    child_first_name: childName.firstName,
-    child_last_name: childName.lastName,
-    child_age: input.age,
-    preferred_unit_name: preferredUnitName,
-    ward_id: wardId,
-    shirt_size_preference: input.tshirt.trim() || null,
-    shirt_size_code: shirtSizeCode,
-    medical_notes: input.medical.trim() || null,
-    status: "pending",
+  const { error } = await supabase.from("parents").insert({
+    first_name: parentName.firstName,
+    last_name: parentName.lastName,
+    email,
+    registration_status: "not_invited_yet",
+    invite_status: "not_sent",
+    invited_by: context.user.id,
   });
 
   if (error) {
@@ -1218,23 +1191,49 @@ export async function createRegistrationAction(
   return success();
 }
 
-export async function updateRegistrationStatusAction(
-  registrationId: string,
-  status: "pending" | "approved" | "waitlisted" | "declined",
+export async function sendParentInviteAction(
+  parentId: string,
 ): Promise<ActionResult> {
   const context = await getUserContext();
   if (!context.canManageRegistrations) {
-    return fail("You do not have permission to update registrations.");
+    return fail("You do not have permission to send invites.");
   }
 
   const supabase = await createSupabaseServerClient();
+  const { data: parent } = await supabase
+    .from("parents")
+    .select("id, first_name, last_name, email, registration_status")
+    .eq("id", parentId)
+    .maybeSingle();
+
+  if (!parent?.id) {
+    return fail("Parent not found.");
+  }
+
+  if (parent.registration_status === "active") {
+    return fail("This parent has already completed registration.");
+  }
+
+  const magicLinkUrl = await generateMagicLink(parent.email);
+  if (magicLinkUrl) {
+    const parentName = `${parent.first_name} ${parent.last_name}`.trim();
+    const template = parentInviteEmail(parentName, magicLinkUrl);
+    await sendEmail({
+      to: parent.email,
+      subject: template.subject,
+      html: template.html,
+    });
+  }
+
   const { error } = await supabase
-    .from("parent_registrations")
+    .from("parents")
     .update({
-      status,
-      reviewed_by: context.user.id,
+      registration_status: "pending",
+      invite_status: "sent",
+      invited_at: new Date().toISOString(),
+      invited_by: context.user.id,
     })
-    .eq("id", registrationId);
+    .eq("id", parentId);
 
   if (error) {
     return fail(error.message);
@@ -1243,19 +1242,19 @@ export async function updateRegistrationStatusAction(
   return success();
 }
 
-export async function deleteRegistrationAction(
-  registrationId: string,
+export async function deleteParentAction(
+  parentId: string,
 ): Promise<ActionResult> {
   const context = await getUserContext();
-  if (!context.canManageContent) {
+  if (!context.canManageRegistrations) {
     return fail("You do not have permission to delete registrations.");
   }
 
   const supabase = await createSupabaseServerClient();
   const { error } = await supabase
-    .from("parent_registrations")
+    .from("parents")
     .delete()
-    .eq("id", registrationId);
+    .eq("id", parentId);
 
   if (error) {
     return fail(error.message);
