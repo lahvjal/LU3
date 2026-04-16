@@ -14,6 +14,7 @@ import {
 
 type ActionResult =
   | { ok: true; data: CampDesignInitialData; profile?: ProfilePayload }
+  | { ok: true; data: null; profile?: ProfilePayload; skipDataRefresh: true }
   | { ok: false; error: string };
 
 type ProfilePayload = {
@@ -466,14 +467,20 @@ export async function updateMyProfileAction(
     }
   }
 
-  return success({
+  const profileResult: ProfilePayload = {
     email: context.user.email ?? "",
     displayName,
     avatarUrl,
     onboardingCompletedAt,
     phone,
     wardId,
-  });
+  };
+
+  if (shouldCompleteOnboarding) {
+    return { ok: true, data: null, profile: profileResult, skipDataRefresh: true };
+  }
+
+  return success(profileResult);
 }
 
 export async function createActivityAction(

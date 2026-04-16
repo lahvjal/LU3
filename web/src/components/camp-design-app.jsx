@@ -1781,7 +1781,9 @@ export default function CampDesignApp({ initialData, profile }) {
       return false;
     }
 
-    applyData(result.data);
+    if (result.data) {
+      applyData(result.data);
+    }
     if (result.profile) {
       setProfileData((previous) => ({
         ...previous,
@@ -1886,6 +1888,7 @@ export default function CampDesignApp({ initialData, profile }) {
       });
 
       if (applyResult(result)) {
+        router.refresh();
         goToPage("dashboard");
       }
     } finally {
