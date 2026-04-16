@@ -1,7 +1,6 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 type LeadershipRole =
   | "stake_leader"
@@ -202,9 +201,10 @@ export async function insertParentYoungMenInDb(
     return { ok: true };
   }
 
-  const admin = createSupabaseAdminClient() as any;
-
-  const { data: parentRow, error: parentLookupError } = await admin
+  // Use the signed-in user's client (not the service role). RLS allows parents
+  // to insert young_men when parent_id = auth.uid(); avoids requiring
+  // SUPABASE_SERVICE_ROLE_KEY on the app host (missing key was causing 500s).
+  const { data: parentRow, error: parentLookupError } = await supabase
     .from("user_profiles")
     .select("user_id")
     .eq("user_id", userId)
@@ -224,7 +224,7 @@ export async function insertParentYoungMenInDb(
     };
   }
 
-  const { data: sizeRows, error: sizeErr } = await admin
+  const { data: sizeRows, error: sizeErr } = await supabase
     .from("shirt_sizes")
     .select("code");
   if (sizeErr) {
@@ -265,7 +265,7 @@ export async function insertParentYoungMenInDb(
     };
   });
 
-  const { error: ymError } = await admin.from("young_men").insert(youngMenPayload);
+  const { error: ymError } = await supabase.from("young_men").insert(youngMenPayload);
   if (ymError) {
     return { ok: false, error: `Could not save young men: ${ymError.message}` };
   }
