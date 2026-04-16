@@ -203,15 +203,67 @@ export async function insertParentYoungMenInDb(
   }
 
   const admin = createSupabaseAdminClient() as any;
-  const youngMenPayload = rows.map((ym) => ({
-    parent_id: userId,
-    first_name: ym.firstName.trim(),
-    last_name: ym.lastName.trim(),
-    age: Number(ym.age) || 12,
-    shirt_size_code: ym.shirtSizeCode?.trim() || null,
-    allergies: ym.allergies?.trim() || null,
-    medical_notes: ym.medicalNotes?.trim() || null,
-  }));
+
+  const { data: parentRow, error: parentLookupError } = await admin
+    .from("user_profiles")
+    .select("user_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (parentLookupError) {
+    return {
+      ok: false,
+      error: `Could not verify your profile: ${parentLookupError.message}`,
+    };
+  }
+  if (!parentRow?.user_id) {
+    return {
+      ok: false,
+      error:
+        "Your account profile is missing in the database. Try signing out and back in, or contact support.",
+    };
+  }
+
+  const { data: sizeRows, error: sizeErr } = await admin
+    .from("shirt_sizes")
+    .select("code");
+  if (sizeErr) {
+    return {
+      ok: false,
+      error: `Could not validate shirt sizes: ${sizeErr.message}`,
+    };
+  }
+  const validShirtCodes = new Set(
+    (sizeRows ?? []).map((r: { code: string }) => r.code),
+  );
+
+  for (const ym of rows) {
+    const code = ym.shirtSizeCode?.trim() ?? "";
+    if (code && !validShirtCodes.has(code)) {
+      return {
+        ok: false,
+        error: `Invalid shirt size "${code}" for ${ym.firstName.trim()} ${ym.lastName.trim()}. Please pick a size from the list.`,
+      };
+    }
+  }
+
+  const youngMenPayload = rows.map((ym) => {
+    const raw = Number(ym.age);
+    const age =
+      Number.isFinite(raw) && raw > 0
+        ? Math.min(18, Math.max(8, Math.round(raw)))
+        : 12;
+    const shirt = ym.shirtSizeCode?.trim() || null;
+    return {
+      parent_id: userId,
+      first_name: ym.firstName.trim(),
+      last_name: ym.lastName.trim(),
+      age,
+      shirt_size_code: shirt,
+      allergies: ym.allergies?.trim() || null,
+      medical_notes: ym.medicalNotes?.trim() || null,
+    };
+  });
 
   const { error: ymError } = await admin.from("young_men").insert(youngMenPayload);
   if (ymError) {
