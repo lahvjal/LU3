@@ -916,13 +916,10 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult }) => {
     if (!form.email.trim() || !callingValue.trim()) {
       return;
     }
-    if (selectedRoleOption.wardRequired && !form.wardId) {
-      return;
-    }
     const result = await inviteLeaderAction({
       email: form.email.trim(),
       role: form.role,
-      wardId: selectedRoleOption.wardRequired ? form.wardId : null,
+      wardId: form.wardId || null,
       calling: callingValue.trim(),
     });
     if (applyResult(result)) {
@@ -995,17 +992,15 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult }) => {
       <PageHeader icon="star" title="Leaders" subtitle="Manage stake and ward leadership invitations, statuses, and roles" action={<button onClick={() => setModal(true)} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> Invite Leader</button>} />
       <Modal open={modal} onClose={() => setModal(false)} title="Invite Leader" width={560}>
         <Field label="Email"><input style={css.input} value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} placeholder="leader@email.com" /></Field>
-        <Field label="Leadership Role"><select style={css.select} value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value, wardId: "" }))}>{roleOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
-        {selectedRoleOption.wardRequired ? (
-          <Field label="Ward">
-            <select style={css.select} value={form.wardId} onChange={e => setForm(p => ({ ...p, wardId: e.target.value }))}>
-              <option value="">Select ward</option>
-              {wards.map((ward) => (
-                <option key={ward.id} value={ward.id}>{ward.name}</option>
-              ))}
-            </select>
-          </Field>
-        ) : null}
+        <Field label="Leadership Role"><select style={css.select} value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value }))}>{roleOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
+        <Field label="Ward">
+          <select style={css.select} value={form.wardId} onChange={e => setForm(p => ({ ...p, wardId: e.target.value }))}>
+            <option value="">Stake-wide (no ward)</option>
+            {wards.map((ward) => (
+              <option key={ward.id} value={ward.id}>{ward.name}</option>
+            ))}
+          </select>
+        </Field>
         {!addingCalling ? (
           <Field label="Calling">
             <div style={{ display: "flex", gap: "8px" }}>
