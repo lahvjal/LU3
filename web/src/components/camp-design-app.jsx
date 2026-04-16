@@ -915,6 +915,7 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult }) => {
   const [addingCalling, setAddingCalling] = useState(false);
   const [resendingLeaderId, setResendingLeaderId] = useState(null);
   const [form, setForm] = useState({
+    fullName: "",
     email: "",
     role: "ward_leader",
     wardId: "",
@@ -938,6 +939,7 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult }) => {
       return;
     }
     const result = await inviteLeaderAction({
+      fullName: form.fullName.trim(),
       email: form.email.trim(),
       role: form.role,
       wardId: form.wardId || null,
@@ -945,6 +947,7 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult }) => {
     });
     if (applyResult(result)) {
       setForm({
+        fullName: "",
         email: "",
         role: "ward_leader",
         wardId: "",
@@ -1012,6 +1015,7 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult }) => {
     <div>
       <PageHeader icon="star" title="Leaders" subtitle="Manage stake and ward leadership invitations, statuses, and roles" action={<button onClick={() => setModal(true)} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> Invite Leader</button>} />
       <Modal open={modal} onClose={() => setModal(false)} title="Invite Leader" width={560}>
+        <Field label="Full Name"><input style={css.input} value={form.fullName} onChange={e => setForm(p => ({ ...p, fullName: e.target.value }))} placeholder="John Doe" /></Field>
         <Field label="Email"><input style={css.input} value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} placeholder="leader@email.com" /></Field>
         <Field label="Leadership Role"><select style={css.select} value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value }))}>{roleOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
         <Field label="Ward">

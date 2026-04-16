@@ -85,6 +85,7 @@ type LeadershipRole = Exclude<AppRole, "young_man">;
 
 type InviteLeaderInput = {
   email: string;
+  fullName: string;
   role: LeadershipRole;
   wardId: string | null;
   calling: string;
@@ -1141,10 +1142,10 @@ export async function sendParentInviteAction(
     return fail("This parent has already completed registration.");
   }
 
-  const magicLinkUrl = await generateMagicLink(parent.email);
-  if (magicLinkUrl) {
+  const { actionLink: parentLink } = await generateMagicLink(parent.email);
+  if (parentLink) {
     const parentName = `${parent.first_name} ${parent.last_name}`.trim();
-    const template = parentInviteEmail(parentName, magicLinkUrl);
+    const template = parentInviteEmail(parentName, parentLink);
     await sendEmail({
       to: parent.email,
       subject: template.subject,
@@ -1304,8 +1305,11 @@ export async function inviteLeaderAction(
 
   const { data: existingInvite } = await existingInviteQuery.limit(1).maybeSingle();
 
+  const fullName = input.fullName?.trim() || null;
+
   const invitationPayload = {
     email,
+    full_name: fullName,
     user_id: invitedUserId,
     role: input.role,
     ward_id: wardId,
@@ -1340,9 +1344,32 @@ export async function inviteLeaderAction(
     }
   }
 
-  const magicLinkUrl = await generateMagicLink(email);
-  if (magicLinkUrl) {
-    const template = leaderInviteEmail(null, input.role, callingName, magicLinkUrl);
+  const { actionLink, userId: authUserId } = await generateMagicLink(email);
+
+  // If we now have an auth user_id that wasn't available at insert time, link it
+  if (authUserId && !invitedUserId) {
+    const admin = createSupabaseAdminClient() as any;
+    const { error: linkError } = await admin
+      .from("leaders")
+      .update({ user_id: authUserId })
+      .eq("email", email)
+      .is("user_id", null);
+
+    if (linkError) {
+      console.error("[inviteLeaderAction] failed to link auth user_id to leaders:", linkError.message);
+    } else {
+      console.log("[inviteLeaderAction] linked auth user_id", authUserId, "to leaders row for", email);
+    }
+
+    try {
+      await ensureLeadershipUserRole(supabase, authUserId, input.role, wardId);
+    } catch (roleErr) {
+      console.error("[inviteLeaderAction] failed to assign role for newly linked user:", roleErr);
+    }
+  }
+
+  if (actionLink) {
+    const template = leaderInviteEmail(fullName, input.role, callingName, actionLink);
     await sendEmail({
       to: email,
       subject: template.subject,

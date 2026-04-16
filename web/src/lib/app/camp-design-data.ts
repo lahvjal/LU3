@@ -105,6 +105,7 @@ type LeaderCallingRow = {
 type LeaderInvitationRow = {
   id: string;
   email: string;
+  full_name: string | null;
   user_id: string | null;
   role: string;
   ward_id: string | null;
@@ -496,7 +497,7 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
     supabase
       .from("leaders")
       .select(
-        "id, email, user_id, role, ward_id, status, invited_at, accepted_at, calling:leader_callings(name), ward:wards(name)",
+        "id, email, full_name, user_id, role, ward_id, status, invited_at, accepted_at, calling:leader_callings(name), ward:wards(name)",
       )
       .order("invited_at", { ascending: false }),
     supabase
@@ -719,7 +720,7 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
         ? userProfileById.get(invitation.user_id)
         : null;
       const email = invitation.email || profile?.user_email || "";
-      const fallbackName = email.split("@")[0] || "Pending User";
+      const fallbackName = invitation.full_name?.trim() || email.split("@")[0] || "Pending User";
       const callingName = resolveRelationName(invitation.calling);
       const effectiveWardId = invitation.ward_id ?? profile?.ward_id ?? null;
       const wardName =
