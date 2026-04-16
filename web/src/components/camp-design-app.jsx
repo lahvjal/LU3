@@ -96,6 +96,14 @@ const css = {
   label: { display: "block", fontSize: "12px", fontWeight: 600, color: T.textMuted, marginBottom: "6px", textTransform: "uppercase", letterSpacing: "0.04em" },
 };
 
+const Spinner = ({ size = 14, color = "currentColor" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" style={{ animation: "spin 0.8s linear infinite", flexShrink: 0 }}>
+    <circle cx="12" cy="12" r="10" stroke={color} strokeWidth="3" opacity="0.25" />
+    <path d="M12 2a10 10 0 019.8 8" stroke={color} strokeWidth="3" strokeLinecap="round" />
+    <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+  </svg>
+);
+
 const NAV = [
   { key: "dashboard", label: "Dashboard", icon: "home" },
   { key: "activities", label: "Activities", icon: "calendar" },
@@ -186,9 +194,16 @@ const Modal = ({ open, onClose, title, children, width = 520 }) => {
   </div>);
 };
 const ConfirmDeleteModal = ({ open, onClose, onConfirm, title, message }) => {
+  const [deleting, setDeleting] = useState(false);
+  useEffect(() => { if (!open) setDeleting(false); }, [open]);
+  const handleConfirm = async () => {
+    if (deleting) return;
+    setDeleting(true);
+    try { await onConfirm(); } finally { setDeleting(false); }
+  };
   if (!open) return null;
   return (<div style={{ position: "fixed", inset: 0, zIndex: 110, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
-    <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.65)", backdropFilter: "blur(4px)" }} />
+    <div onClick={deleting ? undefined : onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.65)", backdropFilter: "blur(4px)" }} />
     <div style={{ position: "relative", background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: T.radius, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", width: "100%", maxWidth: 420 }}>
       <div style={{ padding: "24px 22px 0" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "16px" }}>
@@ -200,8 +215,8 @@ const ConfirmDeleteModal = ({ open, onClose, onConfirm, title, message }) => {
         <p style={{ color: T.textMuted, fontSize: "14px", lineHeight: 1.6, margin: "0 0 20px" }}>{message}</p>
       </div>
       <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end", padding: "16px 22px", borderTop: `1px solid ${T.border}` }}>
-        <button onClick={onClose} style={{ ...css.btn("ghost"), padding: "10px 20px" }}>Cancel</button>
-        <button onClick={onConfirm} style={{ background: T.red, color: "#fff", border: "none", borderRadius: T.radiusSm, padding: "10px 20px", fontSize: "14px", fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Delete</button>
+        <button onClick={onClose} disabled={deleting} style={{ ...css.btn("ghost"), padding: "10px 20px", opacity: deleting ? 0.5 : 1 }}>Cancel</button>
+        <button onClick={handleConfirm} disabled={deleting} style={{ background: T.red, color: "#fff", border: "none", borderRadius: T.radiusSm, padding: "10px 20px", fontSize: "14px", fontWeight: 600, cursor: deleting ? "not-allowed" : "pointer", fontFamily: T.font, opacity: deleting ? 0.7 : 1, display: "inline-flex", alignItems: "center", gap: "6px" }}>{deleting ? <><Spinner size={14} color="#fff" /> Deleting…</> : "Delete"}</button>
       </div>
     </div>
   </div>);
@@ -436,24 +451,34 @@ const ActivitiesPage = ({ activities, applyResult, isLeader }) => {
   const [view, setView] = useState("timeline");
   const [modal, setModal] = useState(false);
   const [editActivity, setEditActivity] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+  const busy = saving || !!deletingId;
   const emptyForm = { title: "", category: "Sport", date: todayDateStr(), time: "", location: "", desc: "" };
   const [form, setForm] = useState(emptyForm);
   const openCreate = () => { setEditActivity(null); setForm(emptyForm); setModal(true); };
   const openEdit = (a) => { setEditActivity(a); setForm({ title: a.title, category: a.category, date: a.date, time: a.time, location: a.location, desc: a.desc }); setModal(true); };
   const closeModal = () => { setModal(false); setEditActivity(null); };
   const save = async () => {
-    if (!form.title || !form.time || !form.date) return;
-    const result = editActivity
-      ? await updateActivityAction(editActivity.id, form)
-      : await createActivityAction(form);
-    if (applyResult(result)) {
-      setForm(emptyForm);
-      closeModal();
-    }
+    if (saving || !form.title || !form.time || !form.date) return;
+    setSaving(true);
+    try {
+      const result = editActivity
+        ? await updateActivityAction(editActivity.id, form)
+        : await createActivityAction(form);
+      if (applyResult(result)) {
+        setForm(emptyForm);
+        closeModal();
+      }
+    } finally { setSaving(false); }
   };
   const del = async (id) => {
-    const result = await deleteActivityAction(id);
-    applyResult(result);
+    if (deletingId) return;
+    setDeletingId(id);
+    try {
+      const result = await deleteActivityAction(id);
+      applyResult(result);
+    } finally { setDeletingId(null); }
   };
   const dateGroups = useMemo(() => {
     const groups = {};
@@ -475,14 +500,14 @@ const ActivitiesPage = ({ activities, applyResult, isLeader }) => {
           <Field label="Location"><input style={css.input} value={form.location} onChange={e => setForm(p => ({ ...p, location: e.target.value }))} placeholder="Field B" /></Field>
         </div>
         <Field label="Description"><textarea style={{ ...css.input, minHeight: "70px", resize: "vertical" }} value={form.desc} onChange={e => setForm(p => ({ ...p, desc: e.target.value }))} /></Field>
-        <button onClick={save} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px" }}>{editActivity ? "Save Changes" : "Create Activity"}</button>
+        <button onClick={save} disabled={saving} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px", opacity: saving ? 0.7 : 1, cursor: saving ? "not-allowed" : "pointer" }}>{saving ? <><Spinner size={14} /> Saving…</> : editActivity ? "Save Changes" : "Create Activity"}</button>
       </Modal>
       {view === "timeline" ? (dateGroups.length ? dateGroups.map(({ date, label, acts }) => (
         <div key={date} style={{ marginBottom: "28px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "14px" }}><div style={{ width: "8px", height: "8px", borderRadius: "50%", background: T.accent }} /><h3 style={{ fontFamily: T.fontDisplay, fontSize: "16px", color: T.accentLight, margin: 0 }}>{label}</h3><div style={{ flex: 1, height: "1px", background: T.border }} /></div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "12px", paddingLeft: "20px" }}>{acts.map(a => { const cc = CAT_COLORS[a.category] || {}; return (<div key={a.id} style={{ ...css.card, padding: "16px", position: "relative" }}>{isLeader && <div style={{ position: "absolute", top: 10, right: 10, display: "flex", gap: "6px" }}><button onClick={() => openEdit(a)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.4 }}><Icon name="edit" size={14} color={T.accent} /></button><button onClick={() => del(a.id)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.4 }}><Icon name="trash" size={14} color={T.red} /></button></div>}<div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px", paddingRight: isLeader ? "48px" : "0" }}><span style={{ fontWeight: 600, color: T.text }}>{a.title}</span><Badge bg={cc.bg} text={cc.text}>{a.category}</Badge></div><p style={{ fontSize: "13px", color: T.textMuted, margin: "0 0 10px" }}>{a.desc}</p><div style={{ display: "flex", gap: "16px", fontSize: "12px", color: T.textDim }}><span>🕐 {a.time}</span><span>📍 {a.location}</span></div></div>); })}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "12px", paddingLeft: "20px" }}>{acts.map(a => { const cc = CAT_COLORS[a.category] || {}; return (<div key={a.id} style={{ ...css.card, padding: "16px", position: "relative" }}>{isLeader && <div style={{ position: "absolute", top: 10, right: 10, display: "flex", gap: "6px" }}><button disabled={busy} onClick={() => openEdit(a)} style={{ background: "none", border: "none", cursor: busy ? "not-allowed" : "pointer", opacity: 0.4 }}><Icon name="edit" size={14} color={T.accent} /></button><button disabled={busy} onClick={() => del(a.id)} style={{ background: "none", border: "none", cursor: busy ? "not-allowed" : "pointer", opacity: 0.4 }}>{deletingId === a.id ? <Spinner size={14} color={T.red} /> : <Icon name="trash" size={14} color={T.red} />}</button></div>}<div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px", paddingRight: isLeader ? "48px" : "0" }}><span style={{ fontWeight: 600, color: T.text }}>{a.title}</span><Badge bg={cc.bg} text={cc.text}>{a.category}</Badge></div><p style={{ fontSize: "13px", color: T.textMuted, margin: "0 0 10px" }}>{a.desc}</p><div style={{ display: "flex", gap: "16px", fontSize: "12px", color: T.textDim }}><span>🕐 {a.time}</span><span>📍 {a.location}</span></div></div>); })}</div>
         </div>
-      )) : <EmptyState icon="calendar" message="No activities scheduled yet." />) : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: "14px" }}>{activities.map(a => { const cc = CAT_COLORS[a.category] || {}; return (<div key={a.id} style={{ ...css.card, padding: "16px", position: "relative" }}>{isLeader && <button onClick={() => openEdit(a)} style={{ position: "absolute", top: 10, right: 10, background: "none", border: "none", cursor: "pointer", opacity: 0.4 }}><Icon name="edit" size={14} color={T.accent} /></button>}<Badge bg={cc.bg} text={cc.text}>{a.category}</Badge><h4 style={{ color: T.text, margin: "10px 0 6px" }}>{a.title}</h4><p style={{ fontSize: "13px", color: T.textMuted, margin: "0 0 10px" }}>{a.desc}</p><div style={{ fontSize: "12px", color: T.textDim }}>{formatDateLabel(a.date)} · {a.time} · {a.location}</div></div>); })}</div>}
+      )) : <EmptyState icon="calendar" message="No activities scheduled yet." />) : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: "14px" }}>{activities.map(a => { const cc = CAT_COLORS[a.category] || {}; return (<div key={a.id} style={{ ...css.card, padding: "16px", position: "relative" }}>{isLeader && <button disabled={busy} onClick={() => openEdit(a)} style={{ position: "absolute", top: 10, right: 10, background: "none", border: "none", cursor: busy ? "not-allowed" : "pointer", opacity: 0.4 }}><Icon name="edit" size={14} color={T.accent} /></button>}<Badge bg={cc.bg} text={cc.text}>{a.category}</Badge><h4 style={{ color: T.text, margin: "10px 0 6px" }}>{a.title}</h4><p style={{ fontSize: "13px", color: T.textMuted, margin: "0 0 10px" }}>{a.desc}</p><div style={{ fontSize: "12px", color: T.textDim }}>{formatDateLabel(a.date)} · {a.time} · {a.location}</div></div>); })}</div>}
     </div>
   );
 };
@@ -493,6 +518,9 @@ const AgendaPage = ({ agenda, applyResult, isLeader }) => {
   useEffect(() => { if (!agenda[activeDate] && dateTabs.length) setActiveDate(dateTabs[0]); }, [dateTabs, activeDate, agenda]);
   const [modal, setModal] = useState(false);
   const [editItem, setEditItem] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+  const busy = saving || !!deletingId;
   const emptyForm = { date: activeDate || todayDateStr(), time: "", item: "", location: "" };
   const [form, setForm] = useState(emptyForm);
   const items = agenda[activeDate] || [];
@@ -500,18 +528,25 @@ const AgendaPage = ({ agenda, applyResult, isLeader }) => {
   const openEdit = (a) => { setEditItem(a); setForm({ date: a.date, time: a.time, item: a.item, location: a.location }); setModal(true); };
   const closeModal = () => { setModal(false); setEditItem(null); };
   const save = async () => {
-    if (!form.date || !form.time || !form.item) return;
-    const result = editItem
-      ? await updateAgendaItemAction(editItem.id, form)
-      : await createAgendaItemAction(form);
-    if (applyResult(result)) {
-      setForm(emptyForm);
-      closeModal();
-    }
+    if (saving || !form.date || !form.time || !form.item) return;
+    setSaving(true);
+    try {
+      const result = editItem
+        ? await updateAgendaItemAction(editItem.id, form)
+        : await createAgendaItemAction(form);
+      if (applyResult(result)) {
+        setForm(emptyForm);
+        closeModal();
+      }
+    } finally { setSaving(false); }
   };
   const del = async (id) => {
-    const result = await deleteAgendaItemAction(id);
-    applyResult(result);
+    if (deletingId) return;
+    setDeletingId(id);
+    try {
+      const result = await deleteAgendaItemAction(id);
+      applyResult(result);
+    } finally { setDeletingId(null); }
   };
   return (
     <div>
@@ -521,7 +556,7 @@ const AgendaPage = ({ agenda, applyResult, isLeader }) => {
         <Field label="Time"><input style={css.input} value={form.time} onChange={e => setForm(p => ({ ...p, time: e.target.value }))} placeholder="10:00 AM" /></Field>
         <Field label="Activity"><input style={css.input} value={form.item} onChange={e => setForm(p => ({ ...p, item: e.target.value }))} placeholder="Activity name" /></Field>
         <Field label="Location"><input style={css.input} value={form.location} onChange={e => setForm(p => ({ ...p, location: e.target.value }))} placeholder="Pavilion" /></Field>
-        <button onClick={save} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px" }}>{editItem ? "Save Changes" : "Add Item"}</button>
+        <button onClick={save} disabled={saving} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px", opacity: saving ? 0.7 : 1, cursor: saving ? "not-allowed" : "pointer" }}>{saving ? <><Spinner size={14} /> Saving…</> : editItem ? "Save Changes" : "Add Item"}</button>
       </Modal>
       {dateTabs.length ? (
         <>
@@ -531,7 +566,7 @@ const AgendaPage = ({ agenda, applyResult, isLeader }) => {
               <div style={{ minWidth: "80px", fontFamily: "monospace", fontSize: "13px", fontWeight: 700, color: T.accent }}>{a.time}</div>
               <div style={{ width: "3px", height: "28px", borderRadius: "2px", background: T.accent, opacity: 0.3 }} />
               <div style={{ flex: 1 }}><div style={{ fontWeight: 600, color: T.text, fontSize: "14px" }}>{a.item}</div><div style={{ fontSize: "12px", color: T.textDim, marginTop: "2px" }}>📍 {a.location}</div></div>
-              {isLeader && <div style={{ display: "flex", gap: "6px" }}><button onClick={() => openEdit(a)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.4 }}><Icon name="edit" size={14} color={T.accent} /></button><button onClick={() => del(a.id)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.4 }}><Icon name="trash" size={14} color={T.red} /></button></div>}
+              {isLeader && <div style={{ display: "flex", gap: "6px" }}><button disabled={busy} onClick={() => openEdit(a)} style={{ background: "none", border: "none", cursor: busy ? "not-allowed" : "pointer", opacity: 0.4 }}><Icon name="edit" size={14} color={T.accent} /></button><button disabled={busy} onClick={() => del(a.id)} style={{ background: "none", border: "none", cursor: busy ? "not-allowed" : "pointer", opacity: 0.4 }}>{deletingId === a.id ? <Spinner size={14} color={T.red} /> : <Icon name="trash" size={14} color={T.red} />}</button></div>}
             </div>
           ))}</div> : <EmptyState icon="clock" message="No agenda items for this day." />}
         </>
@@ -550,6 +585,9 @@ const WARD_COLOR_PRESETS = [
 const WardsPage = ({ wards, applyResult, isLeader }) => {
   const [modal, setModal] = useState(false);
   const [editWard, setEditWard] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+  const busy = saving || !!deletingId;
   const emptyForm = { name: "", leader: "", leader_email: "", color: "" };
   const [wardForm, setWardForm] = useState(emptyForm);
 
@@ -566,26 +604,33 @@ const WardsPage = ({ wards, applyResult, isLeader }) => {
   };
 
   const saveWard = async () => {
-    if (!wardForm.name.trim()) return;
-    if (editWard) {
-      const result = await updateWardAction(editWard.id, wardForm);
-      if (applyResult(result)) {
-        setWardForm(emptyForm);
-        setEditWard(null);
-        setModal(false);
+    if (saving || !wardForm.name.trim()) return;
+    setSaving(true);
+    try {
+      if (editWard) {
+        const result = await updateWardAction(editWard.id, wardForm);
+        if (applyResult(result)) {
+          setWardForm(emptyForm);
+          setEditWard(null);
+          setModal(false);
+        }
+      } else {
+        const result = await createWardAction(wardForm);
+        if (applyResult(result)) {
+          setWardForm(emptyForm);
+          setModal(false);
+        }
       }
-    } else {
-      const result = await createWardAction(wardForm);
-      if (applyResult(result)) {
-        setWardForm(emptyForm);
-        setModal(false);
-      }
-    }
+    } finally { setSaving(false); }
   };
 
   const deleteWard = async (wardId) => {
-    const result = await deleteWardAction(wardId);
-    applyResult(result);
+    if (deletingId) return;
+    setDeletingId(wardId);
+    try {
+      const result = await deleteWardAction(wardId);
+      applyResult(result);
+    } finally { setDeletingId(null); }
   };
 
   const closeModal = () => {
@@ -616,7 +661,7 @@ const WardsPage = ({ wards, applyResult, isLeader }) => {
             {wardForm.color && <button onClick={() => setWardForm(p => ({ ...p, color: "" }))} style={{ background: "none", border: "none", color: T.textMuted, cursor: "pointer", fontSize: "12px" }}>Clear</button>}
           </div>
         </Field>
-        <button onClick={saveWard} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px" }}>{editWard ? "Save Changes" : "Create Ward"}</button>
+        <button onClick={saveWard} disabled={saving} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px", opacity: saving ? 0.7 : 1, cursor: saving ? "not-allowed" : "pointer" }}>{saving ? <><Spinner size={14} /> Saving…</> : editWard ? "Save Changes" : "Create Ward"}</button>
       </Modal>
       {!wards.length ? (
         <EmptyState icon="flag" message="No wards yet. Create your first ward to get started." />
@@ -636,7 +681,7 @@ const WardsPage = ({ wards, applyResult, isLeader }) => {
                 {isLeader && <td style={{ padding: "11px 14px", width: "100px" }}>
                   <div style={{ display: "flex", gap: "8px" }}>
                     <button onClick={() => openEditModal(ward)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.45 }}><Icon name="edit" size={14} color={T.accent} /></button>
-                    <button onClick={() => deleteWard(ward.id)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.45 }}><Icon name="trash" size={14} color={T.red} /></button>
+                    <button disabled={busy} onClick={() => deleteWard(ward.id)} style={{ background: "none", border: "none", cursor: busy ? "not-allowed" : "pointer", opacity: 0.45 }}>{deletingId === ward.id ? <Spinner size={14} color={T.red} /> : <Icon name="trash" size={14} color={T.red} />}</button>
                   </div>
                 </td>}
               </tr>
@@ -682,17 +727,28 @@ const CompetitionsPage = ({
   const totals = useMemo(() => { const t = {}; wards.forEach(w => { t[w.id] = 0; }); pointLog.forEach(p => { t[p.wardId] = (t[p.wardId] || 0) + p.points; }); return t; }, [pointLog, wards]);
   const leaderboard = useMemo(() => Object.entries(totals).map(([wid, pts]) => ({ ward: wards.find(w => w.id === wid), pts })).filter(e => e.ward).sort((a, b) => b.pts - a.pts), [totals, wards]);
 
+  const [savingComp, setSavingComp] = useState(false);
+  const [deletingCompId, setDeletingCompId] = useState(null);
+  const [awarding, setAwarding] = useState(false);
+
   const addComp = async () => {
-    if (!compForm.name) return;
-    const result = await createCompetitionAction(compForm);
-    if (applyResult(result)) {
-      setCompForm({ name: "", rules: "", status: "upcoming" });
-      setModal(null);
-    }
+    if (savingComp || !compForm.name) return;
+    setSavingComp(true);
+    try {
+      const result = await createCompetitionAction(compForm);
+      if (applyResult(result)) {
+        setCompForm({ name: "", rules: "", status: "upcoming" });
+        setModal(null);
+      }
+    } finally { setSavingComp(false); }
   };
   const delComp = async (id) => {
-    const result = await deleteCompetitionAction(id);
-    applyResult(result);
+    if (deletingCompId) return;
+    setDeletingCompId(id);
+    try {
+      const result = await deleteCompetitionAction(id);
+      applyResult(result);
+    } finally { setDeletingCompId(null); }
   };
   const markComplete = async (id) => {
     if (!id || completingId) return;
@@ -772,20 +828,23 @@ const CompetitionsPage = ({
 
   const award = async () => {
     const pts = parseInt(pointForm.points, 10);
-    if (!pointForm.wardId || !pointForm.note.trim() || !awardComp?.id) return;
+    if (awarding || !pointForm.wardId || !pointForm.note.trim() || !awardComp?.id) return;
     if (Number.isNaN(pts) || pts === 0 || Math.abs(pts) > 100) return;
-    const result = await awardPointsAction({
-      competitionId: awardComp.id,
-      wardId: pointForm.wardId,
-      points: pts,
-      note: pointForm.note,
-      leader: (awardLeaderName || "").trim(),
-    });
-    if (applyResult(result)) {
-      setMentionPicker(null);
-      setPointForm({ wardId: wards[0]?.id || "", points: "", note: "" });
-      setModal(null);
-    }
+    setAwarding(true);
+    try {
+      const result = await awardPointsAction({
+        competitionId: awardComp.id,
+        wardId: pointForm.wardId,
+        points: pts,
+        note: pointForm.note,
+        leader: (awardLeaderName || "").trim(),
+      });
+      if (applyResult(result)) {
+        setMentionPicker(null);
+        setPointForm({ wardId: wards[0]?.id || "", points: "", note: "" });
+        setModal(null);
+      }
+    } finally { setAwarding(false); }
   };
 
   const mentionMatches = useMemo(() => {
@@ -801,7 +860,7 @@ const CompetitionsPage = ({
         <Field label="Name"><input style={css.input} value={compForm.name} onChange={e => setCompForm(p => ({ ...p, name: e.target.value }))} placeholder="Competition name" /></Field>
         <Field label="Rules"><textarea style={{ ...css.input, minHeight: "70px", resize: "vertical" }} value={compForm.rules} onChange={e => setCompForm(p => ({ ...p, rules: e.target.value }))} /></Field>
         <Field label="Status"><select style={css.select} value={compForm.status} onChange={e => setCompForm(p => ({ ...p, status: e.target.value }))}><option value="upcoming">Upcoming</option><option value="active">Active</option><option value="completed">Completed</option></select></Field>
-        <button onClick={addComp} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px" }}>Create Competition</button>
+        <button onClick={addComp} disabled={savingComp} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px", opacity: savingComp ? 0.7 : 1, cursor: savingComp ? "not-allowed" : "pointer" }}>{savingComp ? <><Spinner size={14} /> Creating…</> : "Create Competition"}</button>
       </Modal>
       <Modal open={modal === "points"} onClose={() => { setMentionPicker(null); setModal(null); }} title={`Award Points — ${awardComp?.name || ""}`}>
         <Field label="Awarding as">
@@ -948,12 +1007,15 @@ const CompetitionsPage = ({
           <button onClick={() => { setMentionPicker(null); setModal(null); }} style={{ ...css.btn("ghost"), flex: 1, justifyContent: "center" }}>Cancel</button>
           <button
             onClick={award}
+            disabled={awarding}
             style={{
               ...css.btn(),
               flex: 1,
               justifyContent: "center",
               padding: "12px",
+              cursor: awarding ? "not-allowed" : "pointer",
               opacity:
+                awarding ||
                 !pointForm.points ||
                 !pointForm.note.trim() ||
                 Number.isNaN(parseInt(pointForm.points, 10)) ||
@@ -962,7 +1024,7 @@ const CompetitionsPage = ({
                   : 1,
             }}
           >
-            Award Points
+            {awarding ? <><Spinner size={14} /> Awarding…</> : "Award Points"}
           </button>
         </div>
       </Modal>
@@ -1023,7 +1085,7 @@ const CompetitionsPage = ({
                       cursor: completingId === c.id ? "wait" : "pointer",
                     }}
                   >
-                    <Icon name="check" size={14} color={T.textMuted} />
+                    {completingId === c.id ? <Spinner size={14} color={T.textMuted} /> : <Icon name="check" size={14} color={T.textMuted} />}
                     {completingId === c.id ? "Saving…" : "Mark complete"}
                   </button>
                 ) : null}
@@ -1048,7 +1110,7 @@ const CompetitionsPage = ({
                     <Icon name="plus" size={14} color={isComplete ? T.textDim : "#1a1612"} /> Award
                   </button>
                 ) : null}
-                {isLeader && <button type="button" onClick={(e) => { e.stopPropagation(); delComp(c.id); }} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.4 }}><Icon name="trash" size={14} color={T.red} /></button>}
+                {isLeader && <button type="button" disabled={!!deletingCompId} onClick={(e) => { e.stopPropagation(); delComp(c.id); }} style={{ background: "none", border: "none", cursor: deletingCompId ? "not-allowed" : "pointer", opacity: 0.4 }}>{deletingCompId === c.id ? <Spinner size={14} color={T.red} /> : <Icon name="trash" size={14} color={T.red} />}</button>}
               </div>
               {isExp && <div style={{ borderTop: `1px solid ${T.border}` }}>
                 <div style={{ padding: "16px 20px", background: "rgba(255,255,255,0.01)" }}><p style={{ fontSize: "13px", color: T.textMuted, margin: 0 }}><strong style={{ color: T.text }}>Rules:</strong> {c.rules}</p></div>
@@ -1166,18 +1228,22 @@ const RegistrationPage = ({ registrations, applyResult, isLeader }) => {
   const [form, setForm] = useState({ parentName: "", parentEmail: "" });
   const [expanded, setExpanded] = useState({});
   const [sending, setSending] = useState({});
+  const [saving, setSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
 
   const addParent = async () => {
-    if (!form.parentName.trim() || !form.parentEmail.trim()) return;
-    const result = await addParentAction({
-      parentName: form.parentName,
-      parentEmail: form.parentEmail,
-    });
-    if (applyResult(result)) {
-      setForm({ parentName: "", parentEmail: "" });
-      setModal(false);
-    }
+    if (saving || !form.parentName.trim() || !form.parentEmail.trim()) return;
+    setSaving(true);
+    try {
+      const result = await addParentAction({
+        parentName: form.parentName,
+        parentEmail: form.parentEmail,
+      });
+      if (applyResult(result)) {
+        setForm({ parentName: "", parentEmail: "" });
+        setModal(false);
+      }
+    } finally { setSaving(false); }
   };
 
   const sendInvite = async (parentId) => {
@@ -1215,7 +1281,7 @@ const RegistrationPage = ({ registrations, applyResult, isLeader }) => {
       <Modal open={modal} onClose={() => setModal(false)} title="Invite a Parent" width={480}>
         <Field label="Parent's Full Name"><input style={css.input} value={form.parentName} onChange={e => setForm(p => ({ ...p, parentName: e.target.value }))} placeholder="John Smith" /></Field>
         <Field label="Parent's Email"><input style={css.input} value={form.parentEmail} onChange={e => setForm(p => ({ ...p, parentEmail: e.target.value }))} placeholder="parent@email.com" /></Field>
-        <button onClick={addParent} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px" }}>Add Parent</button>
+        <button onClick={addParent} disabled={saving} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px", opacity: saving ? 0.7 : 1, cursor: saving ? "not-allowed" : "pointer" }}>{saving ? <><Spinner size={14} /> Adding…</> : "Add Parent"}</button>
       </Modal>
       <ConfirmDeleteModal
         open={!!deleteConfirm}
@@ -1260,7 +1326,7 @@ const RegistrationPage = ({ registrations, applyResult, isLeader }) => {
                         disabled={sending[reg.id]}
                         style={{ ...css.btn(), fontSize: "11px", padding: "5px 12px", opacity: sending[reg.id] ? 0.5 : 1 }}
                       >
-                        {sending[reg.id] ? "Sending..." : reg.inviteStatus === "sent" ? "Resend" : "Send Invite"}
+                        {sending[reg.id] ? <><Spinner size={12} /> Sending…</> : reg.inviteStatus === "sent" ? "Resend" : "Send Invite"}
                       </button>
                     )}
                     {isLeader && (
@@ -1296,17 +1362,27 @@ const RegistrationPage = ({ registrations, applyResult, isLeader }) => {
 const ContactsPage = ({ contacts, applyResult, isLeader }) => {
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ name: "", role: "", phone: "", email: "", emergency: false });
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+  const busy = saving || !!deletingId;
   const add = async () => {
-    if (!form.name || !form.phone) return;
-    const result = await addContactAction(form);
-    if (applyResult(result)) {
-      setForm({ name: "", role: "", phone: "", email: "", emergency: false });
-      setModal(false);
-    }
+    if (saving || !form.name || !form.phone) return;
+    setSaving(true);
+    try {
+      const result = await addContactAction(form);
+      if (applyResult(result)) {
+        setForm({ name: "", role: "", phone: "", email: "", emergency: false });
+        setModal(false);
+      }
+    } finally { setSaving(false); }
   };
   const del = async (id) => {
-    const result = await deleteContactAction(id);
-    applyResult(result);
+    if (deletingId) return;
+    setDeletingId(id);
+    try {
+      const result = await deleteContactAction(id);
+      applyResult(result);
+    } finally { setDeletingId(null); }
   };
   const staff = contacts.filter(c => !c.emergency); const emergency = contacts.filter(c => c.emergency);
   return (
@@ -1320,12 +1396,12 @@ const ContactsPage = ({ contacts, applyResult, isLeader }) => {
           <Field label="Email"><input style={css.input} value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} /></Field>
         </div>
         <label style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer", padding: "8px 0" }}><input type="checkbox" checked={form.emergency} onChange={e => setForm(p => ({ ...p, emergency: e.target.checked }))} style={{ width: "18px", height: "18px", accentColor: T.accent }} /><span style={{ fontSize: "14px", color: T.text }}>Emergency contact</span></label>
-        <button onClick={add} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px", marginTop: "8px" }}>Add Contact</button>
+        <button onClick={add} disabled={saving} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px", marginTop: "8px", opacity: saving ? 0.7 : 1, cursor: saving ? "not-allowed" : "pointer" }}>{saving ? <><Spinner size={14} /> Adding…</> : "Add Contact"}</button>
       </Modal>
       <h3 style={{ fontFamily: T.fontDisplay, fontSize: "17px", color: T.text, margin: "0 0 14px" }}>Camp Staff</h3>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "12px", marginBottom: "32px" }}>{staff.map(c => (<div key={c.id} style={{ ...css.card, position: "relative" }}>{isLeader && <button onClick={() => del(c.id)} style={{ position: "absolute", top: 12, right: 12, background: "none", border: "none", cursor: "pointer", opacity: 0.3 }}><Icon name="trash" size={14} color={T.red} /></button>}<div style={{ fontWeight: 600, color: T.text, fontSize: "15px", marginBottom: "4px" }}>{c.name}</div><div style={{ color: T.textMuted, fontSize: "13px", marginBottom: "10px" }}>{c.role}</div><div style={{ fontSize: "13px", color: T.accent }}>{c.phone}</div>{c.email && <div style={{ fontSize: "12px", color: T.textDim }}>{c.email}</div>}</div>))}</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "12px", marginBottom: "32px" }}>{staff.map(c => (<div key={c.id} style={{ ...css.card, position: "relative" }}>{isLeader && <button disabled={busy} onClick={() => del(c.id)} style={{ position: "absolute", top: 12, right: 12, background: "none", border: "none", cursor: busy ? "not-allowed" : "pointer", opacity: 0.3 }}>{deletingId === c.id ? <Spinner size={14} color={T.red} /> : <Icon name="trash" size={14} color={T.red} />}</button>}<div style={{ fontWeight: 600, color: T.text, fontSize: "15px", marginBottom: "4px" }}>{c.name}</div><div style={{ color: T.textMuted, fontSize: "13px", marginBottom: "10px" }}>{c.role}</div><div style={{ fontSize: "13px", color: T.accent }}>{c.phone}</div>{c.email && <div style={{ fontSize: "12px", color: T.textDim }}>{c.email}</div>}</div>))}</div>
       <h3 style={{ fontFamily: T.fontDisplay, fontSize: "17px", color: T.text, margin: "0 0 14px", display: "flex", alignItems: "center", gap: "8px" }}><span style={{ color: T.red }}>⚠</span> Emergency Contacts</h3>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "12px" }}>{emergency.map(c => (<div key={c.id} style={{ ...css.card, borderLeft: `3px solid ${T.red}`, position: "relative" }}>{isLeader && <button onClick={() => del(c.id)} style={{ position: "absolute", top: 12, right: 12, background: "none", border: "none", cursor: "pointer", opacity: 0.3 }}><Icon name="trash" size={14} color={T.red} /></button>}<div style={{ fontWeight: 600, color: T.text, fontSize: "15px", marginBottom: "4px" }}>{c.name}</div><div style={{ color: T.textMuted, fontSize: "13px", marginBottom: "8px" }}>{c.role}</div><div style={{ fontSize: "15px", color: T.red, fontWeight: 700, fontFamily: "monospace" }}>{c.phone}</div></div>))}</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "12px" }}>{emergency.map(c => (<div key={c.id} style={{ ...css.card, borderLeft: `3px solid ${T.red}`, position: "relative" }}>{isLeader && <button disabled={busy} onClick={() => del(c.id)} style={{ position: "absolute", top: 12, right: 12, background: "none", border: "none", cursor: busy ? "not-allowed" : "pointer", opacity: 0.3 }}>{deletingId === c.id ? <Spinner size={14} color={T.red} /> : <Icon name="trash" size={14} color={T.red} />}</button>}<div style={{ fontWeight: 600, color: T.text, fontSize: "15px", marginBottom: "4px" }}>{c.name}</div><div style={{ color: T.textMuted, fontSize: "13px", marginBottom: "8px" }}>{c.role}</div><div style={{ fontSize: "15px", color: T.red, fontWeight: 700, fontFamily: "monospace" }}>{c.phone}</div></div>))}</div>
     </div>
   );
 };
@@ -1333,18 +1409,23 @@ const ContactsPage = ({ contacts, applyResult, isLeader }) => {
 const RulesPage = ({ rules, applyResult, isLeader }) => {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
   const items = rules;
   const startEdit = () => { setDraft(items.map((r, i) => `${i + 1}. ${r}`).join("\n")); setEditing(true); };
   const cancelEdit = () => { setEditing(false); };
   const saveRules = async () => {
-    const result = await saveCampRulesAction(draft);
-    if (applyResult(result)) { setEditing(false); }
+    if (saving) return;
+    setSaving(true);
+    try {
+      const result = await saveCampRulesAction(draft);
+      if (applyResult(result)) { setEditing(false); }
+    } finally { setSaving(false); }
   };
   return (
     <div>
       <PageHeader icon="shield" title="Camp Rules" subtitle="Official camp guidelines"
         action={isLeader ? (editing
-          ? <div style={{ display: "flex", gap: "8px" }}><button onClick={cancelEdit} style={css.btn("ghost")}>Cancel</button><button onClick={saveRules} style={css.btn()}>Save Rules</button></div>
+          ? <div style={{ display: "flex", gap: "8px" }}><button onClick={cancelEdit} disabled={saving} style={{ ...css.btn("ghost"), opacity: saving ? 0.5 : 1 }}>Cancel</button><button onClick={saveRules} disabled={saving} style={{ ...css.btn(), opacity: saving ? 0.7 : 1, cursor: saving ? "not-allowed" : "pointer" }}>{saving ? <><Spinner size={14} /> Saving…</> : "Save Rules"}</button></div>
           : <button onClick={startEdit} style={css.btn()}><Icon name="edit" size={16} color="#1a1612" /> Edit</button>
         ) : null}
       />
@@ -1420,30 +1501,36 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult, isLeader }) 
   const selectedRoleOption =
     inviteRoleOptions.find((option) => option.value === form.role) ?? inviteRoleOptions[0];
 
+  const [saving, setSaving] = useState(false);
+  const [editSaving, setEditSaving] = useState(false);
+
   const submitInvite = async () => {
     const callingValue = addingCalling ? form.newCalling : form.calling;
-    if (!form.email.trim() || !callingValue.trim()) {
+    if (saving || !form.email.trim() || !callingValue.trim()) {
       return;
     }
-    const result = await inviteLeaderAction({
-      fullName: form.fullName.trim(),
-      email: form.email.trim(),
-      role: form.role,
-      wardId: form.wardId || null,
-      calling: callingValue.trim(),
-    });
-    if (applyResult(result)) {
-      setForm({
-        fullName: "",
-        email: "",
-        role: "ward_leader",
-        wardId: "",
-        calling: "",
-        newCalling: "",
+    setSaving(true);
+    try {
+      const result = await inviteLeaderAction({
+        fullName: form.fullName.trim(),
+        email: form.email.trim(),
+        role: form.role,
+        wardId: form.wardId || null,
+        calling: callingValue.trim(),
       });
-      setAddingCalling(false);
-      setModal(false);
-    }
+      if (applyResult(result)) {
+        setForm({
+          fullName: "",
+          email: "",
+          role: "ward_leader",
+          wardId: "",
+          calling: "",
+          newCalling: "",
+        });
+        setAddingCalling(false);
+        setModal(false);
+      }
+    } finally { setSaving(false); }
   };
 
   const removeInvite = (invitationId, leaderName) => {
@@ -1471,19 +1558,22 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult, isLeader }) 
   };
 
   const submitEdit = async () => {
-    if (!editLeader) return;
-    const callingValue = editAddingCalling ? editForm.newCalling : editForm.calling;
-    const editRoleOption = editRoleOptions.find((o) => o.value === editForm.role) ?? editRoleOptions[0];
-    const result = await updateLeaderAction(editLeader.invitation_id ?? editLeader.id, {
-      displayName: editForm.displayName.trim() || undefined,
-      role: editForm.role,
-      wardId: editRoleOption.wardRequired ? editForm.wardId || null : null,
-      calling: callingValue.trim() || undefined,
-    });
-    if (applyResult(result)) {
-      setEditModal(false);
-      setEditLeader(null);
-    }
+    if (editSaving || !editLeader) return;
+    setEditSaving(true);
+    try {
+      const callingValue = editAddingCalling ? editForm.newCalling : editForm.calling;
+      const editRoleOption = editRoleOptions.find((o) => o.value === editForm.role) ?? editRoleOptions[0];
+      const result = await updateLeaderAction(editLeader.invitation_id ?? editLeader.id, {
+        displayName: editForm.displayName.trim() || undefined,
+        role: editForm.role,
+        wardId: editRoleOption.wardRequired ? editForm.wardId || null : null,
+        calling: callingValue.trim() || undefined,
+      });
+      if (applyResult(result)) {
+        setEditModal(false);
+        setEditLeader(null);
+      }
+    } finally { setEditSaving(false); }
   };
 
   const editRoleOption = editModal ? (editRoleOptions.find((o) => o.value === editForm.role) ?? editRoleOptions[0]) : null;
@@ -1550,7 +1640,7 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult, isLeader }) 
             </div>
           </Field>
         )}
-        <button onClick={submitInvite} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px" }}>Send Invitation</button>
+        <button onClick={submitInvite} disabled={saving} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px", opacity: saving ? 0.7 : 1, cursor: saving ? "not-allowed" : "pointer" }}>{saving ? <><Spinner size={14} /> Sending…</> : "Send Invitation"}</button>
       </Modal>
 
       <Modal open={editModal} onClose={() => setEditModal(false)} title="Edit Leader" width={560}>
@@ -1584,7 +1674,7 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult, isLeader }) 
             </div>
           </Field>
         )}
-        <button onClick={submitEdit} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px" }}>Save Changes</button>
+        <button onClick={submitEdit} disabled={editSaving} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px", opacity: editSaving ? 0.7 : 1, cursor: editSaving ? "not-allowed" : "pointer" }}>{editSaving ? <><Spinner size={14} /> Saving…</> : "Save Changes"}</button>
       </Modal>
       <ConfirmDeleteModal
         open={!!deleteConfirm}
@@ -1628,7 +1718,7 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult, isLeader }) 
                       <button
                         type="button"
                         onClick={() => sendOrResendInvite(leader)}
-                        style={{ ...css.btn("ghost"), padding: "6px 10px", fontSize: "12px" }}
+                        style={{ ...css.btn("ghost"), padding: "6px 10px", fontSize: "12px", opacity: resendingLeaderId === leader.id ? 0.6 : 1, cursor: resendingLeaderId === leader.id ? "not-allowed" : "pointer" }}
                         disabled={
                           resendingLeaderId === leader.id ||
                           leader.status === "active" ||
@@ -1638,7 +1728,7 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult, isLeader }) 
                         }
                       >
                         {resendingLeaderId === leader.id
-                          ? "Sending..."
+                          ? <><Spinner size={12} /> Sending…</>
                           : leader.status === "active"
                             ? "Active"
                             : leader.invitation_id
