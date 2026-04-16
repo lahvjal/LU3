@@ -7,7 +7,6 @@ import { signOutCampAction } from "@/lib/app/camp-design-actions";
 import {
   removeLeaderInviteAction,
   sendLeaderInviteAction,
-  updateLeaderInviteStatusAction,
   type StakeLeaderActionResult,
 } from "./actions";
 
@@ -511,7 +510,6 @@ export default function StakeLeadersDesignPage({
   );
   const [addingCalling, setAddingCalling] = useState(false);
   const [submittingInvite, setSubmittingInvite] = useState(false);
-  const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
   const [removingInviteId, setRemovingInviteId] = useState<string | null>(null);
   const selectedRole =
     ROLE_OPTIONS.find((option) => option.value === inviteDraft.role) ?? ROLE_OPTIONS[0];
@@ -628,24 +626,6 @@ export default function StakeLeadersDesignPage({
     });
     setInviteModalOpen(false);
     setInviteTarget(null);
-    router.refresh();
-  };
-
-  const updateStatus = async (
-    invitationId: string,
-    status: LeaderInviteStatus,
-  ) => {
-    setUpdatingStatusId(invitationId);
-    const result = await updateLeaderInviteStatusAction(invitationId, status);
-    setUpdatingStatusId(null);
-
-    const errorMessage = normalizeActionMessage(result);
-    if (errorMessage) {
-      setAlertState({ type: "error", message: errorMessage });
-      return;
-    }
-
-    setAlertState({ type: "success", message: "Invitation status updated." });
     router.refresh();
   };
 
@@ -801,9 +781,7 @@ export default function StakeLeadersDesignPage({
                 </thead>
                 <tbody>
                   {initialInvitations.map((row, index) => {
-                    const rowBusy =
-                      updatingStatusId === row.invitationId ||
-                      removingInviteId === row.invitationId;
+                    const rowBusy = removingInviteId === row.invitationId;
                     const resendDisabled =
                       rowBusy || row.onboardingCompleted || row.status === "active";
                     const statusColor = STATUS_COLORS[row.status];
@@ -860,24 +838,6 @@ export default function StakeLeadersDesignPage({
                                 ? "Active"
                                 : "Send Again"}
                             </button>
-                            <select
-                              style={{
-                                ...css.select,
-                                minWidth: "120px",
-                                padding: "6px 10px",
-                                fontSize: "12px",
-                              }}
-                              value={row.status}
-                              onChange={(event) => {
-                                const nextStatus = event.target.value as LeaderInviteStatus;
-                                void updateStatus(row.invitationId, nextStatus);
-                              }}
-                              disabled={rowBusy}
-                            >
-                              <option value="pending">pending</option>
-                              <option value="active">active</option>
-                              <option value="revoked">revoked</option>
-                            </select>
                             <button
                               onClick={() => {
                                 void removeInvite(row.invitationId);

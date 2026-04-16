@@ -24,7 +24,6 @@ import {
   refreshCampDesignDataAction,
   removeCamperAction,
   signOutCampAction,
-  updateLeaderInvitationStatusAction,
   updateMyProfileAction,
   updateRegistrationStatusAction,
 } from "@/lib/app/camp-design-actions";
@@ -826,11 +825,6 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult }) => {
     }
   };
 
-  const updateStatus = async (invitationId, status) => {
-    const result = await updateLeaderInvitationStatusAction(invitationId, status);
-    applyResult(result);
-  };
-
   const removeInvite = async (invitationId) => {
     const result = await deleteLeaderInvitationAction(invitationId);
     applyResult(result);
@@ -947,11 +941,6 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult }) => {
                 <td style={{ padding: "11px 14px" }}>
                   {leader.invitation_id ? (
                     <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                      <select style={{ ...css.select, minWidth: "120px", padding: "6px 10px", fontSize: "12px" }} value={leader.status} onChange={e => updateStatus(leader.invitation_id, e.target.value)}>
-                        <option value="pending">pending</option>
-                        <option value="active">active</option>
-                        <option value="revoked">revoked</option>
-                      </select>
                       <button onClick={() => removeInvite(leader.invitation_id)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.45 }}><Icon name="trash" size={14} color={T.red} /></button>
                     </div>
                   ) : (
@@ -1607,6 +1596,7 @@ export default function CampDesignApp({ initialData, profile }) {
     shirtSizeCode: "",
     age: null,
     roleLabels: [],
+    isLeader: false,
     isStakeAdmin: false,
     canManageContent: false,
     canManageUnits: false,
@@ -1880,7 +1870,7 @@ export default function CampDesignApp({ initialData, profile }) {
     }
   };
 
-  const isLeader = profileData.isStakeAdmin || profileData.canManageContent;
+  const isLeader = profileData.isLeader;
 
   const pages = {
     dashboard: <Dashboard goTo={goToPage} units={units} activities={activities} competitions={competitions} pointLog={pointLog} agenda={agenda} inspiration={inspiration} />,

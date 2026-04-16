@@ -24,6 +24,7 @@ export default async function ProtectedLayout() {
         shirtSizeCode: userContext.shirtSizeCode,
         age: userContext.age,
         roleLabels: userContext.roleLabels,
+        isLeader: userContext.isLeader,
         isStakeAdmin: userContext.isStakeAdmin,
         canManageContent: userContext.canManageContent,
         canManageUnits: userContext.canManageUnits,

@@ -3,11 +3,9 @@
 import {
   deleteLeaderInvitationAction,
   inviteLeaderAction,
-  updateLeaderInvitationStatusAction,
 } from "@/lib/app/camp-design-actions";
 
 type InviteLeaderPayload = Parameters<typeof inviteLeaderAction>[0];
-type LeaderInvitationStatus = Parameters<typeof updateLeaderInvitationStatusAction>[1];
 
 export type StakeLeaderActionResult =
   | { ok: true }
@@ -16,7 +14,6 @@ export type StakeLeaderActionResult =
 function toResult(
   value:
     | Awaited<ReturnType<typeof inviteLeaderAction>>
-    | Awaited<ReturnType<typeof updateLeaderInvitationStatusAction>>
     | Awaited<ReturnType<typeof deleteLeaderInvitationAction>>,
 ): StakeLeaderActionResult {
   if (!value.ok) {
@@ -30,14 +27,6 @@ export async function sendLeaderInviteAction(
   input: InviteLeaderPayload,
 ): Promise<StakeLeaderActionResult> {
   const result = await inviteLeaderAction(input);
-  return toResult(result);
-}
-
-export async function updateLeaderInviteStatusAction(
-  invitationId: string,
-  status: LeaderInvitationStatus,
-): Promise<StakeLeaderActionResult> {
-  const result = await updateLeaderInvitationStatusAction(invitationId, status);
   return toResult(result);
 }
 

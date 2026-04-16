@@ -52,6 +52,7 @@ export type UserContext = {
   roleLabels: string[];
   wardIds: string[];
   managedWardIds: string[];
+  isLeader: boolean;
   isStakeAdmin: boolean;
   canManageContent: boolean;
   canManageUnits: boolean;
@@ -105,6 +106,7 @@ export async function getUserContext(
     canManageContent ||
     roleSet.has("ward_leader") ||
     roleSet.has("young_men_captain");
+  const isLeader = canManageRegistrations;
   const isCamper = roleSet.has("young_man");
 
   let displayName =
@@ -194,6 +196,7 @@ export async function getUserContext(
     roleLabels: roles.map((role) => roleLabelMap[role.role] ?? role.role),
     wardIds,
     managedWardIds,
+    isLeader,
     isStakeAdmin,
     canManageContent,
     canManageUnits,
