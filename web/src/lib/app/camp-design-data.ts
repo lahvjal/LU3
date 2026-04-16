@@ -143,7 +143,7 @@ type DesignActivity = {
   id: string;
   title: string;
   category: string;
-  day: number;
+  date: string;
   time: string;
   location: string;
   desc: string;
@@ -192,6 +192,7 @@ type DesignRegistration = {
 
 type DesignAgendaItem = {
   id: string;
+  date: string;
   time: string;
   item: string;
   location: string;
@@ -278,7 +279,7 @@ export type CampDesignInitialData = {
   competitions: DesignCompetition[];
   pointLog: DesignPoint[];
   registrations: DesignRegistration[];
-  agenda: Record<number, DesignAgendaItem[]>;
+  agenda: Record<string, DesignAgendaItem[]>;
   contacts: DesignContact[];
   leaders: DesignLeader[];
   inspiration: DesignInspiration[];
@@ -329,6 +330,10 @@ const LEADERSHIP_ROLES = new Set([
   "camp_committee",
   "young_men_captain",
 ]);
+
+function toDateString(value: string) {
+  return value.slice(0, 10);
+}
 
 function toDayIndex(value: string) {
   const dateOnly = value.slice(0, 10);
@@ -548,7 +553,7 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
     id: activity.id,
     title: activity.title,
     category: activity.category || "General",
-    day: toDayIndex(activity.starts_at),
+    date: toDateString(activity.starts_at),
     time: formatTime(activity.starts_at),
     location: activity.location ?? "",
     desc: activity.description ?? "",
@@ -636,15 +641,16 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
     };
   });
 
-  const agenda: Record<number, DesignAgendaItem[]> = {};
+  const agenda: Record<string, DesignAgendaItem[]> = {};
   agendaRaw.forEach((item) => {
-    const day = toDayIndex(item.agenda_date);
-    if (!agenda[day]) {
-      agenda[day] = [];
+    const dateKey = toDateString(item.agenda_date);
+    if (!agenda[dateKey]) {
+      agenda[dateKey] = [];
     }
 
-    agenda[day].push({
+    agenda[dateKey].push({
       id: item.id,
+      date: dateKey,
       time: item.time_slot,
       item: item.title,
       location: item.location ?? "",

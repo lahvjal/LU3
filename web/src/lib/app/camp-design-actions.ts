@@ -33,14 +33,14 @@ type ProfilePayload = {
 type ActivityInput = {
   title: string;
   category: string;
-  day: number;
+  date: string;
   time: string;
   location: string;
   desc: string;
 };
 
 type AgendaInput = {
-  day: number;
+  date: string;
   time: string;
   item: string;
   location: string;
@@ -118,8 +118,6 @@ type ProfileUpdateInput = {
 
 type SupabaseActionClient = Awaited<ReturnType<typeof createSupabaseServerClient>>;
 
-const CAMP_START_DATE = new Date("2026-06-15T00:00:00Z");
-
 const CAMP_STAFF_ROLES = new Set<CampStaffRole>([
   "stake_leader",
   "stake_camp_director",
@@ -136,10 +134,12 @@ async function success(profile?: ProfilePayload): Promise<ActionResult> {
   return { ok: true, data, profile };
 }
 
-function toAgendaDate(day: number) {
-  const value = new Date(CAMP_START_DATE);
-  value.setUTCDate(CAMP_START_DATE.getUTCDate() + day);
-  return value.toISOString().slice(0, 10);
+function toAgendaDate(dateStr: string) {
+  const dateOnly = dateStr.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) {
+    return null;
+  }
+  return dateOnly;
 }
 
 function parseTimeLabel(timeLabel: string) {
@@ -167,14 +167,18 @@ function parseTimeLabel(timeLabel: string) {
   return { hour24, minutes };
 }
 
-function toActivityTimestamp(day: number, timeLabel: string) {
+function toActivityTimestamp(dateStr: string, timeLabel: string) {
   const parsed = parseTimeLabel(timeLabel);
   if (!parsed) {
     return null;
   }
 
-  const value = new Date(CAMP_START_DATE);
-  value.setUTCDate(CAMP_START_DATE.getUTCDate() + day);
+  const dateOnly = dateStr.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) {
+    return null;
+  }
+
+  const value = new Date(`${dateOnly}T00:00:00Z`);
   value.setUTCHours(parsed.hour24, parsed.minutes, 0, 0);
   return value.toISOString();
 }
@@ -483,9 +487,9 @@ export async function createActivityAction(
     return fail("You do not have permission to add activities.");
   }
 
-  const startsAt = toActivityTimestamp(input.day, input.time);
+  const startsAt = toActivityTimestamp(input.date, input.time);
   if (!startsAt || !input.title.trim()) {
-    return fail("Please provide a valid title and time.");
+    return fail("Please provide a valid title, date, and time.");
   }
 
   const supabase = await createSupabaseServerClient();
@@ -497,6 +501,39 @@ export async function createActivityAction(
     description: input.desc.trim() || null,
     created_by: context.user.id,
   });
+
+  if (error) {
+    return fail(error.message);
+  }
+
+  return success();
+}
+
+export async function updateActivityAction(
+  id: string,
+  input: ActivityInput,
+): Promise<ActionResult> {
+  const context = await requireContentManager();
+  if (!context) {
+    return fail("You do not have permission to edit activities.");
+  }
+
+  const startsAt = toActivityTimestamp(input.date, input.time);
+  if (!startsAt || !input.title.trim()) {
+    return fail("Please provide a valid title, date, and time.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase
+    .from("activities")
+    .update({
+      title: input.title.trim(),
+      category: input.category.trim() || "General",
+      starts_at: startsAt,
+      location: input.location.trim() || null,
+      description: input.desc.trim() || null,
+    })
+    .eq("id", id);
 
   if (error) {
     return fail(error.message);
@@ -528,18 +565,51 @@ export async function createAgendaItemAction(
     return fail("You do not have permission to add agenda items.");
   }
 
-  if (!input.time.trim() || !input.item.trim()) {
-    return fail("Please provide both time and item name.");
+  const agendaDate = toAgendaDate(input.date);
+  if (!agendaDate || !input.time.trim() || !input.item.trim()) {
+    return fail("Please provide a valid date, time, and item name.");
   }
 
   const supabase = await createSupabaseServerClient();
   const { error } = await supabase.from("daily_agenda_items").insert({
-    agenda_date: toAgendaDate(input.day),
+    agenda_date: agendaDate,
     time_slot: input.time.trim(),
     title: input.item.trim(),
     location: input.location.trim() || null,
     created_by: context.user.id,
   });
+
+  if (error) {
+    return fail(error.message);
+  }
+
+  return success();
+}
+
+export async function updateAgendaItemAction(
+  id: string,
+  input: AgendaInput,
+): Promise<ActionResult> {
+  const context = await requireContentManager();
+  if (!context) {
+    return fail("You do not have permission to edit agenda items.");
+  }
+
+  const agendaDate = toAgendaDate(input.date);
+  if (!agendaDate || !input.time.trim() || !input.item.trim()) {
+    return fail("Please provide a valid date, time, and item name.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase
+    .from("daily_agenda_items")
+    .update({
+      agenda_date: agendaDate,
+      time_slot: input.time.trim(),
+      title: input.item.trim(),
+      location: input.location.trim() || null,
+    })
+    .eq("id", id);
 
   if (error) {
     return fail(error.message);

@@ -13,7 +13,10 @@ import {
   createWardAction,
   deleteLeaderInvitationAction,
   deleteActivityAction,
+  updateActivityAction,
   deleteAgendaItemAction,
+  updateAgendaItemAction,
+  saveCampRulesAction,
   deleteCompetitionAction,
   deleteContactAction,
   deleteParentAction,
@@ -71,6 +74,16 @@ const Icon = ({ name, size = 20, color }) => {
 };
 
 const CAMP_DAYS = ["Mon Jun 15", "Tue Jun 16", "Wed Jun 17", "Thu Jun 18", "Fri Jun 19"];
+
+function formatDateLabel(dateStr) {
+  const d = new Date(dateStr + "T12:00:00Z");
+  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
+}
+
+function todayDateStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 const CAT_COLORS = { Sport: { bg: "#2a3528", text: "#6b9e6b" }, Water: { bg: "#1e2a35", text: "#6b8eb0" }, Spiritual: { bg: "#35301e", text: "#c4a84e" }, Competition: { bg: "#352220", text: "#c46b5e" }, Adventure: { bg: "#2a2435", text: "#9a7eb8" }, Service: { bg: "#2a3030", text: "#6bb0a0" } };
 const STATUS_COLORS = { approved: { bg: T.greenBg, text: T.green }, pending: { bg: T.yellowBg, text: T.yellow }, waitlisted: { bg: T.purpleBg, text: T.purple }, active: { bg: T.greenBg, text: T.green }, completed: { bg: T.blueBg, text: T.blue }, upcoming: { bg: T.yellowBg, text: T.yellow }, revoked: { bg: T.redBg, text: T.red } };
 
@@ -380,7 +393,9 @@ function splitNoteForMentionHighlight(note, youngMen) {
 
 const Dashboard = ({ goTo, wards, activities, competitions, pointLog, agenda, inspiration }) => {
   const today = inspiration[0] || { verse: "", ref: "" };
-  const todayAgenda = agenda[0] || [];
+  const agendaDates = Object.keys(agenda).sort();
+  const firstDate = agendaDates[0] || "";
+  const todayAgenda = firstDate ? (agenda[firstDate] || []) : [];
   const totalCampers = wards.reduce((s, w) => s + w.campers.length, 0);
   const totals = {}; wards.forEach(w => { totals[w.id] = 0; }); pointLog.forEach(p => { totals[p.wardId] = (totals[p.wardId] || 0) + p.points; });
   const top = Object.entries(totals).sort((a, b) => b[1] - a[1]).map(([wid]) => wards.find(w => w.id === wid)).filter(Boolean);
@@ -403,7 +418,7 @@ const Dashboard = ({ goTo, wards, activities, competitions, pointLog, agenda, in
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
         <div style={css.card}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "18px" }}><h3 style={{ fontFamily: T.fontDisplay, fontSize: "17px", color: T.text, margin: 0 }}>Today&apos;s Agenda</h3><span style={{ fontSize: "12px", color: T.textMuted }}>{CAMP_DAYS[0]}</span></div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "18px" }}><h3 style={{ fontFamily: T.fontDisplay, fontSize: "17px", color: T.text, margin: 0 }}>Upcoming Agenda</h3>{firstDate && <span style={{ fontSize: "12px", color: T.textMuted }}>{formatDateLabel(firstDate)}</span>}</div>
           {todayAgenda.slice(0, 6).map((a, i) => (<div key={i} style={{ display: "flex", gap: "14px", padding: "8px 0", borderBottom: i < 5 ? `1px solid ${T.border}` : "none" }}><span style={{ fontSize: "12px", color: T.accent, fontWeight: 600, minWidth: "70px", fontFamily: "monospace" }}>{a.time}</span><span style={{ fontSize: "13px", color: T.text }}>{a.item}</span></div>))}
           <button onClick={() => goTo("agenda")} style={{ ...css.btn("ghost"), width: "100%", justifyContent: "center", marginTop: "12px" }}>Full Agenda →</button>
         </div>
@@ -420,66 +435,78 @@ const Dashboard = ({ goTo, wards, activities, competitions, pointLog, agenda, in
 const ActivitiesPage = ({ activities, applyResult, isLeader }) => {
   const [view, setView] = useState("timeline");
   const [modal, setModal] = useState(false);
-  const [form, setForm] = useState({ title: "", category: "Sport", day: 0, time: "", location: "", desc: "" });
-  const add = async () => {
-    if (!form.title || !form.time) return;
-    const result = await createActivityAction({
-      ...form,
-      day: Number(form.day),
-    });
+  const [editActivity, setEditActivity] = useState(null);
+  const emptyForm = { title: "", category: "Sport", date: todayDateStr(), time: "", location: "", desc: "" };
+  const [form, setForm] = useState(emptyForm);
+  const openCreate = () => { setEditActivity(null); setForm(emptyForm); setModal(true); };
+  const openEdit = (a) => { setEditActivity(a); setForm({ title: a.title, category: a.category, date: a.date, time: a.time, location: a.location, desc: a.desc }); setModal(true); };
+  const closeModal = () => { setModal(false); setEditActivity(null); };
+  const save = async () => {
+    if (!form.title || !form.time || !form.date) return;
+    const result = editActivity
+      ? await updateActivityAction(editActivity.id, form)
+      : await createActivityAction(form);
     if (applyResult(result)) {
-      setForm({ title: "", category: "Sport", day: 0, time: "", location: "", desc: "" });
-      setModal(false);
+      setForm(emptyForm);
+      closeModal();
     }
   };
   const del = async (id) => {
     const result = await deleteActivityAction(id);
     applyResult(result);
   };
-  const byDay = CAMP_DAYS.map((day, i) => ({ day, acts: activities.filter(a => a.day === i) }));
+  const dateGroups = useMemo(() => {
+    const groups = {};
+    activities.forEach(a => { if (!groups[a.date]) groups[a.date] = []; groups[a.date].push(a); });
+    return Object.keys(groups).sort().map(date => ({ date, label: formatDateLabel(date), acts: groups[date] }));
+  }, [activities]);
   return (
     <div>
       <PageHeader icon="calendar" title="Activities" subtitle={`${activities.length} activities scheduled`}
-        action={<div style={{ display: "flex", gap: "8px" }}>{["timeline", "grid"].map(v => <button key={v} onClick={() => setView(v)} style={{ ...css.btn(view === v ? "primary" : "ghost"), padding: "6px 14px", fontSize: "12px", textTransform: "capitalize" }}>{v}</button>)}{isLeader && <button onClick={() => setModal(true)} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> Add</button>}</div>} />
-      <Modal open={modal} onClose={() => setModal(false)} title="New Activity">
+        action={<div style={{ display: "flex", gap: "8px" }}>{["timeline", "grid"].map(v => <button key={v} onClick={() => setView(v)} style={{ ...css.btn(view === v ? "primary" : "ghost"), padding: "6px 14px", fontSize: "12px", textTransform: "capitalize" }}>{v}</button>)}{isLeader && <button onClick={openCreate} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> Add</button>}</div>} />
+      <Modal open={modal} onClose={closeModal} title={editActivity ? "Edit Activity" : "New Activity"}>
         <Field label="Title"><input style={css.input} value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} placeholder="Activity name" /></Field>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
           <Field label="Category"><select style={css.select} value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))}>{Object.keys(CAT_COLORS).map(c => <option key={c}>{c}</option>)}</select></Field>
-          <Field label="Day"><select style={css.select} value={form.day} onChange={e => setForm(p => ({ ...p, day: e.target.value }))}>{CAMP_DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}</select></Field>
+          <Field label="Date"><input type="date" style={css.input} value={form.date} onChange={e => setForm(p => ({ ...p, date: e.target.value }))} /></Field>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
           <Field label="Time"><input style={css.input} value={form.time} onChange={e => setForm(p => ({ ...p, time: e.target.value }))} placeholder="9:00 AM" /></Field>
           <Field label="Location"><input style={css.input} value={form.location} onChange={e => setForm(p => ({ ...p, location: e.target.value }))} placeholder="Field B" /></Field>
         </div>
         <Field label="Description"><textarea style={{ ...css.input, minHeight: "70px", resize: "vertical" }} value={form.desc} onChange={e => setForm(p => ({ ...p, desc: e.target.value }))} /></Field>
-        <button onClick={add} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px" }}>Create Activity</button>
+        <button onClick={save} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px" }}>{editActivity ? "Save Changes" : "Create Activity"}</button>
       </Modal>
-      {view === "timeline" ? byDay.map(({ day, acts }) => (
-        <div key={day} style={{ marginBottom: "28px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "14px" }}><div style={{ width: "8px", height: "8px", borderRadius: "50%", background: T.accent }} /><h3 style={{ fontFamily: T.fontDisplay, fontSize: "16px", color: T.accentLight, margin: 0 }}>{day}</h3><div style={{ flex: 1, height: "1px", background: T.border }} /></div>
-          {!acts.length ? <p style={{ color: T.textDim, fontSize: "13px", paddingLeft: "20px" }}>No activities</p> : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "12px", paddingLeft: "20px" }}>{acts.map(a => { const cc = CAT_COLORS[a.category] || {}; return (<div key={a.id} style={{ ...css.card, padding: "16px", position: "relative" }}>{isLeader && <button onClick={() => del(a.id)} style={{ position: "absolute", top: 10, right: 10, background: "none", border: "none", cursor: "pointer", opacity: 0.4 }}><Icon name="trash" size={14} color={T.red} /></button>}<div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px", paddingRight: isLeader ? "20px" : "0" }}><span style={{ fontWeight: 600, color: T.text }}>{a.title}</span><Badge bg={cc.bg} text={cc.text}>{a.category}</Badge></div><p style={{ fontSize: "13px", color: T.textMuted, margin: "0 0 10px" }}>{a.desc}</p><div style={{ display: "flex", gap: "16px", fontSize: "12px", color: T.textDim }}><span>🕐 {a.time}</span><span>📍 {a.location}</span></div></div>); })}</div>}
+      {view === "timeline" ? (dateGroups.length ? dateGroups.map(({ date, label, acts }) => (
+        <div key={date} style={{ marginBottom: "28px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "14px" }}><div style={{ width: "8px", height: "8px", borderRadius: "50%", background: T.accent }} /><h3 style={{ fontFamily: T.fontDisplay, fontSize: "16px", color: T.accentLight, margin: 0 }}>{label}</h3><div style={{ flex: 1, height: "1px", background: T.border }} /></div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "12px", paddingLeft: "20px" }}>{acts.map(a => { const cc = CAT_COLORS[a.category] || {}; return (<div key={a.id} style={{ ...css.card, padding: "16px", position: "relative" }}>{isLeader && <div style={{ position: "absolute", top: 10, right: 10, display: "flex", gap: "6px" }}><button onClick={() => openEdit(a)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.4 }}><Icon name="edit" size={14} color={T.accent} /></button><button onClick={() => del(a.id)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.4 }}><Icon name="trash" size={14} color={T.red} /></button></div>}<div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px", paddingRight: isLeader ? "48px" : "0" }}><span style={{ fontWeight: 600, color: T.text }}>{a.title}</span><Badge bg={cc.bg} text={cc.text}>{a.category}</Badge></div><p style={{ fontSize: "13px", color: T.textMuted, margin: "0 0 10px" }}>{a.desc}</p><div style={{ display: "flex", gap: "16px", fontSize: "12px", color: T.textDim }}><span>🕐 {a.time}</span><span>📍 {a.location}</span></div></div>); })}</div>
         </div>
-      )) : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: "14px" }}>{activities.map(a => { const cc = CAT_COLORS[a.category] || {}; return (<div key={a.id} style={{ ...css.card, padding: "16px" }}><Badge bg={cc.bg} text={cc.text}>{a.category}</Badge><h4 style={{ color: T.text, margin: "10px 0 6px" }}>{a.title}</h4><p style={{ fontSize: "13px", color: T.textMuted, margin: "0 0 10px" }}>{a.desc}</p><div style={{ fontSize: "12px", color: T.textDim }}>{CAMP_DAYS[a.day]} · {a.time} · {a.location}</div></div>); })}</div>}
+      )) : <EmptyState icon="calendar" message="No activities scheduled yet." />) : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: "14px" }}>{activities.map(a => { const cc = CAT_COLORS[a.category] || {}; return (<div key={a.id} style={{ ...css.card, padding: "16px", position: "relative" }}>{isLeader && <button onClick={() => openEdit(a)} style={{ position: "absolute", top: 10, right: 10, background: "none", border: "none", cursor: "pointer", opacity: 0.4 }}><Icon name="edit" size={14} color={T.accent} /></button>}<Badge bg={cc.bg} text={cc.text}>{a.category}</Badge><h4 style={{ color: T.text, margin: "10px 0 6px" }}>{a.title}</h4><p style={{ fontSize: "13px", color: T.textMuted, margin: "0 0 10px" }}>{a.desc}</p><div style={{ fontSize: "12px", color: T.textDim }}>{formatDateLabel(a.date)} · {a.time} · {a.location}</div></div>); })}</div>}
     </div>
   );
 };
 
 const AgendaPage = ({ agenda, applyResult, isLeader }) => {
-  const [day, setDay] = useState(0);
+  const dateTabs = useMemo(() => Object.keys(agenda).sort(), [agenda]);
+  const [activeDate, setActiveDate] = useState(() => dateTabs[0] || "");
+  useEffect(() => { if (!agenda[activeDate] && dateTabs.length) setActiveDate(dateTabs[0]); }, [dateTabs, activeDate, agenda]);
   const [modal, setModal] = useState(false);
-  const [form, setForm] = useState({ time: "", item: "", location: "" });
-  const items = agenda[day] || [];
-  const add = async () => {
-    if (!form.time || !form.item) return;
-    const result = await createAgendaItemAction({
-      day,
-      time: form.time,
-      item: form.item,
-      location: form.location,
-    });
+  const [editItem, setEditItem] = useState(null);
+  const emptyForm = { date: activeDate || todayDateStr(), time: "", item: "", location: "" };
+  const [form, setForm] = useState(emptyForm);
+  const items = agenda[activeDate] || [];
+  const openCreate = () => { setEditItem(null); setForm({ ...emptyForm, date: activeDate || todayDateStr() }); setModal(true); };
+  const openEdit = (a) => { setEditItem(a); setForm({ date: a.date, time: a.time, item: a.item, location: a.location }); setModal(true); };
+  const closeModal = () => { setModal(false); setEditItem(null); };
+  const save = async () => {
+    if (!form.date || !form.time || !form.item) return;
+    const result = editItem
+      ? await updateAgendaItemAction(editItem.id, form)
+      : await createAgendaItemAction(form);
     if (applyResult(result)) {
-      setForm({ time: "", item: "", location: "" });
-      setModal(false);
+      setForm(emptyForm);
+      closeModal();
     }
   };
   const del = async (id) => {
@@ -488,22 +515,27 @@ const AgendaPage = ({ agenda, applyResult, isLeader }) => {
   };
   return (
     <div>
-      <PageHeader icon="clock" title="Daily Agenda" subtitle="Day-by-day schedule" action={isLeader ? <button onClick={() => setModal(true)} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> Add Item</button> : null} />
-      <Modal open={modal} onClose={() => setModal(false)} title="New Agenda Item">
+      <PageHeader icon="clock" title="Daily Agenda" subtitle="Day-by-day schedule" action={isLeader ? <button onClick={openCreate} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> Add Item</button> : null} />
+      <Modal open={modal} onClose={closeModal} title={editItem ? "Edit Agenda Item" : "New Agenda Item"}>
+        <Field label="Date"><input type="date" style={css.input} value={form.date} onChange={e => setForm(p => ({ ...p, date: e.target.value }))} /></Field>
         <Field label="Time"><input style={css.input} value={form.time} onChange={e => setForm(p => ({ ...p, time: e.target.value }))} placeholder="10:00 AM" /></Field>
         <Field label="Activity"><input style={css.input} value={form.item} onChange={e => setForm(p => ({ ...p, item: e.target.value }))} placeholder="Activity name" /></Field>
         <Field label="Location"><input style={css.input} value={form.location} onChange={e => setForm(p => ({ ...p, location: e.target.value }))} placeholder="Pavilion" /></Field>
-        <button onClick={add} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px" }}>Add to {CAMP_DAYS[day]}</button>
+        <button onClick={save} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px" }}>{editItem ? "Save Changes" : "Add Item"}</button>
       </Modal>
-      <div style={{ display: "flex", gap: "6px", marginBottom: "24px", flexWrap: "wrap" }}>{CAMP_DAYS.map((d, i) => <button key={i} onClick={() => setDay(i)} style={{ ...css.btn(day === i ? "primary" : "ghost"), padding: "8px 18px" }}>{d}</button>)}</div>
-      {items.length ? <div style={{ ...css.card, padding: 0, overflow: "hidden" }}>{items.map((a, i) => (
-        <div key={a.id} style={{ display: "flex", alignItems: "center", gap: "20px", padding: "14px 20px", borderBottom: i < items.length - 1 ? `1px solid ${T.border}` : "none", background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.015)" }}>
-          <div style={{ minWidth: "80px", fontFamily: "monospace", fontSize: "13px", fontWeight: 700, color: T.accent }}>{a.time}</div>
-          <div style={{ width: "3px", height: "28px", borderRadius: "2px", background: T.accent, opacity: 0.3 }} />
-          <div style={{ flex: 1 }}><div style={{ fontWeight: 600, color: T.text, fontSize: "14px" }}>{a.item}</div><div style={{ fontSize: "12px", color: T.textDim, marginTop: "2px" }}>📍 {a.location}</div></div>
-          {isLeader && <button onClick={() => del(a.id)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.4 }}><Icon name="trash" size={14} color={T.red} /></button>}
-        </div>
-      ))}</div> : <EmptyState icon="clock" message="No agenda items for this day." />}
+      {dateTabs.length ? (
+        <>
+          <div style={{ display: "flex", gap: "6px", marginBottom: "24px", flexWrap: "wrap" }}>{dateTabs.map(d => <button key={d} onClick={() => setActiveDate(d)} style={{ ...css.btn(activeDate === d ? "primary" : "ghost"), padding: "8px 18px" }}>{formatDateLabel(d)}</button>)}</div>
+          {items.length ? <div style={{ ...css.card, padding: 0, overflow: "hidden" }}>{items.map((a, i) => (
+            <div key={a.id} style={{ display: "flex", alignItems: "center", gap: "20px", padding: "14px 20px", borderBottom: i < items.length - 1 ? `1px solid ${T.border}` : "none", background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.015)" }}>
+              <div style={{ minWidth: "80px", fontFamily: "monospace", fontSize: "13px", fontWeight: 700, color: T.accent }}>{a.time}</div>
+              <div style={{ width: "3px", height: "28px", borderRadius: "2px", background: T.accent, opacity: 0.3 }} />
+              <div style={{ flex: 1 }}><div style={{ fontWeight: 600, color: T.text, fontSize: "14px" }}>{a.item}</div><div style={{ fontSize: "12px", color: T.textDim, marginTop: "2px" }}>📍 {a.location}</div></div>
+              {isLeader && <div style={{ display: "flex", gap: "6px" }}><button onClick={() => openEdit(a)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.4 }}><Icon name="edit" size={14} color={T.accent} /></button><button onClick={() => del(a.id)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.4 }}><Icon name="trash" size={14} color={T.red} /></button></div>}
+            </div>
+          ))}</div> : <EmptyState icon="clock" message="No agenda items for this day." />}
+        </>
+      ) : <EmptyState icon="clock" message="No agenda items yet." />}
     </div>
   );
 };
@@ -1298,9 +1330,46 @@ const ContactsPage = ({ contacts, applyResult, isLeader }) => {
   );
 };
 
-const RulesPage = ({ rules }) => {
+const RulesPage = ({ rules, applyResult, isLeader }) => {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
   const items = rules;
-  return (<div><PageHeader icon="shield" title="Camp Rules" subtitle="Official camp guidelines" /><div style={css.card}>{items.map((r, i) => (<div key={i} style={{ display: "flex", gap: "16px", padding: "14px 0", borderBottom: i < items.length - 1 ? `1px solid ${T.border}` : "none", alignItems: "flex-start" }}><span style={{ minWidth: "28px", height: "28px", borderRadius: "50%", background: i === items.length - 1 ? T.accentDim + "33" : T.bgInput, color: i === items.length - 1 ? T.accent : T.textMuted, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", fontWeight: 700 }}>{i + 1}</span><span style={{ color: T.text, fontSize: "14px", lineHeight: 1.6, fontWeight: i === items.length - 1 ? 600 : 400, fontStyle: i === items.length - 1 ? "italic" : "normal" }}>{r}</span></div>))}</div></div>);
+  const startEdit = () => { setDraft(items.map((r, i) => `${i + 1}. ${r}`).join("\n")); setEditing(true); };
+  const cancelEdit = () => { setEditing(false); };
+  const saveRules = async () => {
+    const result = await saveCampRulesAction(draft);
+    if (applyResult(result)) { setEditing(false); }
+  };
+  return (
+    <div>
+      <PageHeader icon="shield" title="Camp Rules" subtitle="Official camp guidelines"
+        action={isLeader ? (editing
+          ? <div style={{ display: "flex", gap: "8px" }}><button onClick={cancelEdit} style={css.btn("ghost")}>Cancel</button><button onClick={saveRules} style={css.btn()}>Save Rules</button></div>
+          : <button onClick={startEdit} style={css.btn()}><Icon name="edit" size={16} color="#1a1612" /> Edit</button>
+        ) : null}
+      />
+      {editing ? (
+        <div style={css.card}>
+          <textarea
+            style={{ ...css.input, minHeight: "300px", resize: "vertical", fontFamily: "monospace", fontSize: "13px", lineHeight: 1.8 }}
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            placeholder={"1. Be respectful\n2. Follow instructions\n3. Have fun"}
+          />
+          <p style={{ fontSize: "12px", color: T.textDim, marginTop: "8px" }}>One rule per line. Numbering is optional.</p>
+        </div>
+      ) : (
+        <div style={css.card}>
+          {items.length ? items.map((r, i) => (
+            <div key={i} style={{ display: "flex", gap: "16px", padding: "14px 0", borderBottom: i < items.length - 1 ? `1px solid ${T.border}` : "none", alignItems: "flex-start" }}>
+              <span style={{ minWidth: "28px", height: "28px", borderRadius: "50%", background: i === items.length - 1 ? T.accentDim + "33" : T.bgInput, color: i === items.length - 1 ? T.accent : T.textMuted, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", fontWeight: 700 }}>{i + 1}</span>
+              <span style={{ color: T.text, fontSize: "14px", lineHeight: 1.6, fontWeight: i === items.length - 1 ? 600 : 400, fontStyle: i === items.length - 1 ? "italic" : "normal" }}>{r}</span>
+            </div>
+          )) : <EmptyState icon="shield" message="No camp rules yet." />}
+        </div>
+      )}
+    </div>
+  );
 };
 
 const InspirationPage = ({ inspiration }) => {
@@ -2659,7 +2728,7 @@ export default function CampDesignApp({ initialData, profile }) {
     registration: <RegistrationPage registrations={registrations} applyResult={applyResult} isLeader={isLeader} />,
     photos: <PhotosPage photos={photos} />,
     contacts: <ContactsPage contacts={contacts} applyResult={applyResult} isLeader={isLeader} />,
-    rules: <RulesPage rules={rules} />,
+    rules: <RulesPage rules={rules} applyResult={applyResult} isLeader={isLeader} />,
     inspiration: <InspirationPage inspiration={inspiration} />,
     leaders: <LeadersPage leaders={leaders} wards={profileOptions.wards} callingOptions={leaderCallingOptions} applyResult={applyResult} isLeader={isLeader} />,
     docs: <DocsPage docs={docs} />,
