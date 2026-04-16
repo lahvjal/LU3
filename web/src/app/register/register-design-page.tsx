@@ -144,6 +144,7 @@ const PAGE_TO_PATH: Record<string, string> = {
   contacts: "/contacts",
   rules: "/rules",
   inspiration: "/inspiration",
+  meals: "/meals",
   leaders: "/stake-leaders",
   docs: "/documentation",
   profile: "/profile",

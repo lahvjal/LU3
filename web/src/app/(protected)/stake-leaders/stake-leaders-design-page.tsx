@@ -83,6 +83,7 @@ const PAGE_TO_PATH: Record<string, string> = {
   contacts: "/contacts",
   rules: "/rules",
   inspiration: "/inspiration",
+  meals: "/meals",
   leaders: "/stake-leaders",
   docs: "/documentation",
   profile: "/profile",
@@ -343,10 +344,44 @@ const Badge = ({
   text?: string;
 }) => <span style={css.badge(bg, text)}>{children}</span>;
 
-const Field = ({ label, children }: { label: string; children: ReactNode }) => (
+function fieldStyle(
+  base: CSSProperties,
+  error: string | undefined,
+): CSSProperties {
+  if (!error) return base;
+  return { ...base, borderColor: T.red, boxShadow: `0 0 0 1px ${T.red}55` };
+}
+
+const Field = ({
+  label,
+  children,
+  required,
+  error,
+}: {
+  label: string;
+  children: ReactNode;
+  required?: boolean;
+  error?: string;
+}) => (
   <div style={{ marginBottom: "16px" }}>
-    <label style={css.label}>{label}</label>
+    <label style={css.label}>
+      {label}
+      {required ? (
+        <span style={{ color: T.red }} aria-hidden="true">
+          {" "}
+          *
+        </span>
+      ) : null}
+    </label>
     {children}
+    {error ? (
+      <p
+        role="alert"
+        style={{ color: T.red, fontSize: "12px", marginTop: "6px", marginBottom: 0 }}
+      >
+        {error}
+      </p>
+    ) : null}
   </div>
 );
 
@@ -562,6 +597,9 @@ export default function StakeLeadersDesignPage({
   const [signingOut, setSigningOut] = useState(false);
   const [alertState, setAlertState] = useState<AlertState | null>(null);
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
+  const [inviteErrors, setInviteErrors] = useState<
+    Partial<Record<"email" | "calling" | "wardId", string>>
+  >({});
   const [inviteTarget, setInviteTarget] = useState<LeaderInvitationRow | null>(null);
   const [inviteDraft, setInviteDraft] = useState<InviteDraft>(() =>
     createInitialInviteDraft(initialWards),
@@ -625,6 +663,7 @@ export default function StakeLeadersDesignPage({
     setInviteTarget(null);
     setAddingCalling(false);
     setInviteDraft(createInitialInviteDraft(initialWards));
+    setInviteErrors({});
     setInviteModalOpen(true);
   };
 
@@ -632,6 +671,7 @@ export default function StakeLeadersDesignPage({
     setInviteTarget(row);
     setAddingCalling(false);
     setInviteDraft(createInviteDraftFromRow(row));
+    setInviteErrors({});
     setInviteModalOpen(true);
   };
 
@@ -642,6 +682,7 @@ export default function StakeLeadersDesignPage({
 
     setInviteModalOpen(false);
     setInviteTarget(null);
+    setInviteErrors({});
   };
 
   const submitInvite = async () => {
@@ -656,30 +697,19 @@ export default function StakeLeadersDesignPage({
     }
 
     const email = inviteDraft.email.trim().toLowerCase();
-    if (!isValidEmail(email)) {
-      setAlertState({
-        type: "error",
-        message: "Please enter a valid email address.",
-      });
-      return;
-    }
-
     const calling = (addingCalling ? inviteDraft.newCalling : inviteDraft.calling).trim();
-    if (!calling) {
-      setAlertState({
-        type: "error",
-        message: "Please select or enter a calling.",
-      });
-      return;
-    }
-
+    const v: Partial<Record<"email" | "calling" | "wardId", string>> = {};
+    if (!email) v.email = "Email is required.";
+    else if (!isValidEmail(email)) v.email = "Enter a valid email address.";
+    if (!calling) v.calling = addingCalling ? "Enter a calling." : "Select a calling.";
     if (selectedRole.wardRequired && !inviteDraft.wardId) {
-      setAlertState({
-        type: "error",
-        message: "Please choose a ward for ward-level callings.",
-      });
+      v.wardId = "Select a ward for this role.";
+    }
+    if (Object.keys(v).length) {
+      setInviteErrors(v);
       return;
     }
+    setInviteErrors({});
 
     if (inviteDraft.role === "young_men_captain") {
       setAlertState({
@@ -964,13 +994,16 @@ export default function StakeLeadersDesignPage({
         onClose={closeInviteModal}
         title={inviteTarget ? "Send Leader Invite Again" : "Invite Leader"}
       >
-        <Field label="Email">
+        <Field label="Email" required error={inviteErrors.email}>
           <input
-            style={css.input}
+            style={fieldStyle(css.input, inviteErrors.email)}
+            type="email"
+            autoComplete="email"
             value={inviteDraft.email}
-            onChange={(event) =>
-              setInviteDraft((previous) => ({ ...previous, email: event.target.value }))
-            }
+            onChange={(event) => {
+              setInviteDraft((previous) => ({ ...previous, email: event.target.value }));
+              if (inviteErrors.email) setInviteErrors((prev) => ({ ...prev, email: undefined }));
+            }}
             placeholder="leader@email.com"
           />
         </Field>
@@ -988,6 +1021,7 @@ export default function StakeLeadersDesignPage({
                     ? previous.wardId || initialWards[0]?.id || ""
                     : "",
               }));
+              if (inviteErrors.wardId) setInviteErrors((prev) => ({ ...prev, wardId: undefined }));
             }}
           >
             {modalRoleOptions.map((option) => (
@@ -998,13 +1032,14 @@ export default function StakeLeadersDesignPage({
           </select>
         </Field>
         {selectedRole.wardRequired ? (
-          <Field label="Ward">
+          <Field label="Ward" required error={inviteErrors.wardId}>
             <select
-              style={css.select}
+              style={fieldStyle(css.select, inviteErrors.wardId)}
               value={inviteDraft.wardId}
-              onChange={(event) =>
-                setInviteDraft((previous) => ({ ...previous, wardId: event.target.value }))
-              }
+              onChange={(event) => {
+                setInviteDraft((previous) => ({ ...previous, wardId: event.target.value }));
+                if (inviteErrors.wardId) setInviteErrors((prev) => ({ ...prev, wardId: undefined }));
+              }}
             >
               <option value="">Select ward</option>
               {initialWards.map((ward) => (
@@ -1016,14 +1051,15 @@ export default function StakeLeadersDesignPage({
           </Field>
         ) : null}
         {!addingCalling ? (
-          <Field label="Calling">
+          <Field label="Calling" required error={inviteErrors.calling}>
             <div style={{ display: "flex", gap: "8px" }}>
               <select
-                style={{ ...css.select, flex: 1 }}
+                style={{ ...fieldStyle(css.select, inviteErrors.calling), flex: 1 }}
                 value={inviteDraft.calling}
-                onChange={(event) =>
-                  setInviteDraft((previous) => ({ ...previous, calling: event.target.value }))
-                }
+                onChange={(event) => {
+                  setInviteDraft((previous) => ({ ...previous, calling: event.target.value }));
+                  if (inviteErrors.calling) setInviteErrors((prev) => ({ ...prev, calling: undefined }));
+                }}
               >
                 <option value="">Select a calling</option>
                 {initialCallingOptions.map((calling) => (
@@ -1034,7 +1070,10 @@ export default function StakeLeadersDesignPage({
               </select>
               <button
                 type="button"
-                onClick={() => setAddingCalling(true)}
+                onClick={() => {
+                  setAddingCalling(true);
+                  if (inviteErrors.calling) setInviteErrors((prev) => ({ ...prev, calling: undefined }));
+                }}
                 style={css.btn("ghost")}
               >
                 New
@@ -1042,14 +1081,15 @@ export default function StakeLeadersDesignPage({
             </div>
           </Field>
         ) : (
-          <Field label="New Calling">
+          <Field label="New Calling" required error={inviteErrors.calling}>
             <div style={{ display: "flex", gap: "8px" }}>
               <input
-                style={{ ...css.input, flex: 1 }}
+                style={{ ...fieldStyle(css.input, inviteErrors.calling), flex: 1 }}
                 value={inviteDraft.newCalling}
-                onChange={(event) =>
-                  setInviteDraft((previous) => ({ ...previous, newCalling: event.target.value }))
-                }
+                onChange={(event) => {
+                  setInviteDraft((previous) => ({ ...previous, newCalling: event.target.value }));
+                  if (inviteErrors.calling) setInviteErrors((prev) => ({ ...prev, calling: undefined }));
+                }}
                 placeholder="Assistant Camp Director"
               />
               <button

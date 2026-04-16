@@ -11,6 +11,7 @@ import {
   createCompetitionAction,
   completeCompetitionAction,
   createWardAction,
+  createWardMealAction,
   deleteLeaderInvitationAction,
   deleteActivityAction,
   updateActivityAction,
@@ -21,7 +22,9 @@ import {
   deleteContactAction,
   deleteParentAction,
   deleteWardAction,
+  deleteWardMealAction,
   updateWardAction,
+  updateWardMealAction,
   inviteLeaderAction,
   updateLeaderAction,
   refreshCampDesignDataAction,
@@ -29,6 +32,7 @@ import {
   signOutCampAction,
   updateMyProfileAction,
 } from "@/lib/app/camp-design-actions";
+import { parseTimeLabel, timeLabelSortKey } from "@/lib/app/time-sort";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 // ─── Design Tokens ───
@@ -69,6 +73,7 @@ const Icon = ({ name, size = 20, color }) => {
     edit: <><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></>,
     user: <><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></>,
     logOut: <><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></>,
+    utensils: <><path d="M3 2v7c0 1.1.9 2 2 2h1v9"/><path d="M8 2v20"/><path d="M16 3v18l1-1 1 1V3"/><path d="M20 3v18"/></>,
   };
   return <svg viewBox="0 0 24 24" style={s} xmlns="http://www.w3.org/2000/svg">{P[name] || P.star}</svg>;
 };
@@ -86,6 +91,7 @@ function todayDateStr() {
 
 const CAT_COLORS = { Sport: { bg: "#2a3528", text: "#6b9e6b" }, Water: { bg: "#1e2a35", text: "#6b8eb0" }, Spiritual: { bg: "#35301e", text: "#c4a84e" }, Competition: { bg: "#352220", text: "#c46b5e" }, Adventure: { bg: "#2a2435", text: "#9a7eb8" }, Service: { bg: "#2a3030", text: "#6bb0a0" } };
 const STATUS_COLORS = { approved: { bg: T.greenBg, text: T.green }, pending: { bg: T.yellowBg, text: T.yellow }, waitlisted: { bg: T.purpleBg, text: T.purple }, active: { bg: T.greenBg, text: T.green }, completed: { bg: T.blueBg, text: T.blue }, upcoming: { bg: T.yellowBg, text: T.yellow }, revoked: { bg: T.redBg, text: T.red } };
+const MEAL_TYPE_LABELS = { breakfast: "Breakfast", lunch: "Lunch", dinner: "Dinner" };
 
 const css = {
   badge: (bg, text) => ({ display: "inline-flex", alignItems: "center", padding: "3px 10px", borderRadius: "20px", fontSize: "11px", fontWeight: 600, background: bg, color: text, letterSpacing: "0.02em", textTransform: "uppercase" }),
@@ -95,6 +101,52 @@ const css = {
   select: { width: "100%", padding: "10px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.bgInput, color: T.text, fontSize: "14px", fontFamily: T.font, outline: "none" },
   label: { display: "block", fontSize: "12px", fontWeight: 600, color: T.textMuted, marginBottom: "6px", textTransform: "uppercase", letterSpacing: "0.04em" },
 };
+
+function dashboardHoverCss() {
+  return `
+    .camp-dash-stat {
+      transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease, background-color 0.18s ease;
+    }
+    .camp-dash-stat:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 10px 28px rgba(0,0,0,0.42);
+      border-color: ${T.accent}66 !important;
+      background-color: ${T.bgCardHover} !important;
+    }
+    .camp-dash-stat:active {
+      transform: translateY(-1px);
+    }
+    .camp-dash-row {
+      transition: background-color 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
+      cursor: pointer;
+      border-radius: ${T.radiusSm};
+    }
+    .camp-dash-row:hover {
+      background-color: ${T.accent}12;
+      box-shadow: inset 0 0 0 1px ${T.accent}40;
+    }
+    .camp-dash-row:active {
+      transform: scale(0.995);
+    }
+    .camp-dash-row:focus-visible {
+      outline: 2px solid ${T.accent};
+      outline-offset: 2px;
+    }
+    .camp-dash-ghost {
+      transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease;
+    }
+    .camp-dash-ghost:hover:not(:disabled) {
+      border-color: ${T.accent}77 !important;
+      color: ${T.accentLight} !important;
+      background-color: ${T.accent}18 !important;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+    }
+    .camp-dash-ghost:active:not(:disabled) {
+      transform: translateY(0);
+    }
+  `;
+}
 
 const Spinner = ({ size = 14, color = "currentColor" }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" style={{ animation: "spin 0.8s linear infinite", flexShrink: 0 }}>
@@ -119,6 +171,7 @@ const NAV = [
   { key: "registration", label: "Registration", icon: "clipboard", leaderOnly: true },
   { key: "leaders", label: "Leaders", icon: "star", leaderOnly: true },
   { key: "inspiration", label: "Daily Inspiration", icon: "sun", leaderOnly: true },
+  { key: "meals", label: "Meals", icon: "utensils", leaderOnly: true },
 ];
 
 const PAGE_TO_PATH = {
@@ -134,11 +187,12 @@ const PAGE_TO_PATH = {
   rules: "/rules",
   inspiration: "/inspiration",
   leaders: "/stake-leaders",
+  meals: "/meals",
   docs: "/documentation",
   profile: "/profile",
 };
 
-const LEADER_ONLY_PAGE_KEYS = new Set(["wards", "registration", "leaders", "inspiration"]);
+const LEADER_ONLY_PAGE_KEYS = new Set(["wards", "registration", "leaders", "inspiration", "meals"]);
 
 function isLeaderOnlyPageKey(key) {
   return LEADER_ONLY_PAGE_KEYS.has(key);
@@ -157,6 +211,7 @@ function resolvePageFromPathname(pathname) {
   if (pathname.startsWith("/contacts")) return "contacts";
   if (pathname.startsWith("/rules")) return "rules";
   if (pathname.startsWith("/inspiration")) return "inspiration";
+  if (pathname.startsWith("/meals")) return "meals";
   if (pathname.startsWith("/stake-leaders")) return "leaders";
   if (pathname.startsWith("/photos")) return "photos";
   if (pathname.startsWith("/documentation")) return "docs";
@@ -221,7 +276,36 @@ const ConfirmDeleteModal = ({ open, onClose, onConfirm, title, message }) => {
     </div>
   </div>);
 };
-const Field = ({ label, children }) => (<div style={{ marginBottom: "16px" }}><label style={css.label}>{label}</label>{children}</div>);
+function fieldStyle(base, error) {
+  if (!error) return base;
+  return { ...base, borderColor: T.red, boxShadow: `0 0 0 1px ${T.red}55` };
+}
+
+function isValidEmailLoose(value) {
+  const t = (value || "").trim();
+  return t.includes("@") && !t.startsWith("@") && !t.endsWith("@");
+}
+
+function hasFirstAndLastName(value) {
+  const tokens = (value || "").trim().split(/\s+/).filter(Boolean);
+  return tokens.length >= 2;
+}
+
+const Field = ({ label, children, required, error, hint }) => (
+  <div style={{ marginBottom: "16px" }}>
+    <label style={css.label}>
+      {label}
+      {required ? <span style={{ color: T.red }} aria-hidden="true"> *</span> : null}
+    </label>
+    {children}
+    {error ? (
+      <p role="alert" style={{ color: T.red, fontSize: "12px", marginTop: "6px", marginBottom: 0 }}>{error}</p>
+    ) : null}
+    {hint && !error ? (
+      <p style={{ color: T.textDim, fontSize: "11px", marginTop: "6px", marginBottom: 0 }}>{hint}</p>
+    ) : null}
+  </div>
+);
 
 function initialsFromName(name) {
   const tokens = (name || "")
@@ -406,16 +490,37 @@ function splitNoteForMentionHighlight(note, youngMen) {
 // PAGES
 // ═══════════════════════════════════════════
 
-const Dashboard = ({ goTo, wards, activities, competitions, pointLog, agenda, inspiration }) => {
+const Dashboard = ({ goTo, wards, activities, competitions, pointLog, agenda, inspiration, meals }) => {
+  const [mealMenuModal, setMealMenuModal] = useState(null);
   const today = inspiration[0] || { verse: "", ref: "" };
   const agendaDates = Object.keys(agenda).sort();
-  const firstDate = agendaDates[0] || "";
-  const todayAgenda = firstDate ? (agenda[firstDate] || []) : [];
+  const mealDates = [...new Set((meals || []).map((m) => m.mealDate))].sort();
+  const firstDate = agendaDates[0] || mealDates[0] || "";
+  const mergedAgendaRows = useMemo(() => {
+    if (!firstDate) return [];
+    const agendaItems = agenda[firstDate] || [];
+    const mealItems = (meals || []).filter((m) => m.mealDate === firstDate);
+    const rows = [
+      ...agendaItems.map((a) => ({ kind: "agenda", ...a })),
+      ...mealItems.map((m) => ({ kind: "meal", ...m })),
+    ];
+    rows.sort((a, b) => {
+      const ta = timeLabelSortKey(a.kind === "agenda" ? a.time : a.time);
+      const tb = timeLabelSortKey(b.kind === "agenda" ? b.time : b.time);
+      if (ta !== tb) return ta - tb;
+      const la = a.kind === "agenda" ? a.item : a.wardName;
+      const lb = b.kind === "agenda" ? b.item : b.wardName;
+      return la.localeCompare(lb);
+    });
+    return rows;
+  }, [firstDate, agenda, meals]);
+  const displayRows = mergedAgendaRows.slice(0, 6);
   const totalCampers = wards.reduce((s, w) => s + w.campers.length, 0);
   const totals = {}; wards.forEach(w => { totals[w.id] = 0; }); pointLog.forEach(p => { totals[p.wardId] = (totals[p.wardId] || 0) + p.points; });
   const top = Object.entries(totals).sort((a, b) => b[1] - a[1]).map(([wid]) => wards.find(w => w.id === wid)).filter(Boolean);
   return (
     <div>
+      <style>{dashboardHoverCss()}</style>
       <PageHeader icon="home" title="Camp Dashboard" subtitle="Lehi Utah 3rd Stake — June 15–19, 2026" />
       <div style={{ ...css.card, marginBottom: "24px", background: `linear-gradient(135deg, ${T.bgCard} 0%, #2e2518 100%)`, borderLeft: `4px solid ${T.accent}`, position: "relative", overflow: "hidden" }}>
         <div style={{ position: "absolute", right: "-20px", top: "-20px", opacity: 0.06, fontSize: "140px" }}>⛺</div>
@@ -424,7 +529,7 @@ const Dashboard = ({ goTo, wards, activities, competitions, pointLog, agenda, in
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "14px", marginBottom: "28px" }}>
         {[{ label: "Wards", value: wards.length, icon: "flag", color: T.green, go: "wardRosters" }, { label: "Young Men", value: totalCampers, icon: "users", color: T.blue, go: "wardRosters" }, { label: "Activities", value: activities.length, icon: "calendar", color: T.accent, go: "activities" }, { label: "Competitions", value: competitions.length, icon: "trophy", color: T.yellow, go: "competitions" }].map(s => (
-          <div key={s.label} style={{ ...css.card, textAlign: "center", padding: "18px", cursor: "pointer" }} onClick={() => goTo(s.go)}>
+          <div key={s.label} className="camp-dash-stat" style={{ ...css.card, textAlign: "center", padding: "18px", cursor: "pointer" }} onClick={() => goTo(s.go)}>
             <Icon name={s.icon} size={22} color={s.color} />
             <div style={{ fontSize: "28px", fontWeight: 700, color: T.text, margin: "8px 0 2px", fontFamily: T.fontDisplay }}>{s.value}</div>
             <div style={{ fontSize: "12px", color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.06em" }}>{s.label}</div>
@@ -434,15 +539,49 @@ const Dashboard = ({ goTo, wards, activities, competitions, pointLog, agenda, in
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
         <div style={css.card}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "18px" }}><h3 style={{ fontFamily: T.fontDisplay, fontSize: "17px", color: T.text, margin: 0 }}>Upcoming Agenda</h3>{firstDate && <span style={{ fontSize: "12px", color: T.textMuted }}>{formatDateLabel(firstDate)}</span>}</div>
-          {todayAgenda.slice(0, 6).map((a, i) => (<div key={i} style={{ display: "flex", gap: "14px", padding: "8px 0", borderBottom: i < 5 ? `1px solid ${T.border}` : "none" }}><span style={{ fontSize: "12px", color: T.accent, fontWeight: 600, minWidth: "70px", fontFamily: "monospace" }}>{a.time}</span><span style={{ fontSize: "13px", color: T.text }}>{a.item}</span></div>))}
-          <button onClick={() => goTo("agenda")} style={{ ...css.btn("ghost"), width: "100%", justifyContent: "center", marginTop: "12px" }}>Full Agenda →</button>
+          {displayRows.length ? displayRows.map((row, i) => (row.kind === "agenda" ? (
+            <div
+              key={`a-${row.id}`}
+              role="button"
+              tabIndex={0}
+              className="camp-dash-row"
+              onClick={() => goTo("agenda")}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); goTo("agenda"); } }}
+              style={{ display: "flex", gap: "14px", padding: "10px 10px", margin: "0 -10px", borderBottom: i < displayRows.length - 1 ? `1px solid ${T.border}` : "none" }}
+            >
+              <span style={{ fontSize: "12px", color: T.accent, fontWeight: 600, minWidth: "70px", fontFamily: "monospace" }}>{row.time}</span>
+              <span style={{ fontSize: "13px", color: T.text }}>{row.item}</span>
+            </div>
+          ) : (
+            <div
+              key={`m-${row.id}`}
+              role="button"
+              tabIndex={0}
+              className="camp-dash-row"
+              onClick={() => setMealMenuModal(row)}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setMealMenuModal(row); } }}
+              style={{ display: "flex", gap: "14px", padding: "10px 10px", margin: "0 -10px", borderBottom: i < displayRows.length - 1 ? `1px solid ${T.border}` : "none" }}
+            >
+              <span style={{ fontSize: "12px", color: T.accent, fontWeight: 600, minWidth: "70px", fontFamily: "monospace" }}>{row.time}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: "13px", color: T.text }}>{MEAL_TYPE_LABELS[row.mealType]} · {row.wardName}</div>
+                <div style={{ fontSize: "11px", color: T.textDim, marginTop: "2px" }}>Menu</div>
+              </div>
+            </div>
+          ))) : (
+            <p style={{ color: T.textDim, fontSize: "14px", margin: "0 0 8px" }}>{firstDate ? "No agenda items or meals for this day." : "No upcoming agenda or meals yet."}</p>
+          )}
+          <button type="button" className="camp-dash-ghost" onClick={() => goTo("agenda")} style={{ ...css.btn("ghost"), width: "100%", justifyContent: "center", marginTop: "12px" }}>Full Agenda →</button>
         </div>
         <div style={css.card}>
           <h3 style={{ fontFamily: T.fontDisplay, fontSize: "17px", color: T.text, margin: "0 0 18px" }}>🏆 Leaderboard</h3>
           {top.slice(0, 4).map((u, i) => (<div key={u.id} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "8px 0", borderBottom: i < 3 ? `1px solid ${T.border}` : "none" }}><span style={{ fontSize: "18px", fontWeight: 800, color: i === 0 ? T.yellow : T.textDim, fontFamily: T.fontDisplay, minWidth: "28px" }}>#{i + 1}</span><div style={{ width: "10px", height: "10px", borderRadius: "50%", background: u.color }} /><span style={{ flex: 1, fontWeight: 600, color: T.text, fontSize: "14px" }}>{u.name}</span><span style={{ fontFamily: "monospace", color: T.accent, fontWeight: 700 }}>{totals[u.id]} pts</span></div>))}
-          <button onClick={() => goTo("competitions")} style={{ ...css.btn("ghost"), width: "100%", justifyContent: "center", marginTop: "12px" }}>Competitions →</button>
+          <button type="button" className="camp-dash-ghost" onClick={() => goTo("competitions")} style={{ ...css.btn("ghost"), width: "100%", justifyContent: "center", marginTop: "12px" }}>Competitions →</button>
         </div>
       </div>
+      <Modal open={!!mealMenuModal} onClose={() => setMealMenuModal(null)} title={mealMenuModal ? `${MEAL_TYPE_LABELS[mealMenuModal.mealType]} — ${mealMenuModal.wardName}` : ""} width={520}>
+        {mealMenuModal ? <p style={{ color: T.text, lineHeight: 1.65, whiteSpace: "pre-wrap", margin: 0, fontSize: "14px" }}>{mealMenuModal.menu}</p> : null}
+      </Modal>
     </div>
   );
 };
@@ -456,11 +595,22 @@ const ActivitiesPage = ({ activities, applyResult, isLeader }) => {
   const busy = saving || !!deletingId;
   const emptyForm = { title: "", category: "Sport", date: todayDateStr(), time: "", location: "", desc: "" };
   const [form, setForm] = useState(emptyForm);
-  const openCreate = () => { setEditActivity(null); setForm(emptyForm); setModal(true); };
-  const openEdit = (a) => { setEditActivity(a); setForm({ title: a.title, category: a.category, date: a.date, time: a.time, location: a.location, desc: a.desc }); setModal(true); };
-  const closeModal = () => { setModal(false); setEditActivity(null); };
+  const [formErrors, setFormErrors] = useState({});
+  const clearActivityErr = (key) => setFormErrors((e) => { if (!e[key]) return e; const n = { ...e }; delete n[key]; return n; });
+  const validateActivityForm = () => {
+    const e = {};
+    if (!form.title.trim()) e.title = "Title is required.";
+    if (!form.date) e.date = "Date is required.";
+    if (!form.time.trim()) e.time = "Time is required.";
+    else if (!parseTimeLabel(form.time)) e.time = "Enter a valid time (e.g. 9:00 AM or 14:00).";
+    setFormErrors(e);
+    return Object.keys(e).length === 0;
+  };
+  const openCreate = () => { setEditActivity(null); setForm(emptyForm); setFormErrors({}); setModal(true); };
+  const openEdit = (a) => { setEditActivity(a); setForm({ title: a.title, category: a.category, date: a.date, time: a.time, location: a.location, desc: a.desc }); setFormErrors({}); setModal(true); };
+  const closeModal = () => { setModal(false); setEditActivity(null); setFormErrors({}); };
   const save = async () => {
-    if (saving || !form.title || !form.time || !form.date) return;
+    if (saving || !validateActivityForm()) return;
     setSaving(true);
     try {
       const result = editActivity
@@ -490,13 +640,19 @@ const ActivitiesPage = ({ activities, applyResult, isLeader }) => {
       <PageHeader icon="calendar" title="Activities" subtitle={`${activities.length} activities scheduled`}
         action={<div style={{ display: "flex", gap: "8px" }}>{["timeline", "grid"].map(v => <button key={v} onClick={() => setView(v)} style={{ ...css.btn(view === v ? "primary" : "ghost"), padding: "6px 14px", fontSize: "12px", textTransform: "capitalize" }}>{v}</button>)}{isLeader && <button onClick={openCreate} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> Add</button>}</div>} />
       <Modal open={modal} onClose={closeModal} title={editActivity ? "Edit Activity" : "New Activity"}>
-        <Field label="Title"><input style={css.input} value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} placeholder="Activity name" /></Field>
+        <Field label="Title" required error={formErrors.title}>
+          <input style={fieldStyle(css.input, formErrors.title)} value={form.title} onChange={e => { setForm(p => ({ ...p, title: e.target.value })); clearActivityErr("title"); }} placeholder="Activity name" />
+        </Field>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
           <Field label="Category"><select style={css.select} value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))}>{Object.keys(CAT_COLORS).map(c => <option key={c}>{c}</option>)}</select></Field>
-          <Field label="Date"><input type="date" style={css.input} value={form.date} onChange={e => setForm(p => ({ ...p, date: e.target.value }))} /></Field>
+          <Field label="Date" required error={formErrors.date}>
+            <input type="date" style={fieldStyle(css.input, formErrors.date)} value={form.date} onChange={e => { setForm(p => ({ ...p, date: e.target.value })); clearActivityErr("date"); }} />
+          </Field>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-          <Field label="Time"><input style={css.input} value={form.time} onChange={e => setForm(p => ({ ...p, time: e.target.value }))} placeholder="9:00 AM" /></Field>
+          <Field label="Time" required error={formErrors.time}>
+            <input style={fieldStyle(css.input, formErrors.time)} value={form.time} onChange={e => { setForm(p => ({ ...p, time: e.target.value })); clearActivityErr("time"); }} placeholder="9:00 AM" />
+          </Field>
           <Field label="Location"><input style={css.input} value={form.location} onChange={e => setForm(p => ({ ...p, location: e.target.value }))} placeholder="Field B" /></Field>
         </div>
         <Field label="Description"><textarea style={{ ...css.input, minHeight: "70px", resize: "vertical" }} value={form.desc} onChange={e => setForm(p => ({ ...p, desc: e.target.value }))} /></Field>
@@ -523,12 +679,23 @@ const AgendaPage = ({ agenda, applyResult, isLeader }) => {
   const busy = saving || !!deletingId;
   const emptyForm = { date: activeDate || todayDateStr(), time: "", item: "", location: "" };
   const [form, setForm] = useState(emptyForm);
+  const [formErrors, setFormErrors] = useState({});
+  const clearAgendaErr = (key) => setFormErrors((e) => { if (!e[key]) return e; const n = { ...e }; delete n[key]; return n; });
+  const validateAgendaForm = () => {
+    const e = {};
+    if (!form.date) e.date = "Date is required.";
+    if (!form.time.trim()) e.time = "Time is required.";
+    else if (!parseTimeLabel(form.time)) e.time = "Enter a valid time (e.g. 10:00 AM or 14:00).";
+    if (!form.item.trim()) e.item = "Activity is required.";
+    setFormErrors(e);
+    return Object.keys(e).length === 0;
+  };
   const items = agenda[activeDate] || [];
-  const openCreate = () => { setEditItem(null); setForm({ ...emptyForm, date: activeDate || todayDateStr() }); setModal(true); };
-  const openEdit = (a) => { setEditItem(a); setForm({ date: a.date, time: a.time, item: a.item, location: a.location }); setModal(true); };
-  const closeModal = () => { setModal(false); setEditItem(null); };
+  const openCreate = () => { setEditItem(null); setForm({ ...emptyForm, date: activeDate || todayDateStr() }); setFormErrors({}); setModal(true); };
+  const openEdit = (a) => { setEditItem(a); setForm({ date: a.date, time: a.time, item: a.item, location: a.location }); setFormErrors({}); setModal(true); };
+  const closeModal = () => { setModal(false); setEditItem(null); setFormErrors({}); };
   const save = async () => {
-    if (saving || !form.date || !form.time || !form.item) return;
+    if (saving || !validateAgendaForm()) return;
     setSaving(true);
     try {
       const result = editItem
@@ -552,9 +719,15 @@ const AgendaPage = ({ agenda, applyResult, isLeader }) => {
     <div>
       <PageHeader icon="clock" title="Daily Agenda" subtitle="Day-by-day schedule" action={isLeader ? <button onClick={openCreate} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> Add Item</button> : null} />
       <Modal open={modal} onClose={closeModal} title={editItem ? "Edit Agenda Item" : "New Agenda Item"}>
-        <Field label="Date"><input type="date" style={css.input} value={form.date} onChange={e => setForm(p => ({ ...p, date: e.target.value }))} /></Field>
-        <Field label="Time"><input style={css.input} value={form.time} onChange={e => setForm(p => ({ ...p, time: e.target.value }))} placeholder="10:00 AM" /></Field>
-        <Field label="Activity"><input style={css.input} value={form.item} onChange={e => setForm(p => ({ ...p, item: e.target.value }))} placeholder="Activity name" /></Field>
+        <Field label="Date" required error={formErrors.date}>
+          <input type="date" style={fieldStyle(css.input, formErrors.date)} value={form.date} onChange={e => { setForm(p => ({ ...p, date: e.target.value })); clearAgendaErr("date"); }} />
+        </Field>
+        <Field label="Time" required error={formErrors.time}>
+          <input style={fieldStyle(css.input, formErrors.time)} value={form.time} onChange={e => { setForm(p => ({ ...p, time: e.target.value })); clearAgendaErr("time"); }} placeholder="10:00 AM" />
+        </Field>
+        <Field label="Activity" required error={formErrors.item}>
+          <input style={fieldStyle(css.input, formErrors.item)} value={form.item} onChange={e => { setForm(p => ({ ...p, item: e.target.value })); clearAgendaErr("item"); }} placeholder="Activity name" />
+        </Field>
         <Field label="Location"><input style={css.input} value={form.location} onChange={e => setForm(p => ({ ...p, location: e.target.value }))} placeholder="Pavilion" /></Field>
         <button onClick={save} disabled={saving} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px", opacity: saving ? 0.7 : 1, cursor: saving ? "not-allowed" : "pointer" }}>{saving ? <><Spinner size={14} /> Saving…</> : editItem ? "Save Changes" : "Add Item"}</button>
       </Modal>
@@ -575,6 +748,199 @@ const AgendaPage = ({ agenda, applyResult, isLeader }) => {
   );
 };
 
+const MealsPage = ({ meals, wards, applyResult, canManageContent }) => {
+  const dateTabs = useMemo(() => {
+    const sorted = [...new Set(meals.map((m) => m.mealDate))].sort();
+    return sorted.length ? sorted : [todayDateStr()];
+  }, [meals]);
+  const [activeDate, setActiveDate] = useState(() => dateTabs[0] || todayDateStr());
+  useEffect(() => {
+    if (dateTabs.includes(activeDate)) return;
+    setActiveDate(dateTabs[0] || todayDateStr());
+  }, [dateTabs, activeDate]);
+  const [modal, setModal] = useState(false);
+  const [editMeal, setEditMeal] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+  const busy = saving || !!deletingId;
+  const [form, setForm] = useState({
+    wardId: "",
+    date: todayDateStr(),
+    time: "7:00 AM",
+    mealType: "breakfast",
+    menu: "",
+  });
+  const [mealErrors, setMealErrors] = useState({});
+  const clearMealErr = (key) => setMealErrors((e) => { if (!e[key]) return e; const n = { ...e }; delete n[key]; return n; });
+  const rows = useMemo(
+    () =>
+      [...meals.filter((m) => m.mealDate === activeDate)].sort(
+        (a, b) => timeLabelSortKey(a.time) - timeLabelSortKey(b.time),
+      ),
+    [meals, activeDate],
+  );
+  const openCreate = () => {
+    setEditMeal(null);
+    setForm({
+      wardId: wards[0]?.id || "",
+      date: activeDate || todayDateStr(),
+      time: "7:00 AM",
+      mealType: "breakfast",
+      menu: "",
+    });
+    setMealErrors({});
+    setModal(true);
+  };
+  const openEdit = (m) => {
+    setEditMeal(m);
+    setForm({
+      wardId: m.wardId,
+      date: m.mealDate,
+      time: m.time,
+      mealType: m.mealType,
+      menu: m.menu,
+    });
+    setMealErrors({});
+    setModal(true);
+  };
+  const closeModal = () => {
+    setModal(false);
+    setEditMeal(null);
+    setMealErrors({});
+  };
+  const validateMealForm = () => {
+    const e = {};
+    if (!form.wardId) e.wardId = "Select a ward.";
+    if (!form.date) e.date = "Choose a date.";
+    if (!form.time?.trim()) e.time = "Enter a time.";
+    else if (!parseTimeLabel(form.time)) e.time = 'Use a time like "7:00 AM", "12:30 PM", or 24-hour "13:00".';
+    if (!form.menu.trim()) e.menu = "Enter the menu.";
+    setMealErrors(e);
+    return Object.keys(e).length === 0;
+  };
+  const save = async () => {
+    if (saving || !validateMealForm()) return;
+    setSaving(true);
+    try {
+      const payload = {
+        wardId: form.wardId,
+        date: form.date,
+        time: form.time,
+        mealType: form.mealType,
+        menu: form.menu,
+      };
+      const result = editMeal
+        ? await updateWardMealAction(editMeal.id, payload)
+        : await createWardMealAction(payload);
+      if (applyResult(result)) closeModal();
+    } finally {
+      setSaving(false);
+    }
+  };
+  const del = async (id) => {
+    if (deletingId) return;
+    setDeletingId(id);
+    try {
+      const result = await deleteWardMealAction(id);
+      applyResult(result);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+  const preview = (text) => {
+    const t = (text || "").trim();
+    if (t.length <= 72) return t || "—";
+    return `${t.slice(0, 72)}…`;
+  };
+  return (
+    <div>
+      <PageHeader
+        icon="utensils"
+        title="Meals"
+        subtitle="Ward meal assignments and menus"
+        action={canManageContent && wards.length ? (
+          <button type="button" onClick={openCreate} style={css.btn()}>
+            <Icon name="plus" size={16} color="#1a1612" /> Add Meal
+          </button>
+        ) : null}
+      />
+      <Modal open={modal} onClose={closeModal} title={editMeal ? "Edit Meal" : "New Meal"} width={560}>
+        <Field label="Ward" required error={mealErrors.wardId}>
+          <select style={fieldStyle(css.select, mealErrors.wardId)} value={form.wardId} onChange={(e) => { setForm((p) => ({ ...p, wardId: e.target.value })); clearMealErr("wardId"); }}>
+            <option value="">Select ward</option>
+            {wards.map((w) => (
+              <option key={w.id} value={w.id}>{w.name}</option>
+            ))}
+          </select>
+        </Field>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+          <Field label="Date" required error={mealErrors.date}>
+            <input type="date" style={fieldStyle(css.input, mealErrors.date)} value={form.date} onChange={(e) => { setForm((p) => ({ ...p, date: e.target.value })); clearMealErr("date"); }} />
+          </Field>
+          <Field label="Time" required error={mealErrors.time}>
+            <input style={fieldStyle(css.input, mealErrors.time)} value={form.time} onChange={(e) => { setForm((p) => ({ ...p, time: e.target.value })); clearMealErr("time"); }} placeholder="7:00 AM" />
+          </Field>
+        </div>
+        <Field label="Meal">
+          <select style={css.select} value={form.mealType} onChange={(e) => setForm((p) => ({ ...p, mealType: e.target.value }))}>
+            <option value="breakfast">Breakfast</option>
+            <option value="lunch">Lunch</option>
+            <option value="dinner">Dinner</option>
+          </select>
+        </Field>
+        <Field label="Menu" required error={mealErrors.menu}>
+          <textarea style={{ ...fieldStyle(css.input, mealErrors.menu), minHeight: "100px", resize: "vertical" }} value={form.menu} onChange={(e) => { setForm((p) => ({ ...p, menu: e.target.value })); clearMealErr("menu"); }} placeholder="Main dishes, sides, drinks…" />
+        </Field>
+        <button type="button" onClick={save} disabled={saving} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px", opacity: saving ? 0.7 : 1, cursor: saving ? "not-allowed" : "pointer" }}>{saving ? <><Spinner size={14} /> Saving…</> : editMeal ? "Save Changes" : "Create Meal"}</button>
+      </Modal>
+      {!wards.length ? (
+        <EmptyState icon="flag" message="Add wards before scheduling meals." />
+      ) : (
+        <>
+          <div style={{ display: "flex", gap: "6px", marginBottom: "24px", flexWrap: "wrap" }}>
+            {dateTabs.map((d) => (
+              <button key={d} type="button" onClick={() => setActiveDate(d)} style={{ ...css.btn(activeDate === d ? "primary" : "ghost"), padding: "8px 18px" }}>{formatDateLabel(d)}</button>
+            ))}
+          </div>
+          {rows.length ? (
+            <div style={{ ...css.card, padding: 0, overflow: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", minWidth: "720px" }}>
+                <thead>
+                  <tr style={{ borderBottom: `2px solid ${T.border}` }}>
+                    {["Time", "Ward", "Meal", "Menu", ...(canManageContent ? ["Actions"] : [])].map((h) => (
+                      <th key={h} style={{ padding: "11px 14px", textAlign: "left", color: T.textMuted, fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((m, index) => (
+                    <tr key={m.id} style={{ borderBottom: `1px solid ${T.border}`, background: index % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)" }}>
+                      <td style={{ padding: "11px 14px", fontFamily: "monospace", color: T.accent, fontWeight: 600 }}>{m.time}</td>
+                      <td style={{ padding: "11px 14px", color: T.text }}>{m.wardName || "—"}</td>
+                      <td style={{ padding: "11px 14px", color: T.textMuted }}>{MEAL_TYPE_LABELS[m.mealType]}</td>
+                      <td style={{ padding: "11px 14px", color: T.textDim, maxWidth: "280px" }}>{preview(m.menu)}</td>
+                      {canManageContent ? (
+                        <td style={{ padding: "11px 14px", width: "88px" }}>
+                          <div style={{ display: "flex", gap: "6px" }}>
+                            <button type="button" disabled={busy} onClick={() => openEdit(m)} style={{ background: "none", border: "none", cursor: busy ? "not-allowed" : "pointer", opacity: 0.5 }}><Icon name="edit" size={14} color={T.accent} /></button>
+                            <button type="button" disabled={busy} onClick={() => del(m.id)} style={{ background: "none", border: "none", cursor: busy ? "not-allowed" : "pointer", opacity: 0.5 }}>{deletingId === m.id ? <Spinner size={14} color={T.red} /> : <Icon name="trash" size={14} color={T.red} />}</button>
+                          </div>
+                        </td>
+                      ) : null}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <EmptyState icon="utensils" message="No meals for this day." />
+          )}
+        </>
+      )}
+    </div>
+  );
+};
+
 
 const WARD_COLOR_PRESETS = [
   "#d4915e", "#6b9e6b", "#6b8eb0", "#c46b5e", "#c4a84e",
@@ -590,21 +956,29 @@ const WardsPage = ({ wards, applyResult, isLeader }) => {
   const busy = saving || !!deletingId;
   const emptyForm = { name: "", leader: "", leader_phone: "", color: "" };
   const [wardForm, setWardForm] = useState(emptyForm);
+  const [wardErrors, setWardErrors] = useState({});
 
   const openCreateModal = () => {
     setEditWard(null);
     setWardForm(emptyForm);
+    setWardErrors({});
     setModal(true);
   };
 
   const openEditModal = (ward) => {
     setEditWard(ward);
     setWardForm({ name: ward.name, leader: ward.leader, leader_phone: ward.leader_phone, color: ward.color || "" });
+    setWardErrors({});
     setModal(true);
   };
 
   const saveWard = async () => {
-    if (saving || !wardForm.name.trim()) return;
+    if (saving) return;
+    if (!wardForm.name.trim()) {
+      setWardErrors({ name: "Ward name is required." });
+      return;
+    }
+    setWardErrors({});
     setSaving(true);
     try {
       if (editWard) {
@@ -637,13 +1011,16 @@ const WardsPage = ({ wards, applyResult, isLeader }) => {
     setModal(false);
     setEditWard(null);
     setWardForm(emptyForm);
+    setWardErrors({});
   };
 
   return (
     <div>
       <PageHeader icon="flag" title="Wards" subtitle={`${wards.length} wards in the stake`} action={isLeader ? <button onClick={openCreateModal} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> Add Ward</button> : null} />
       <Modal open={modal} onClose={closeModal} title={editWard ? "Edit Ward" : "Create Ward"} width={560}>
-        <Field label="Ward Name"><input style={css.input} value={wardForm.name} onChange={e => setWardForm(p => ({ ...p, name: e.target.value }))} placeholder="Lehi 3rd Ward" /></Field>
+        <Field label="Ward Name" required error={wardErrors.name}>
+          <input style={fieldStyle(css.input, wardErrors.name)} value={wardForm.name} onChange={e => { setWardForm(p => ({ ...p, name: e.target.value })); if (wardErrors.name) setWardErrors({}); }} placeholder="Lehi 3rd Ward" />
+        </Field>
         <Field label="Ward Leader"><input style={css.input} value={wardForm.leader} onChange={e => setWardForm(p => ({ ...p, leader: e.target.value }))} placeholder="Bro. Smith" /></Field>
         <Field label="Leader Phone"><input style={css.input} type="tel" value={wardForm.leader_phone} onChange={e => setWardForm(p => ({ ...p, leader_phone: e.target.value }))} placeholder="(801) 555-1234" /></Field>
         <Field label="Ward Color">
@@ -708,7 +1085,9 @@ const CompetitionsPage = ({
   const [awardComp, setAwardComp] = useState(null);
   const [completingId, setCompletingId] = useState(null);
   const [compForm, setCompForm] = useState({ name: "", rules: "", status: "upcoming" });
+  const [compFormErrors, setCompFormErrors] = useState({});
   const [pointForm, setPointForm] = useState({ wardId: "", points: "", note: "" });
+  const [pointFormErrors, setPointFormErrors] = useState({});
   const [mentionPicker, setMentionPicker] = useState(null);
   const noteRef = useRef(null);
   const noteMirrorInnerRef = useRef(null);
@@ -732,7 +1111,12 @@ const CompetitionsPage = ({
   const [awarding, setAwarding] = useState(false);
 
   const addComp = async () => {
-    if (savingComp || !compForm.name) return;
+    if (savingComp) return;
+    if (!compForm.name.trim()) {
+      setCompFormErrors({ name: "Name is required." });
+      return;
+    }
+    setCompFormErrors({});
     setSavingComp(true);
     try {
       const result = await createCompetitionAction(compForm);
@@ -765,6 +1149,7 @@ const CompetitionsPage = ({
     setAwardComp(c);
     setMentionPicker(null);
     setPointForm({ wardId: wards[0]?.id || "", points: "", note: "" });
+    setPointFormErrors({});
     setModal("points");
   };
 
@@ -827,9 +1212,18 @@ const CompetitionsPage = ({
   };
 
   const award = async () => {
+    if (awarding || !awardComp?.id) return;
     const pts = parseInt(pointForm.points, 10);
-    if (awarding || !pointForm.wardId || !pointForm.note.trim() || !awardComp?.id) return;
-    if (Number.isNaN(pts) || pts === 0 || Math.abs(pts) > 100) return;
+    const err = {};
+    if (!pointForm.wardId) err.wardId = "Select a ward.";
+    if (!pointForm.note.trim()) err.note = "Note is required.";
+    if (pointForm.points.trim() === "" || Number.isNaN(pts)) err.points = "Enter a whole number of points.";
+    else if (pts === 0 || Math.abs(pts) > 100) err.points = "Points must be from -100 to 100, not 0.";
+    if (Object.keys(err).length) {
+      setPointFormErrors(err);
+      return;
+    }
+    setPointFormErrors({});
     setAwarding(true);
     try {
       const result = await awardPointsAction({
@@ -853,34 +1247,43 @@ const CompetitionsPage = ({
     return mentionYoungMen.filter((m) => m.name.toLowerCase().includes(q)).slice(0, 12);
   }, [mentionPicker, mentionYoungMen]);
 
+  const bumpNoteClearingErr = (e) => {
+    bumpNoteField(e);
+    if (pointFormErrors.note) setPointFormErrors((prev) => { const n = { ...prev }; delete n.note; return n; });
+  };
+
   return (
     <div>
-      <PageHeader icon="trophy" title="Competitions" subtitle="Track scores, award points, view history" action={isLeader ? <button onClick={() => setModal("comp")} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> New Competition</button> : null} />
-      <Modal open={modal === "comp"} onClose={() => setModal(null)} title="Create Competition">
-        <Field label="Name"><input style={css.input} value={compForm.name} onChange={e => setCompForm(p => ({ ...p, name: e.target.value }))} placeholder="Competition name" /></Field>
+      <PageHeader icon="trophy" title="Competitions" subtitle="Track scores, award points, view history" action={isLeader ? <button onClick={() => { setCompFormErrors({}); setModal("comp"); }} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> New Competition</button> : null} />
+      <Modal open={modal === "comp"} onClose={() => { setCompFormErrors({}); setModal(null); }} title="Create Competition">
+        <Field label="Name" required error={compFormErrors.name}>
+          <input style={fieldStyle(css.input, compFormErrors.name)} value={compForm.name} onChange={e => { setCompForm(p => ({ ...p, name: e.target.value })); if (compFormErrors.name) setCompFormErrors({}); }} placeholder="Competition name" />
+        </Field>
         <Field label="Rules"><textarea style={{ ...css.input, minHeight: "70px", resize: "vertical" }} value={compForm.rules} onChange={e => setCompForm(p => ({ ...p, rules: e.target.value }))} /></Field>
         <Field label="Status"><select style={css.select} value={compForm.status} onChange={e => setCompForm(p => ({ ...p, status: e.target.value }))}><option value="upcoming">Upcoming</option><option value="active">Active</option><option value="completed">Completed</option></select></Field>
         <button onClick={addComp} disabled={savingComp} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px", opacity: savingComp ? 0.7 : 1, cursor: savingComp ? "not-allowed" : "pointer" }}>{savingComp ? <><Spinner size={14} /> Creating…</> : "Create Competition"}</button>
       </Modal>
-      <Modal open={modal === "points"} onClose={() => { setMentionPicker(null); setModal(null); }} title={`Award Points — ${awardComp?.name || ""}`}>
+      <Modal open={modal === "points"} onClose={() => { setMentionPicker(null); setPointFormErrors({}); setModal(null); }} title={`Award Points — ${awardComp?.name || ""}`}>
         <Field label="Awarding as">
           <div style={{ ...css.input, display: "flex", alignItems: "center", color: T.textMuted, cursor: "default" }}>{displayAwardLeader}</div>
         </Field>
-        <Field label="Ward"><select style={css.select} value={pointForm.wardId} onChange={e => setPointForm(p => ({ ...p, wardId: e.target.value }))}>{wards.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select></Field>
-        <Field label="Points (negative for deductions, max ±100)">
+        <Field label="Ward" required error={pointFormErrors.wardId}>
+          <select style={fieldStyle(css.select, pointFormErrors.wardId)} value={pointForm.wardId} onChange={e => { setPointForm(p => ({ ...p, wardId: e.target.value })); if (pointFormErrors.wardId) setPointFormErrors((prev) => { const n = { ...prev }; delete n.wardId; return n; }); }}>{wards.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select>
+        </Field>
+        <Field label="Points (negative for deductions, max ±100)" required error={pointFormErrors.points}>
           <input
-            style={css.input}
+            style={fieldStyle(css.input, pointFormErrors.points)}
             type="text"
             inputMode="decimal"
             enterKeyHint="done"
             autoComplete="off"
             name="competition-points"
             value={pointForm.points}
-            onChange={(e) => handlePointsInput(e.target.value)}
+            onChange={(e) => { handlePointsInput(e.target.value); if (pointFormErrors.points) setPointFormErrors((prev) => { const n = { ...prev }; delete n.points; return n; }); }}
             placeholder="25 or -5"
           />
         </Field>
-        <Field label="Note (required) — type @ to tag a young man">
+        <Field label="Note — type @ to tag a young man" required error={pointFormErrors.note}>
           <div style={{ position: "relative" }}>
             <div style={{ display: "grid", width: "100%" }}>
               <div
@@ -890,7 +1293,8 @@ const CompetitionsPage = ({
                   minHeight: "60px",
                   padding: "10px 14px",
                   borderRadius: T.radiusSm,
-                  border: `1px solid ${T.border}`,
+                  border: `1px solid ${pointFormErrors.note ? T.red : T.border}`,
+                  boxShadow: pointFormErrors.note ? `0 0 0 1px ${T.red}55` : "none",
                   background: T.bgInput,
                   color: T.text,
                   fontSize: "14px",
@@ -934,7 +1338,8 @@ const CompetitionsPage = ({
                   minHeight: "60px",
                   padding: "10px 14px",
                   borderRadius: T.radiusSm,
-                  border: `1px solid ${T.border}`,
+                  border: `1px solid ${pointFormErrors.note ? T.red : T.border}`,
+                  boxShadow: pointFormErrors.note ? `0 0 0 1px ${T.red}55` : "none",
                   background: "transparent",
                   color: "transparent",
                   caretColor: T.text,
@@ -950,10 +1355,10 @@ const CompetitionsPage = ({
                   boxSizing: "border-box",
                 }}
                 value={pointForm.note}
-                onChange={bumpNoteField}
-                onKeyUp={bumpNoteField}
-                onClick={bumpNoteField}
-                onSelect={bumpNoteField}
+                onChange={bumpNoteClearingErr}
+                onKeyUp={bumpNoteClearingErr}
+                onClick={bumpNoteClearingErr}
+                onSelect={bumpNoteClearingErr}
                 onScroll={(e) => syncNoteMirrorScroll(e.currentTarget)}
                 placeholder="Won round 2, Best presentation… Type @ then a name"
               />
@@ -1226,13 +1631,24 @@ const INVITE_STATUS_COLORS = {
 const RegistrationPage = ({ registrations, applyResult, isLeader }) => {
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ parentName: "", parentEmail: "" });
+  const [formErrors, setFormErrors] = useState({});
   const [expanded, setExpanded] = useState({});
   const [sending, setSending] = useState({});
   const [saving, setSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
 
+  const validateInviteParent = () => {
+    const e = {};
+    if (!form.parentName.trim()) e.parentName = "Name is required.";
+    else if (!hasFirstAndLastName(form.parentName)) e.parentName = "Enter first and last name.";
+    if (!form.parentEmail.trim()) e.parentEmail = "Email is required.";
+    else if (!isValidEmailLoose(form.parentEmail)) e.parentEmail = "Enter a valid email address.";
+    setFormErrors(e);
+    return Object.keys(e).length === 0;
+  };
+
   const addParent = async () => {
-    if (saving || !form.parentName.trim() || !form.parentEmail.trim()) return;
+    if (saving || !validateInviteParent()) return;
     setSaving(true);
     try {
       const result = await addParentAction({
@@ -1241,6 +1657,7 @@ const RegistrationPage = ({ registrations, applyResult, isLeader }) => {
       });
       if (applyResult(result)) {
         setForm({ parentName: "", parentEmail: "" });
+        setFormErrors({});
         setModal(false);
       }
     } finally { setSaving(false); }
@@ -1276,11 +1693,15 @@ const RegistrationPage = ({ registrations, applyResult, isLeader }) => {
         icon="clipboard"
         title="Registration"
         subtitle={`${registrations.length} parents · ${totalYoungMen} young men`}
-        action={isLeader ? <button type="button" onClick={() => setModal(true)} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> Invite Parent</button> : null}
+        action={isLeader ? <button type="button" onClick={() => { setFormErrors({}); setModal(true); }} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> Invite Parent</button> : null}
       />
-      <Modal open={modal} onClose={() => setModal(false)} title="Invite a Parent" width={480}>
-        <Field label="Parent's Full Name"><input style={css.input} value={form.parentName} onChange={e => setForm(p => ({ ...p, parentName: e.target.value }))} placeholder="John Smith" /></Field>
-        <Field label="Parent's Email"><input style={css.input} value={form.parentEmail} onChange={e => setForm(p => ({ ...p, parentEmail: e.target.value }))} placeholder="parent@email.com" /></Field>
+      <Modal open={modal} onClose={() => { setFormErrors({}); setModal(false); }} title="Invite a Parent" width={480}>
+        <Field label="Parent's Full Name" required error={formErrors.parentName}>
+          <input style={fieldStyle(css.input, formErrors.parentName)} value={form.parentName} onChange={e => { setForm(p => ({ ...p, parentName: e.target.value })); if (formErrors.parentName) setFormErrors((prev) => { const n = { ...prev }; delete n.parentName; return n; }); }} placeholder="John Smith" />
+        </Field>
+        <Field label="Parent's Email" required error={formErrors.parentEmail}>
+          <input style={fieldStyle(css.input, formErrors.parentEmail)} type="email" autoComplete="email" value={form.parentEmail} onChange={e => { setForm(p => ({ ...p, parentEmail: e.target.value })); if (formErrors.parentEmail) setFormErrors((prev) => { const n = { ...prev }; delete n.parentEmail; return n; }); }} placeholder="parent@email.com" />
+        </Field>
         <button onClick={addParent} disabled={saving} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px", opacity: saving ? 0.7 : 1, cursor: saving ? "not-allowed" : "pointer" }}>{saving ? <><Spinner size={14} /> Adding…</> : "Add Parent"}</button>
       </Modal>
       <ConfirmDeleteModal
@@ -1362,16 +1783,25 @@ const RegistrationPage = ({ registrations, applyResult, isLeader }) => {
 const ContactsPage = ({ contacts, applyResult, isLeader }) => {
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ name: "", role: "", phone: "", email: "", emergency: false });
+  const [formErrors, setFormErrors] = useState({});
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
   const busy = saving || !!deletingId;
+  const validateContact = () => {
+    const e = {};
+    if (!form.name.trim()) e.name = "Name is required.";
+    if (!form.phone.trim()) e.phone = "Phone is required.";
+    setFormErrors(e);
+    return Object.keys(e).length === 0;
+  };
   const add = async () => {
-    if (saving || !form.name || !form.phone) return;
+    if (saving || !validateContact()) return;
     setSaving(true);
     try {
       const result = await addContactAction(form);
       if (applyResult(result)) {
         setForm({ name: "", role: "", phone: "", email: "", emergency: false });
+        setFormErrors({});
         setModal(false);
       }
     } finally { setSaving(false); }
@@ -1387,13 +1817,17 @@ const ContactsPage = ({ contacts, applyResult, isLeader }) => {
   const staff = contacts.filter(c => !c.emergency); const emergency = contacts.filter(c => c.emergency);
   return (
     <div>
-      <PageHeader icon="phone" title="Contacts" subtitle="Camp staff & emergency" action={isLeader ? <button onClick={() => setModal(true)} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> Add</button> : null} />
-      <Modal open={modal} onClose={() => setModal(false)} title="Add Contact">
-        <Field label="Name"><input style={css.input} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} /></Field>
-        <Field label="Role"><input style={css.input} value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value }))} /></Field>
+      <PageHeader icon="phone" title="Contacts" subtitle="Camp staff & emergency" action={isLeader ? <button onClick={() => { setFormErrors({}); setModal(true); }} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> Add</button> : null} />
+      <Modal open={modal} onClose={() => { setFormErrors({}); setModal(false); }} title="Add Contact">
+        <Field label="Name" required error={formErrors.name}>
+          <input style={fieldStyle(css.input, formErrors.name)} value={form.name} onChange={e => { setForm(p => ({ ...p, name: e.target.value })); if (formErrors.name) setFormErrors((prev) => { const n = { ...prev }; delete n.name; return n; }); }} />
+        </Field>
+        <Field label="Role"><input style={css.input} value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value }))} placeholder="Optional" /></Field>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-          <Field label="Phone"><input style={css.input} value={form.phone} onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} /></Field>
-          <Field label="Email"><input style={css.input} value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} /></Field>
+          <Field label="Phone" required error={formErrors.phone}>
+            <input style={fieldStyle(css.input, formErrors.phone)} type="tel" value={form.phone} onChange={e => { setForm(p => ({ ...p, phone: e.target.value })); if (formErrors.phone) setFormErrors((prev) => { const n = { ...prev }; delete n.phone; return n; }); }} />
+          </Field>
+          <Field label="Email"><input style={css.input} type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} placeholder="Optional" /></Field>
         </div>
         <label style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer", padding: "8px 0" }}><input type="checkbox" checked={form.emergency} onChange={e => setForm(p => ({ ...p, emergency: e.target.checked }))} style={{ width: "18px", height: "18px", accentColor: T.accent }} /><span style={{ fontSize: "14px", color: T.text }}>Emergency contact</span></label>
         <button onClick={add} disabled={saving} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px", marginTop: "8px", opacity: saving ? 0.7 : 1, cursor: saving ? "not-allowed" : "pointer" }}>{saving ? <><Spinner size={14} /> Adding…</> : "Add Contact"}</button>
@@ -1503,12 +1937,22 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult, isLeader }) 
 
   const [saving, setSaving] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
+  const [inviteErrors, setInviteErrors] = useState({});
+  const [editErrors, setEditErrors] = useState({});
 
   const submitInvite = async () => {
     const callingValue = addingCalling ? form.newCalling : form.calling;
-    if (saving || !form.email.trim() || !callingValue.trim()) {
+    if (saving) return;
+    const e = {};
+    if (!form.email.trim()) e.email = "Email is required.";
+    else if (!isValidEmailLoose(form.email)) e.email = "Enter a valid email address.";
+    if (!callingValue.trim()) e.calling = addingCalling ? "Enter a calling." : "Select a calling.";
+    if (selectedRoleOption.wardRequired && !form.wardId) e.wardId = "Select a ward for this role.";
+    if (Object.keys(e).length) {
+      setInviteErrors(e);
       return;
     }
+    setInviteErrors({});
     setSaving(true);
     try {
       const result = await inviteLeaderAction({
@@ -1554,15 +1998,24 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult, isLeader }) 
       newCalling: "",
     });
     setEditAddingCalling(false);
+    setEditErrors({});
     setEditModal(true);
   };
 
   const submitEdit = async () => {
     if (editSaving || !editLeader) return;
+    const callingValue = editAddingCalling ? editForm.newCalling : editForm.calling;
+    const editRoleOption = editRoleOptions.find((o) => o.value === editForm.role) ?? editRoleOptions[0];
+    const e = {};
+    if (!callingValue.trim()) e.calling = editAddingCalling ? "Enter a calling." : "Select a calling.";
+    if (editRoleOption?.wardRequired && !editForm.wardId) e.wardId = "Select a ward for this role.";
+    if (Object.keys(e).length) {
+      setEditErrors(e);
+      return;
+    }
+    setEditErrors({});
     setEditSaving(true);
     try {
-      const callingValue = editAddingCalling ? editForm.newCalling : editForm.calling;
-      const editRoleOption = editRoleOptions.find((o) => o.value === editForm.role) ?? editRoleOptions[0];
       const result = await updateLeaderAction(editLeader.invitation_id ?? editLeader.id, {
         displayName: editForm.displayName.trim() || undefined,
         role: editForm.role,
@@ -1606,36 +2059,40 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult, isLeader }) 
         icon="star"
         title="Leaders"
         subtitle="Manage stake and ward leadership invitations, statuses, and roles"
-        action={isLeader ? <button type="button" onClick={() => setModal(true)} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> Invite Leader</button> : null}
+        action={isLeader ? <button type="button" onClick={() => { setInviteErrors({}); setModal(true); }} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> Invite Leader</button> : null}
       />
-      <Modal open={modal} onClose={() => setModal(false)} title="Invite Leader" width={560}>
-        <Field label="Full Name"><input style={css.input} value={form.fullName} onChange={e => setForm(p => ({ ...p, fullName: e.target.value }))} placeholder="John Doe" /></Field>
-        <Field label="Email"><input style={css.input} value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} placeholder="leader@email.com" /></Field>
-        <Field label="Leadership Role"><select style={css.select} value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value }))}>{inviteRoleOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
-        <Field label="Ward">
-          <select style={css.select} value={form.wardId} onChange={e => setForm(p => ({ ...p, wardId: e.target.value }))}>
-            <option value="">Stake-wide (no ward)</option>
+      <Modal open={modal} onClose={() => { setInviteErrors({}); setModal(false); }} title="Invite Leader" width={560}>
+        <Field label="Full Name" hint="Optional — used in the invite email">
+          <input style={css.input} value={form.fullName} onChange={e => setForm(p => ({ ...p, fullName: e.target.value }))} placeholder="John Doe" />
+        </Field>
+        <Field label="Email" required error={inviteErrors.email}>
+          <input style={fieldStyle(css.input, inviteErrors.email)} type="email" autoComplete="email" value={form.email} onChange={e => { setForm(p => ({ ...p, email: e.target.value })); if (inviteErrors.email) setInviteErrors((prev) => { const n = { ...prev }; delete n.email; return n; }); }} placeholder="leader@email.com" />
+        </Field>
+        <Field label="Leadership Role"><select style={css.select} value={form.role} onChange={e => { setForm(p => ({ ...p, role: e.target.value })); if (inviteErrors.wardId) setInviteErrors((prev) => { const n = { ...prev }; delete n.wardId; return n; }); }}>{inviteRoleOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
+        <Field label="Ward" required={selectedRoleOption.wardRequired} error={inviteErrors.wardId}>
+          <select style={fieldStyle(css.select, inviteErrors.wardId)} value={form.wardId} onChange={e => { setForm(p => ({ ...p, wardId: e.target.value })); if (inviteErrors.wardId) setInviteErrors((prev) => { const n = { ...prev }; delete n.wardId; return n; }); }}>
+            <option value="">{selectedRoleOption.wardRequired ? "Select ward" : "Stake-wide (no ward)"}</option>
             {wards.map((ward) => (
               <option key={ward.id} value={ward.id}>{ward.name}</option>
             ))}
           </select>
         </Field>
         {!addingCalling ? (
-          <Field label="Calling">
+          <Field label="Calling" required error={inviteErrors.calling}>
             <div style={{ display: "flex", gap: "8px" }}>
-              <select style={{ ...css.select, flex: 1 }} value={form.calling} onChange={e => setForm(p => ({ ...p, calling: e.target.value }))}>
+              <select style={{ ...fieldStyle(css.select, inviteErrors.calling), flex: 1 }} value={form.calling} onChange={e => { setForm(p => ({ ...p, calling: e.target.value })); if (inviteErrors.calling) setInviteErrors((prev) => { const n = { ...prev }; delete n.calling; return n; }); }}>
                 <option value="">Select a calling</option>
                 {callingOptions.map((calling) => (
                   <option key={calling} value={calling}>{calling}</option>
                 ))}
               </select>
-              <button type="button" onClick={() => setAddingCalling(true)} style={css.btn("ghost")}>New</button>
+              <button type="button" onClick={() => { setAddingCalling(true); if (inviteErrors.calling) setInviteErrors((prev) => { const n = { ...prev }; delete n.calling; return n; }); }} style={css.btn("ghost")}>New</button>
             </div>
           </Field>
         ) : (
-          <Field label="New Calling">
+          <Field label="New Calling" required error={inviteErrors.calling}>
             <div style={{ display: "flex", gap: "8px" }}>
-              <input style={{ ...css.input, flex: 1 }} value={form.newCalling} onChange={e => setForm(p => ({ ...p, newCalling: e.target.value }))} placeholder="Assistant Camp Director" />
+              <input style={{ ...fieldStyle(css.input, inviteErrors.calling), flex: 1 }} value={form.newCalling} onChange={e => { setForm(p => ({ ...p, newCalling: e.target.value })); if (inviteErrors.calling) setInviteErrors((prev) => { const n = { ...prev }; delete n.calling; return n; }); }} placeholder="Assistant Camp Director" />
               <button type="button" onClick={() => setAddingCalling(false)} style={css.btn("ghost")}>Use List</button>
             </div>
           </Field>
@@ -1643,11 +2100,11 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult, isLeader }) 
         <button onClick={submitInvite} disabled={saving} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px", opacity: saving ? 0.7 : 1, cursor: saving ? "not-allowed" : "pointer" }}>{saving ? <><Spinner size={14} /> Sending…</> : "Send Invitation"}</button>
       </Modal>
 
-      <Modal open={editModal} onClose={() => setEditModal(false)} title="Edit Leader" width={560}>
+      <Modal open={editModal} onClose={() => { setEditErrors({}); setEditModal(false); }} title="Edit Leader" width={560}>
         <Field label="Full Name"><input style={css.input} value={editForm.displayName} onChange={e => setEditForm(p => ({ ...p, displayName: e.target.value }))} placeholder="Full name" /></Field>
-        <Field label="Leadership Role"><select style={css.select} value={editForm.role} onChange={e => setEditForm(p => ({ ...p, role: e.target.value }))}>{editRoleOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
-        <Field label="Ward">
-          <select style={css.select} value={editForm.wardId} onChange={e => setEditForm(p => ({ ...p, wardId: e.target.value }))}>
+        <Field label="Leadership Role"><select style={css.select} value={editForm.role} onChange={e => { setEditForm(p => ({ ...p, role: e.target.value })); if (editErrors.wardId) setEditErrors((prev) => { const n = { ...prev }; delete n.wardId; return n; }); }}>{editRoleOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
+        <Field label="Ward" required={editRoleOption?.wardRequired} error={editErrors.wardId}>
+          <select style={fieldStyle(css.select, editErrors.wardId)} value={editForm.wardId} onChange={e => { setEditForm(p => ({ ...p, wardId: e.target.value })); if (editErrors.wardId) setEditErrors((prev) => { const n = { ...prev }; delete n.wardId; return n; }); }}>
             <option value="">{editRoleOption?.wardRequired ? "Select ward" : "Stake-wide (no ward)"}</option>
             {wards.map((ward) => (
               <option key={ward.id} value={ward.id}>{ward.name}</option>
@@ -1655,21 +2112,21 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult, isLeader }) 
           </select>
         </Field>
         {!editAddingCalling ? (
-          <Field label="Calling">
+          <Field label="Calling" required error={editErrors.calling}>
             <div style={{ display: "flex", gap: "8px" }}>
-              <select style={{ ...css.select, flex: 1 }} value={editForm.calling} onChange={e => setEditForm(p => ({ ...p, calling: e.target.value }))}>
+              <select style={{ ...fieldStyle(css.select, editErrors.calling), flex: 1 }} value={editForm.calling} onChange={e => { setEditForm(p => ({ ...p, calling: e.target.value })); if (editErrors.calling) setEditErrors((prev) => { const n = { ...prev }; delete n.calling; return n; }); }}>
                 <option value="">Select a calling</option>
                 {callingOptions.map((calling) => (
                   <option key={calling} value={calling}>{calling}</option>
                 ))}
               </select>
-              <button type="button" onClick={() => setEditAddingCalling(true)} style={css.btn("ghost")}>New</button>
+              <button type="button" onClick={() => { setEditAddingCalling(true); if (editErrors.calling) setEditErrors((prev) => { const n = { ...prev }; delete n.calling; return n; }); }} style={css.btn("ghost")}>New</button>
             </div>
           </Field>
         ) : (
-          <Field label="New Calling">
+          <Field label="New Calling" required error={editErrors.calling}>
             <div style={{ display: "flex", gap: "8px" }}>
-              <input style={{ ...css.input, flex: 1 }} value={editForm.newCalling} onChange={e => setEditForm(p => ({ ...p, newCalling: e.target.value }))} placeholder="Assistant Camp Director" />
+              <input style={{ ...fieldStyle(css.input, editErrors.calling), flex: 1 }} value={editForm.newCalling} onChange={e => { setEditForm(p => ({ ...p, newCalling: e.target.value })); if (editErrors.calling) setEditErrors((prev) => { const n = { ...prev }; delete n.calling; return n; }); }} placeholder="Assistant Camp Director" />
               <button type="button" onClick={() => setEditAddingCalling(false)} style={css.btn("ghost")}>Use List</button>
             </div>
           </Field>
@@ -1775,9 +2232,19 @@ const ProfilePage = ({
   const [avatarUrl, setAvatarUrl] = useState(profile.avatarUrl || "");
   const [phone, setPhone] = useState(profile.phone || "");
   const [wardId, setWardId] = useState(profile.wardId || "");
-  
+  const [profileFieldErrors, setProfileFieldErrors] = useState({});
+
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef(null);
+
+  const saveProfile = () => {
+    if (!displayName.trim()) {
+      setProfileFieldErrors({ displayName: "Display name is required." });
+      return;
+    }
+    setProfileFieldErrors({});
+    onSaveProfile(buildProfileInput());
+  };
 
   const buildProfileInput = (overrides = {}) => ({
     displayName,
@@ -1837,11 +2304,14 @@ const ProfilePage = ({
               <p style={{ color: T.textDim, margin: "2px 0 0", fontSize: "12px" }}>{profile.email}</p>
             </div>
           </div>
-          <Field label="Name">
+          <Field label="Name" required error={profileFieldErrors.displayName}>
             <input
-              style={css.input}
+              style={fieldStyle(css.input, profileFieldErrors.displayName)}
               value={displayName}
-              onChange={(event) => setDisplayName(event.target.value)}
+              onChange={(event) => {
+                setDisplayName(event.target.value);
+                if (profileFieldErrors.displayName) setProfileFieldErrors({});
+              }}
               placeholder="Brother Jones"
             />
           </Field>
@@ -1941,9 +2411,8 @@ const ProfilePage = ({
             </div>
           </Field>
           <button
-            onClick={() => {
-              onSaveProfile(buildProfileInput());
-            }}
+            type="button"
+            onClick={saveProfile}
             style={{ ...css.btn(), width: "100%", justifyContent: "center" }}
             disabled={savingProfile || uploadingAvatar}
           >
@@ -2045,6 +2514,7 @@ const YoungManFormEntry = ({
   shirtSizes,
   uploadingPhoto,
   onPhotoFile,
+  fieldErrors = {},
 }) => {
   const photoInputRef = useRef(null);
   const [dragPhoto, setDragPhoto] = useState(false);
@@ -2060,7 +2530,7 @@ const YoungManFormEntry = ({
       <div style={{ display: "flex", alignItems: "flex-start", gap: "12px", marginBottom: "12px" }}>
         <Avatar name={displayName} src={entry.photoUrl || null} size={56} fontSize={18} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <Field label="Camper photo *">
+          <Field label="Camper photo" required error={fieldErrors.photoUrl}>
             <div
               role="button"
               tabIndex={0}
@@ -2080,7 +2550,8 @@ const YoungManFormEntry = ({
                 if (!uploadingPhoto) void onPhotoFile(event.dataTransfer.files?.[0]);
               }}
               style={{
-                border: `1px dashed ${entry.photoUrl ? T.accent : dragPhoto ? T.accent : T.borderLight}`,
+                border: `1px dashed ${fieldErrors.photoUrl ? T.red : entry.photoUrl ? T.accent : dragPhoto ? T.accent : T.borderLight}`,
+                boxShadow: fieldErrors.photoUrl ? `0 0 0 1px ${T.red}55` : "none",
                 borderRadius: T.radiusSm,
                 padding: "10px 12px",
                 textAlign: "center",
@@ -2109,11 +2580,17 @@ const YoungManFormEntry = ({
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-        <Field label="First Name"><input style={css.input} value={entry.firstName} onChange={e => onUpdate({ ...entry, firstName: e.target.value })} placeholder="First name" /></Field>
-        <Field label="Last Name"><input style={css.input} value={entry.lastName} onChange={e => onUpdate({ ...entry, lastName: e.target.value })} placeholder="Last name" /></Field>
-        <Field label="Age"><input style={css.input} type="number" min={8} max={18} value={entry.age} onChange={e => onUpdate({ ...entry, age: e.target.value })} placeholder="14" /></Field>
-        <Field label="Shirt Size">
-          <select style={css.select} value={entry.shirtSizeCode} onChange={e => onUpdate({ ...entry, shirtSizeCode: e.target.value })}>
+        <Field label="First Name" required error={fieldErrors.firstName}>
+          <input style={fieldStyle(css.input, fieldErrors.firstName)} value={entry.firstName} onChange={e => onUpdate({ ...entry, firstName: e.target.value })} placeholder="First name" />
+        </Field>
+        <Field label="Last Name" required error={fieldErrors.lastName}>
+          <input style={fieldStyle(css.input, fieldErrors.lastName)} value={entry.lastName} onChange={e => onUpdate({ ...entry, lastName: e.target.value })} placeholder="Last name" />
+        </Field>
+        <Field label="Age" required error={fieldErrors.age}>
+          <input style={fieldStyle(css.input, fieldErrors.age)} type="number" min={8} max={18} value={entry.age} onChange={e => onUpdate({ ...entry, age: e.target.value })} placeholder="14" />
+        </Field>
+        <Field label="Shirt Size" required error={fieldErrors.shirtSizeCode}>
+          <select style={fieldStyle(css.select, fieldErrors.shirtSizeCode)} value={entry.shirtSizeCode} onChange={e => onUpdate({ ...entry, shirtSizeCode: e.target.value })}>
             <option value="">Select size</option>
             {shirtSizes.map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
           </select>
@@ -2162,6 +2639,7 @@ const OnboardingOverlay = ({
   const [uploadingYoungManKey, setUploadingYoungManKey] = useState(null);
   const [termsRead, setTermsRead] = useState(false);
   const [signatureName, setSignatureName] = useState("");
+  const [attemptedComplete, setAttemptedComplete] = useState(false);
 
   const processUploadFile = async (file) => {
     if (!file) return;
@@ -2247,7 +2725,7 @@ const OnboardingOverlay = ({
 
   const youngMenValid = showYoungMen
     ? youngMen.length > 0 && youngMen.every((ym) => (
-      ym.firstName.trim() && ym.lastName.trim() && ym.age && ym.photoUrl?.trim()
+      ym.firstName.trim() && ym.lastName.trim() && ym.age && ym.photoUrl?.trim() && ym.shirtSizeCode
     ))
     : true;
   const termsValid = showTerms ? termsRead && signatureName.trim().length >= 2 : true;
@@ -2260,7 +2738,46 @@ const OnboardingOverlay = ({
     youngMenValid &&
     termsValid;
 
+  const overlayFieldErrors = useMemo(() => {
+    if (!attemptedComplete) {
+      return {
+        displayName: undefined,
+        password: undefined,
+        avatarUrl: undefined,
+        wardId: undefined,
+        youngMen: youngMen.map(() => ({})),
+        termsRead: undefined,
+        signatureName: undefined,
+      };
+    }
+    const top = {};
+    if (!form.displayName.trim()) top.displayName = "Name is required.";
+    if (form.password.length < 8) top.password = "Password must be at least 8 characters.";
+    if (!avatarUrl) top.avatarUrl = "Profile photo is required.";
+    if (!form.wardId) top.wardId = "Select your ward.";
+    const ymErrs = showYoungMen
+      ? youngMen.map((ym) => {
+          const r = {};
+          if (!ym.photoUrl?.trim()) r.photoUrl = "Photo is required.";
+          if (!ym.firstName.trim()) r.firstName = "First name is required.";
+          if (!ym.lastName.trim()) r.lastName = "Last name is required.";
+          if (!ym.age) r.age = "Age is required.";
+          if (!ym.shirtSizeCode) r.shirtSizeCode = "Select a shirt size.";
+          return r;
+        })
+      : youngMen.map(() => ({}));
+    let termsReadErr;
+    let signatureNameErr;
+    if (showTerms) {
+      if (!termsRead) termsReadErr = "You must agree to the terms.";
+      if (signatureName.trim().length < 2) signatureNameErr = "Type your full name as your signature.";
+    }
+    return { ...top, youngMen: ymErrs, termsRead: termsReadErr, signatureName: signatureNameErr };
+  }, [attemptedComplete, form.displayName, form.password, form.wardId, avatarUrl, showYoungMen, youngMen, showTerms, termsRead, signatureName]);
+
   const wrappedComplete = () => {
+    setAttemptedComplete(true);
+    if (!hasRequiredFields) return;
     onComplete({ youngMen: showYoungMen ? youngMen : [], signatureName: showTerms ? signatureName : "" });
   };
 
@@ -2275,7 +2792,7 @@ const OnboardingOverlay = ({
         <div style={{ display: "flex", alignItems: "center", gap: "16px", marginBottom: "16px" }}>
           <Avatar name={form.displayName || "You"} src={avatarUrl || null} size={64} fontSize={22} />
           <div style={{ flex: 1 }}>
-            <Field label="Profile Photo *">
+            <Field label="Profile Photo" required error={overlayFieldErrors.avatarUrl}>
               <div
                 role="button"
                 tabIndex={0}
@@ -2286,7 +2803,8 @@ const OnboardingOverlay = ({
                 onDragLeave={(event) => { event.preventDefault(); if (event.currentTarget === event.target) setDragActive(false); }}
                 onDrop={(event) => { event.preventDefault(); setDragActive(false); if (!uploadingAvatar) void processUploadFile(event.dataTransfer.files?.[0]); }}
                 style={{
-                  border: `1px dashed ${avatarUrl ? T.accent : dragActive ? T.accent : T.borderLight}`,
+                  border: `1px dashed ${overlayFieldErrors.avatarUrl ? T.red : avatarUrl ? T.accent : dragActive ? T.accent : T.borderLight}`,
+                  boxShadow: overlayFieldErrors.avatarUrl ? `0 0 0 1px ${T.red}55` : "none",
                   borderRadius: T.radiusSm, padding: "12px 14px", textAlign: "center",
                   background: dragActive ? `${T.accent}1A` : T.bgInput,
                   cursor: uploadingAvatar ? "not-allowed" : "pointer", opacity: uploadingAvatar ? 0.65 : 1,
@@ -2300,17 +2818,17 @@ const OnboardingOverlay = ({
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-          <Field label="Name">
-            <input style={css.input} value={form.displayName} onChange={(event) => setForm((previous) => ({ ...previous, displayName: event.target.value }))} placeholder={copy.namePlaceholder} />
+          <Field label="Name" required error={overlayFieldErrors.displayName}>
+            <input style={fieldStyle(css.input, overlayFieldErrors.displayName)} value={form.displayName} onChange={(event) => setForm((previous) => ({ ...previous, displayName: event.target.value }))} placeholder={copy.namePlaceholder} />
           </Field>
-          <Field label="Set Password">
-            <input style={css.input} type="password" minLength={8} value={form.password} onChange={(event) => setForm((previous) => ({ ...previous, password: event.target.value }))} placeholder="At least 8 characters" />
+          <Field label="Set Password" required error={overlayFieldErrors.password}>
+            <input style={fieldStyle(css.input, overlayFieldErrors.password)} type="password" minLength={8} value={form.password} onChange={(event) => setForm((previous) => ({ ...previous, password: event.target.value }))} placeholder="At least 8 characters" />
           </Field>
           <Field label="Phone Number">
             <input style={css.input} value={form.phone} onChange={(event) => setForm((previous) => ({ ...previous, phone: event.target.value }))} placeholder="(801) 555-0000" />
           </Field>
-          <Field label="Ward">
-            <select style={css.select} value={form.wardId} onChange={(event) => {
+          <Field label="Ward" required={showWard} error={overlayFieldErrors.wardId}>
+            <select style={fieldStyle(css.select, overlayFieldErrors.wardId)} value={form.wardId} onChange={(event) => {
               setForm((previous) => ({ ...previous, wardId: event.target.value }));
             }}>
               <option value="">Select ward</option>
@@ -2340,6 +2858,7 @@ const OnboardingOverlay = ({
                 shirtSizes={profileOptions?.shirtSizes ?? []}
                 uploadingPhoto={uploadingYoungManKey === ym._key}
                 onPhotoFile={(file) => handleYoungManPhotoUpload(i, file)}
+                fieldErrors={overlayFieldErrors.youngMen[i] ?? {}}
               />
             ))}
           </div>
@@ -2351,12 +2870,15 @@ const OnboardingOverlay = ({
             <div style={{ background: T.bgInput, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "16px", maxHeight: "200px", overflowY: "auto", marginBottom: "14px" }}>
               <pre style={{ color: T.textMuted, fontSize: "12px", lineHeight: 1.7, whiteSpace: "pre-wrap", fontFamily: T.font, margin: 0 }}>{TERMS_OF_SERVICE_TEXT}</pre>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "14px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: overlayFieldErrors.termsRead ? "6px" : "14px" }}>
               <input type="checkbox" id="terms-agree" checked={termsRead} onChange={e => setTermsRead(e.target.checked)} style={{ accentColor: T.accent }} />
               <label htmlFor="terms-agree" style={{ color: T.text, fontSize: "13px", cursor: "pointer" }}>I have read and agree to the terms above</label>
             </div>
-            <Field label="Type your full name as your signature">
-              <input style={{ ...css.input, fontFamily: "'Playfair Display', serif", fontSize: "18px", fontStyle: "italic" }} value={signatureName} onChange={e => setSignatureName(e.target.value)} placeholder="Your Full Name" />
+            {overlayFieldErrors.termsRead ? (
+              <p role="alert" style={{ color: T.red, fontSize: "12px", margin: "0 0 14px" }}>{overlayFieldErrors.termsRead}</p>
+            ) : null}
+            <Field label="Type your full name as your signature" required error={overlayFieldErrors.signatureName}>
+              <input style={{ ...fieldStyle(css.input, overlayFieldErrors.signatureName), fontFamily: "'Playfair Display', serif", fontSize: "18px", fontStyle: "italic" }} value={signatureName} onChange={e => setSignatureName(e.target.value)} placeholder="Your Full Name" />
             </Field>
           </div>
         ) : null}
@@ -2467,6 +2989,7 @@ export default function CampDesignApp({ initialData, profile }) {
   const [pointLog, setPointLog] = useState(() => initialData?.pointLog ?? EMPTY_ARRAY);
   const [registrations, setRegistrations] = useState(() => initialData?.registrations ?? EMPTY_ARRAY);
   const [agenda, setAgenda] = useState(() => initialData?.agenda ?? EMPTY_OBJECT);
+  const [meals, setMeals] = useState(() => initialData?.meals ?? EMPTY_ARRAY);
   const [contacts, setContacts] = useState(() => initialData?.contacts ?? EMPTY_ARRAY);
   const [leaders, setLeaders] = useState(() => initialData?.leaders ?? EMPTY_ARRAY);
   const [inspiration, setInspiration] = useState(() => initialData?.inspiration ?? EMPTY_ARRAY);
@@ -2513,6 +3036,7 @@ export default function CampDesignApp({ initialData, profile }) {
     setPointLog(data.pointLog ?? []);
     setRegistrations(data.registrations ?? []);
     setAgenda(data.agenda ?? {});
+    setMeals(data.meals ?? []);
     setContacts(data.contacts ?? []);
     setLeaders(data.leaders ?? []);
     setInspiration(data.inspiration ?? []);
@@ -2796,7 +3320,7 @@ export default function CampDesignApp({ initialData, profile }) {
   const isLeader = profileData.isLeader;
 
   const pages = {
-    dashboard: <Dashboard goTo={goToPage} wards={wards} activities={activities} competitions={competitions} pointLog={pointLog} agenda={agenda} inspiration={inspiration} />,
+    dashboard: <Dashboard goTo={goToPage} wards={wards} activities={activities} competitions={competitions} pointLog={pointLog} agenda={agenda} inspiration={inspiration} meals={meals} />,
     activities: <ActivitiesPage activities={activities} applyResult={applyResult} isLeader={isLeader} />,
     agenda: <AgendaPage agenda={agenda} applyResult={applyResult} isLeader={isLeader} />,
     wardRosters: <WardRostersPage wards={wards} leaders={leaders} />,
@@ -2820,6 +3344,7 @@ export default function CampDesignApp({ initialData, profile }) {
     contacts: <ContactsPage contacts={contacts} applyResult={applyResult} isLeader={isLeader} />,
     rules: <RulesPage rules={rules} applyResult={applyResult} isLeader={isLeader} />,
     inspiration: <InspirationPage inspiration={inspiration} />,
+    meals: <MealsPage meals={meals} wards={wards} applyResult={applyResult} canManageContent={profileData.canManageContent} />,
     leaders: <LeadersPage leaders={leaders} wards={profileOptions.wards} callingOptions={leaderCallingOptions} applyResult={applyResult} isLeader={isLeader} />,
     docs: <DocsPage docs={docs} />,
     profile: (

@@ -15,6 +15,7 @@ import {
   type CampDesignInitialData,
   getCampDesignInitialData,
 } from "@/lib/app/camp-design-data";
+import { formatTimeLabel12h, parseTimeLabel } from "@/lib/app/time-sort";
 
 type ActionResult =
   | { ok: true; data: CampDesignInitialData; profile?: ProfilePayload }
@@ -54,6 +55,15 @@ type WardInput = {
   color: string;
 };
 
+type MealInput = {
+  wardId: string;
+  date: string;
+  mealType: "breakfast" | "lunch" | "dinner";
+  time: string;
+  menu: string;
+};
+
+const MEAL_TYPES = new Set<string>(["breakfast", "lunch", "dinner"]);
 
 type CompetitionInput = {
   name: string;
@@ -145,31 +155,6 @@ function toAgendaDate(dateStr: string) {
     return null;
   }
   return dateOnly;
-}
-
-function parseTimeLabel(timeLabel: string) {
-  const match = timeLabel.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
-  if (!match) {
-    return null;
-  }
-
-  const hours = Number(match[1]);
-  const minutes = Number(match[2]);
-  const meridian = match[3].toUpperCase();
-
-  if (
-    Number.isNaN(hours) ||
-    Number.isNaN(minutes) ||
-    hours < 1 ||
-    hours > 12 ||
-    minutes < 0 ||
-    minutes > 59
-  ) {
-    return null;
-  }
-
-  const hour24 = meridian === "PM" ? (hours % 12) + 12 : hours % 12;
-  return { hour24, minutes };
 }
 
 function toActivityTimestamp(dateStr: string, timeLabel: string) {
@@ -635,6 +620,127 @@ export async function deleteAgendaItemAction(id: string): Promise<ActionResult> 
     .from("daily_agenda_items")
     .delete()
     .eq("id", id);
+  if (error) {
+    return fail(error.message);
+  }
+
+  return success();
+}
+
+export async function createWardMealAction(input: MealInput): Promise<ActionResult> {
+  const context = await requireContentManager();
+  if (!context) {
+    return fail("You do not have permission to manage meals.");
+  }
+
+  const mealDate = toAgendaDate(input.date);
+  if (!mealDate || !MEAL_TYPES.has(input.mealType)) {
+    return fail("Please provide a valid date and meal type.");
+  }
+
+  const parsedTime = parseTimeLabel(input.time);
+  if (!parsedTime) {
+    return fail(
+      "Please provide a valid time (e.g. 7:00 AM, 7:00am, or 13:00).",
+    );
+  }
+  const timeLabel = formatTimeLabel12h(parsedTime);
+
+  const menu = input.menu.trim();
+  if (!menu) {
+    return fail("Menu is required.");
+  }
+
+  const wardId = input.wardId.trim();
+  if (!wardId) {
+    return fail("Ward is required.");
+  }
+
+  const admin = createSupabaseAdminClient() as any;
+  const { error } = await admin.from("ward_meals").insert({
+    ward_id: wardId,
+    meal_date: mealDate,
+    meal_type: input.mealType,
+    time_label: timeLabel,
+    menu,
+  });
+
+  if (error) {
+    if (error.code === "23505") {
+      return fail(
+        "A meal already exists for this ward, date, and meal type.",
+      );
+    }
+    return fail(error.message);
+  }
+
+  return success();
+}
+
+export async function updateWardMealAction(
+  id: string,
+  input: MealInput,
+): Promise<ActionResult> {
+  const context = await requireContentManager();
+  if (!context) {
+    return fail("You do not have permission to manage meals.");
+  }
+
+  const mealDate = toAgendaDate(input.date);
+  if (!mealDate || !MEAL_TYPES.has(input.mealType)) {
+    return fail("Please provide a valid date and meal type.");
+  }
+
+  const parsedTime = parseTimeLabel(input.time);
+  if (!parsedTime) {
+    return fail(
+      "Please provide a valid time (e.g. 7:00 AM, 7:00am, or 13:00).",
+    );
+  }
+  const timeLabel = formatTimeLabel12h(parsedTime);
+
+  const menu = input.menu.trim();
+  if (!menu) {
+    return fail("Menu is required.");
+  }
+
+  const wardId = input.wardId.trim();
+  if (!wardId) {
+    return fail("Ward is required.");
+  }
+
+  const admin = createSupabaseAdminClient() as any;
+  const { error } = await admin
+    .from("ward_meals")
+    .update({
+      ward_id: wardId,
+      meal_date: mealDate,
+      meal_type: input.mealType,
+      time_label: timeLabel,
+      menu,
+    })
+    .eq("id", id);
+
+  if (error) {
+    if (error.code === "23505") {
+      return fail(
+        "A meal already exists for this ward, date, and meal type.",
+      );
+    }
+    return fail(error.message);
+  }
+
+  return success();
+}
+
+export async function deleteWardMealAction(id: string): Promise<ActionResult> {
+  const context = await requireContentManager();
+  if (!context) {
+    return fail("You do not have permission to manage meals.");
+  }
+
+  const admin = createSupabaseAdminClient() as any;
+  const { error } = await admin.from("ward_meals").delete().eq("id", id);
   if (error) {
     return fail(error.message);
   }

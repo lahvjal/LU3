@@ -10,6 +10,15 @@ type WardRow = {
   leader_phone: string | null;
 };
 
+type WardMealRow = {
+  id: string;
+  ward_id: string;
+  meal_date: string;
+  meal_type: string;
+  time_label: string;
+  menu: string;
+  ward: { name: string } | { name: string }[] | null;
+};
 
 type QuorumRow = {
   id: string;
@@ -198,6 +207,16 @@ type DesignAgendaItem = {
   location: string;
 };
 
+export type DesignMeal = {
+  id: string;
+  wardId: string;
+  wardName: string;
+  mealDate: string;
+  mealType: "breakfast" | "lunch" | "dinner";
+  time: string;
+  menu: string;
+};
+
 type DesignContact = {
   id: string;
   name: string;
@@ -280,6 +299,7 @@ export type CampDesignInitialData = {
   pointLog: DesignPoint[];
   registrations: DesignRegistration[];
   agenda: Record<string, DesignAgendaItem[]>;
+  meals: DesignMeal[];
   contacts: DesignContact[];
   leaders: DesignLeader[];
   inspiration: DesignInspiration[];
@@ -367,6 +387,15 @@ function normalizeCompetitionStatus(value: string): "upcoming" | "active" | "com
   return "upcoming";
 }
 
+function normalizeMealType(
+  value: string,
+): "breakfast" | "lunch" | "dinner" {
+  if (value === "lunch" || value === "dinner") {
+    return value;
+  }
+  return "breakfast";
+}
+
 function resolveRelationName(
   value: { name: string } | { name: string }[] | null,
 ): string {
@@ -435,6 +464,7 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
     { data: pointRows },
     { data: agendaRows },
     { data: contactRows },
+    { data: wardMealRows },
   ] = await Promise.all([
     supabase
       .from("activities")
@@ -460,6 +490,11 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
       .select("id, full_name, role_title, phone, email, is_emergency")
       .order("is_emergency", { ascending: false })
       .order("full_name"),
+    supabase
+      .from("ward_meals")
+      .select("id, ward_id, meal_date, meal_type, time_label, menu, ward:wards(name)")
+      .order("meal_date")
+      .order("time_label"),
   ]);
 
   const [
@@ -657,6 +692,22 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
     });
   });
 
+  const mealsRaw = (wardMealRows ?? []) as WardMealRow[];
+  const meals: DesignMeal[] = mealsRaw.map((row) => {
+    const wardName =
+      resolveRelationName(row.ward) ||
+      (row.ward_id ? (wardNameById.get(row.ward_id) ?? "") : "");
+    return {
+      id: row.id,
+      wardId: row.ward_id,
+      wardName,
+      mealDate: toDateString(row.meal_date),
+      mealType: normalizeMealType(row.meal_type),
+      time: row.time_label ?? "",
+      menu: row.menu ?? "",
+    };
+  });
+
   const contacts: DesignContact[] = contactsRaw.map((contact) => ({
     id: contact.id,
     name: contact.full_name,
@@ -773,6 +824,7 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
     pointLog,
     registrations,
     agenda,
+    meals,
     contacts,
     leaders,
     inspiration,
