@@ -206,9 +206,9 @@ const Avatar = ({ name, src, size = 40, fontSize = 13 }) => {
 };
 
 const PROFILE_AVATAR_BUCKET = "profile-avatars";
-const MAX_AVATAR_FILE_BYTES = 12 * 1024 * 1024;
-const MAX_AVATAR_DIMENSION = 900;
-const AVATAR_COMPRESSION_QUALITY = 0.82;
+const MAX_AVATAR_FILE_BYTES = 40 * 1024 * 1024;
+const MAX_AVATAR_DIMENSION = 800;
+const MAX_AVATAR_OUTPUT_BYTES = 500 * 1024;
 
 function parseAvatarObjectPath(avatarUrl) {
   if (!avatarUrl) {
@@ -258,15 +258,36 @@ async function compressAvatarImage(file) {
     }
     context.drawImage(image, 0, 0, targetWidth, targetHeight);
 
-    const compressedBlob = await new Promise((resolve) => {
-      canvas.toBlob(resolve, "image/webp", AVATAR_COMPRESSION_QUALITY);
-    });
+    let quality = 0.85;
+    let blob = null;
+    while (quality >= 0.1) {
+      blob = await new Promise((resolve) => {
+        canvas.toBlob(resolve, "image/webp", quality);
+      });
+      if (!blob) {
+        throw new Error("Unable to compress image.");
+      }
+      if (blob.size <= MAX_AVATAR_OUTPUT_BYTES) break;
+      quality -= 0.1;
+    }
 
-    if (!compressedBlob) {
+    if (blob && blob.size > MAX_AVATAR_OUTPUT_BYTES) {
+      const reductionFactor = Math.sqrt(MAX_AVATAR_OUTPUT_BYTES / blob.size);
+      const reducedWidth = Math.max(1, Math.round(targetWidth * reductionFactor));
+      const reducedHeight = Math.max(1, Math.round(targetHeight * reductionFactor));
+      canvas.width = reducedWidth;
+      canvas.height = reducedHeight;
+      context.drawImage(image, 0, 0, reducedWidth, reducedHeight);
+      blob = await new Promise((resolve) => {
+        canvas.toBlob(resolve, "image/webp", 0.7);
+      });
+    }
+
+    if (!blob) {
       throw new Error("Unable to compress image.");
     }
 
-    return compressedBlob;
+    return blob;
   } finally {
     URL.revokeObjectURL(objectUrl);
   }
@@ -1181,7 +1202,7 @@ const ProfilePage = ({
     }
 
     if (file.size > MAX_AVATAR_FILE_BYTES) {
-      window.alert("Please upload an image smaller than 12MB.");
+      window.alert("Please upload an image smaller than 40MB.");
       return;
     }
 
@@ -1552,7 +1573,7 @@ const OnboardingOverlay = ({
       return;
     }
     if (file.size > MAX_AVATAR_FILE_BYTES) {
-      window.alert("Please upload an image smaller than 12MB.");
+      window.alert("Please upload an image smaller than 40MB.");
       return;
     }
     await onUploadAvatar(file, {
