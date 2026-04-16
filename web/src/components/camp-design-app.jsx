@@ -84,13 +84,20 @@ const css = {
 };
 
 const NAV = [
-  { key: "dashboard", label: "Dashboard", icon: "home" }, { key: "activities", label: "Activities", icon: "calendar" },
-  { key: "agenda", label: "Daily Agenda", icon: "clock" }, { key: "wardRosters", label: "Ward Rosters", icon: "users" },
+  { key: "dashboard", label: "Dashboard", icon: "home" },
+  { key: "activities", label: "Activities", icon: "calendar" },
+  { key: "agenda", label: "Daily Agenda", icon: "clock" },
+  { key: "wardRosters", label: "Ward Rosters", icon: "users" },
+  { key: "competitions", label: "Competitions", icon: "trophy" },
+  { key: "photos", label: "Photo Gallery", icon: "camera" },
+  { key: "contacts", label: "Contacts", icon: "phone" },
+  { key: "rules", label: "Camp Rules", icon: "shield" },
+  { key: "docs", label: "Documentation", icon: "book" },
+  { section: "Leadership" },
   { key: "wards", label: "Wards", icon: "flag", leaderOnly: true },
-  { key: "competitions", label: "Competitions", icon: "trophy" }, { key: "registration", label: "Registration", icon: "clipboard", leaderOnly: true },
-  { key: "photos", label: "Photo Gallery", icon: "camera" }, { key: "contacts", label: "Contacts", icon: "phone" },
-  { key: "rules", label: "Camp Rules", icon: "shield" }, { key: "inspiration", label: "Daily Inspiration", icon: "sun", leaderOnly: true },
-  { key: "leaders", label: "Leaders", icon: "star", leaderOnly: true }, { key: "docs", label: "Documentation", icon: "book" },
+  { key: "registration", label: "Registration", icon: "clipboard", leaderOnly: true },
+  { key: "leaders", label: "Leaders", icon: "star", leaderOnly: true },
+  { key: "inspiration", label: "Daily Inspiration", icon: "sun", leaderOnly: true },
 ];
 
 const PAGE_TO_PATH = {
@@ -2249,7 +2256,11 @@ export const CampSidebar = ({ page, onNavigate, open, setOpen, onSignOut, signin
     {open && <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 40 }} />}
     <aside style={{ position: "fixed", top: 0, left: 0, bottom: 0, zIndex: 50, width: "260px", background: T.bgSidebar, borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", transform: open ? "translateX(0)" : "translateX(-100%)", transition: "transform 0.25s ease", overflowY: "auto" }} className="sidebar-always">
       <div style={{ padding: "24px 20px 20px", borderBottom: `1px solid ${T.border}` }}><div style={{ display: "flex", alignItems: "center", gap: "10px" }}><div style={{ width: "36px", height: "36px", borderRadius: "8px", background: `linear-gradient(135deg, ${T.accent}, ${T.accentDim})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px" }}>⛺</div><div><div style={{ fontFamily: T.fontDisplay, fontSize: "16px", fontWeight: 700, color: T.text }}>LU3 Camp</div><div style={{ fontSize: "11px", color: T.textDim }}>Young Men&apos;s 2026</div></div></div></div>
-      <nav style={{ padding: "12px 10px", flex: 1 }}>{NAV.filter(n => !n.leaderOnly || isLeader).map(n => { const active = page === n.key; return (<button key={n.key} onClick={() => { onNavigate(n.key); setOpen(false); }} style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%", padding: "10px 12px", borderRadius: T.radiusSm, border: "none", cursor: "pointer", background: active ? T.accent + "18" : "transparent", color: active ? T.accent : T.textMuted, fontFamily: T.font, fontSize: "13px", fontWeight: active ? 600 : 400, textAlign: "left", transition: "all 0.15s ease", marginBottom: "2px" }}><Icon name={n.icon} size={18} color={active ? T.accent : T.textDim} />{n.label}</button>); })}</nav>
+      <nav style={{ padding: "12px 10px", flex: 1 }}>{NAV.filter(n => n.section ? isLeader : (!n.leaderOnly || isLeader)).map((n, i) => {
+        if (n.section) return <div key={`section-${i}`} style={{ padding: "16px 12px 6px", fontSize: "10px", fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.08em", borderTop: `1px solid ${T.border}`, marginTop: "8px" }}>{n.section}</div>;
+        const active = page === n.key;
+        return (<button key={n.key} onClick={() => { onNavigate(n.key); setOpen(false); }} style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%", padding: "10px 12px", borderRadius: T.radiusSm, border: "none", cursor: "pointer", background: active ? T.accent + "18" : "transparent", color: active ? T.accent : T.textMuted, fontFamily: T.font, fontSize: "13px", fontWeight: active ? 600 : 400, textAlign: "left", transition: "all 0.15s ease", marginBottom: "2px" }}><Icon name={n.icon} size={18} color={active ? T.accent : T.textDim} />{n.label}</button>);
+      })}</nav>
       <div style={{ padding: "10px", borderTop: `1px solid ${T.border}` }}>
         <button
           type="button"
