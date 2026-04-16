@@ -441,27 +441,27 @@ export async function updateMyProfileAction(
     }
 
     // Insert young men if provided (parent flow)
-    if (input.youngMen && input.youngMen.length > 0 && wardId) {
-      try {
-        const admin = createSupabaseAdminClient() as any;
+    if (input.youngMen && input.youngMen.length > 0) {
+      const admin = createSupabaseAdminClient() as any;
 
-        const youngMenPayload = input.youngMen
-          .filter((ym) => ym.firstName?.trim() && ym.lastName?.trim())
-          .map((ym) => ({
-            parent_id: context.user.id,
-            first_name: ym.firstName.trim(),
-            last_name: ym.lastName.trim(),
-            age: Number(ym.age) || 12,
-            shirt_size_code: ym.shirtSizeCode?.trim() || null,
-            allergies: ym.allergies?.trim() || null,
-            medical_notes: ym.medicalNotes?.trim() || null,
-          }));
+      const youngMenPayload = input.youngMen
+        .filter((ym) => ym.firstName?.trim() && ym.lastName?.trim())
+        .map((ym) => ({
+          parent_id: context.user.id,
+          first_name: ym.firstName.trim(),
+          last_name: ym.lastName.trim(),
+          age: Number(ym.age) || 12,
+          shirt_size_code: ym.shirtSizeCode?.trim() || null,
+          allergies: ym.allergies?.trim() || null,
+          medical_notes: ym.medicalNotes?.trim() || null,
+        }));
 
-        if (youngMenPayload.length > 0) {
-          await admin.from("young_men").insert(youngMenPayload);
+      if (youngMenPayload.length > 0) {
+        const { error: ymError } = await admin.from("young_men").insert(youngMenPayload);
+        if (ymError) {
+          console.error("Failed to insert young men:", ymError);
+          return fail(`Profile saved but young men could not be added: ${ymError.message}`);
         }
-      } catch (parentSyncError) {
-        console.error("Failed to insert young men:", parentSyncError);
       }
     }
   }
