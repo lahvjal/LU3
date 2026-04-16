@@ -93,14 +93,34 @@ export async function getUserContext(
     return null;
   }
 
-  const { data: roleRows } = await supabase
-    .from("user_roles")
-    .select("role, ward_id, participant_id")
-    .order("role");
+  const [{ data: roleRows }, { data: profileRowRaw }, { data: contactRows }] =
+    await Promise.all([
+      supabase
+        .from("user_roles")
+        .select("role, ward_id, participant_id")
+        .order("role"),
+      supabase
+        .from("user_profiles")
+        .select(
+          "display_name, avatar_url, onboarding_completed_at, phone, ward_id, role, calling_id, invited_by, invited_at, terms_accepted_at, signature_name",
+        )
+        .eq("user_id", user.id)
+        .maybeSingle(),
+      user.email
+        ? supabase
+            .from("contacts")
+            .select("id")
+            .eq("is_emergency", false)
+            .ilike("email", user.email)
+            .limit(1)
+        : Promise.resolve({ data: null, error: null }),
+    ]);
 
   const roles: UserRoleRow[] = (roleRows ?? []) as UserRoleRow[];
   const roleSet = new Set<AppRole>(roles.map((role) => role.role));
   const wardIds: string[] = [...new Set(roles.map((role) => role.ward_id).filter(Boolean))] as string[];
+  const profileRow = profileRowRaw as UserProfileRow | null;
+  const isCompetitionStaff = (contactRows?.length ?? 0) > 0;
 
   let displayName =
     (user.user_metadata?.full_name as string | undefined)?.trim() ||
@@ -115,15 +135,6 @@ export async function getUserContext(
   let termsAcceptedAt: string | null = null;
   let signatureName: string | null = null;
 
-  const { data: profileRowRaw } = await supabase
-    .from("user_profiles")
-    .select(
-      "display_name, avatar_url, onboarding_completed_at, phone, ward_id, role, calling_id, invited_by, invited_at, terms_accepted_at, signature_name",
-    )
-    .eq("user_id", user.id)
-    .maybeSingle();
-  const profileRow = profileRowRaw as UserProfileRow | null;
-
   if (profileRow) {
     if (profileRow.display_name?.trim()) {
       displayName = profileRow.display_name.trim();
@@ -136,20 +147,6 @@ export async function getUserContext(
     callingId = profileRow.calling_id ?? null;
     termsAcceptedAt = profileRow.terms_accepted_at ?? null;
     signatureName = profileRow.signature_name ?? null;
-  }
-
-  let isCompetitionStaff = false;
-  if (user.email) {
-    const { data: contactRows, error } = await supabase
-      .from("contacts")
-      .select("id")
-      .eq("is_emergency", false)
-      .ilike("email", user.email)
-      .limit(1);
-
-    if (!error && contactRows && contactRows.length > 0) {
-      isCompetitionStaff = true;
-    }
   }
 
   const isStakeAdmin =

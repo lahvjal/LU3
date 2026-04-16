@@ -3,10 +3,8 @@ import { getCampDesignInitialData } from "@/lib/app/camp-design-data";
 import { getUserContext } from "@/lib/auth/user-context";
 
 export default async function ProtectedLayout() {
-  const [userContext, initialData] = await Promise.all([
-    getUserContext(),
-    getCampDesignInitialData(),
-  ]);
+  const userContext = await getUserContext();
+  const initialData = await getCampDesignInitialData();
 
   return (
     <CampDesignApp

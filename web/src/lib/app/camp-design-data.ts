@@ -393,18 +393,8 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
     { data: wardRows },
     { data: quorumRows },
     { data: shirtSizeRows },
-    { data: activityRows },
-    { data: competitionRows },
-    { data: pointRows },
-    { data: youngManRows },
-    { data: agendaRows },
-    { data: contactRows },
-    { data: leaderCallingRows },
-    { data: messageRows },
-    { data: rulesRows },
-    { data: photoRows },
-    { data: docRows },
     { data: userProfileRows },
+    { data: youngManRows },
   ] = await Promise.all([
     supabase
       .from("wards")
@@ -418,6 +408,27 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
       .from("shirt_sizes")
       .select("code, label, sort_order")
       .order("sort_order"),
+    supabase
+      .from("user_profiles")
+      .select(
+        "user_id, user_email, display_name, avatar_url, phone, ward_id, role, calling_id, invited_by, invited_at, terms_accepted_at, signature_name, onboarding_completed_at, calling:leader_callings(name), ward:wards(name)",
+      )
+      .order("display_name"),
+    supabase
+      .from("young_men")
+      .select(
+        "id, parent_id, first_name, last_name, age, photo_url, shirt_size_code, allergies, medical_notes",
+      )
+      .order("created_at"),
+  ]);
+
+  const [
+    { data: activityRows },
+    { data: competitionRows },
+    { data: pointRows },
+    { data: agendaRows },
+    { data: contactRows },
+  ] = await Promise.all([
     supabase
       .from("activities")
       .select("id, title, description, category, starts_at, location")
@@ -433,12 +444,6 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
       )
       .order("awarded_at"),
     supabase
-      .from("young_men")
-      .select(
-        "id, parent_id, first_name, last_name, age, photo_url, shirt_size_code, allergies, medical_notes",
-      )
-      .order("created_at"),
-    supabase
       .from("daily_agenda_items")
       .select("id, agenda_date, time_slot, title, location")
       .order("agenda_date")
@@ -448,6 +453,15 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
       .select("id, full_name, role_title, phone, email, is_emergency")
       .order("is_emergency", { ascending: false })
       .order("full_name"),
+  ]);
+
+  const [
+    { data: leaderCallingRows },
+    { data: messageRows },
+    { data: rulesRows },
+    { data: photoRows },
+    { data: docRows },
+  ] = await Promise.all([
     supabase
       .from("leader_callings")
       .select("id, name")
@@ -469,12 +483,6 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
       .from("documentation_pages")
       .select("id, title, content, updated_at")
       .order("updated_at", { ascending: false }),
-    supabase
-      .from("user_profiles")
-      .select(
-        "user_id, user_email, display_name, avatar_url, phone, ward_id, role, calling_id, invited_by, invited_at, terms_accepted_at, signature_name, onboarding_completed_at, calling:leader_callings(name), ward:wards(name)",
-      )
-      .order("display_name"),
   ]);
 
   const wards = (wardRows ?? []) as WardRow[];
