@@ -1877,7 +1877,7 @@ export default function CampDesignApp({ initialData, profile }) {
         return;
       }
 
-      await updateMyProfileAction({
+      const result = await updateMyProfileAction({
         displayName: onboardingForm.displayName,
         avatarUrl: profileData.avatarUrl ?? "",
         phone: onboardingForm.phone,
@@ -1886,10 +1886,19 @@ export default function CampDesignApp({ initialData, profile }) {
         youngMen: isParent && extraData?.youngMen ? extraData.youngMen : undefined,
         signatureName: isParent && extraData?.signatureName ? extraData.signatureName : undefined,
       });
-    } catch (err) {
-      if (err && typeof err === "object" && "digest" in err) {
-        throw err;
+
+      if (!result.ok) {
+        window.alert(result.error);
+        return;
       }
+
+      if (result.onboardingDone) {
+        window.location.href = "/";
+        return;
+      }
+
+      applyResult(result);
+    } catch (err) {
       window.alert(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
       setCompletingOnboarding(false);

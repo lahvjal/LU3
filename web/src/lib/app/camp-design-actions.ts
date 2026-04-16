@@ -1,6 +1,5 @@
 "use server";
 
-import { redirect } from "next/navigation";
 import { getUserContext } from "@/lib/auth/user-context";
 import type { AppRole } from "@/lib/auth/user-context";
 import { generateMagicLink } from "@/lib/email/magic-link";
@@ -15,6 +14,7 @@ import {
 
 type ActionResult =
   | { ok: true; data: CampDesignInitialData; profile?: ProfilePayload }
+  | { ok: true; data: null; onboardingDone: true }
   | { ok: false; error: string };
 
 type ProfilePayload = {
@@ -468,7 +468,7 @@ export async function updateMyProfileAction(
   }
 
   if (shouldCompleteOnboarding) {
-    redirect("/");
+    return { ok: true as const, data: null, onboardingDone: true };
   }
 
   return success({
