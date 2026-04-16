@@ -49,6 +49,17 @@ const T = {
 };
 
 const Icon = ({ name, size = 20, color }) => {
+  if (name === "utensils") {
+    return (
+      <img
+        src="/meal-icon.svg"
+        alt=""
+        width={size}
+        height={size}
+        style={{ flexShrink: 0, display: "block", objectFit: "contain" }}
+      />
+    );
+  }
   const s = { width: size, height: size, color: color || T.textMuted, strokeWidth: 1.8, fill: "none", stroke: "currentColor", flexShrink: 0 };
   const P = {
     home: <><path d="M3 12l9-8 9 8"/><path d="M5 10v10h4v-6h6v6h4V10"/></>,
@@ -73,7 +84,6 @@ const Icon = ({ name, size = 20, color }) => {
     edit: <><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></>,
     user: <><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></>,
     logOut: <><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></>,
-    utensils: <><path d="M3 2v7c0 1.1.9 2 2 2h1v9"/><path d="M8 2v20"/><path d="M16 3v18l1-1 1 1V3"/><path d="M20 3v18"/></>,
   };
   return <svg viewBox="0 0 24 24" style={s} xmlns="http://www.w3.org/2000/svg">{P[name] || P.star}</svg>;
 };
@@ -92,6 +102,26 @@ function todayDateStr() {
 const CAT_COLORS = { Sport: { bg: "#2a3528", text: "#6b9e6b" }, Water: { bg: "#1e2a35", text: "#6b8eb0" }, Spiritual: { bg: "#35301e", text: "#c4a84e" }, Competition: { bg: "#352220", text: "#c46b5e" }, Adventure: { bg: "#2a2435", text: "#9a7eb8" }, Service: { bg: "#2a3030", text: "#6bb0a0" } };
 const STATUS_COLORS = { approved: { bg: T.greenBg, text: T.green }, pending: { bg: T.yellowBg, text: T.yellow }, waitlisted: { bg: T.purpleBg, text: T.purple }, active: { bg: T.greenBg, text: T.green }, completed: { bg: T.blueBg, text: T.blue }, upcoming: { bg: T.yellowBg, text: T.yellow }, revoked: { bg: T.redBg, text: T.red } };
 const MEAL_TYPE_LABELS = { breakfast: "Breakfast", lunch: "Lunch", dinner: "Dinner" };
+
+function MealWardLabel({ name, color }) {
+  const fill = color && String(color).trim() ? color : T.textDim;
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
+      <span
+        style={{
+          width: 10,
+          height: 10,
+          borderRadius: "50%",
+          background: fill,
+          border: `1px solid ${T.border}`,
+          flexShrink: 0,
+        }}
+        aria-hidden
+      />
+      <span>{name || "—"}</span>
+    </span>
+  );
+}
 
 const css = {
   badge: (bg, text) => ({ display: "inline-flex", alignItems: "center", padding: "3px 10px", borderRadius: "20px", fontSize: "11px", fontWeight: 600, background: bg, color: text, letterSpacing: "0.02em", textTransform: "uppercase" }),
@@ -564,7 +594,10 @@ const Dashboard = ({ goTo, wards, activities, competitions, pointLog, agenda, in
             >
               <span style={{ fontSize: "12px", color: T.accent, fontWeight: 600, minWidth: "70px", fontFamily: "monospace" }}>{row.time}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: "13px", color: T.text }}>{MEAL_TYPE_LABELS[row.mealType]} · {row.wardName}</div>
+                <div style={{ fontSize: "13px", color: T.text, display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                  <span>{MEAL_TYPE_LABELS[row.mealType]} ·</span>
+                  <MealWardLabel name={row.wardName} color={row.wardColor} />
+                </div>
                 <div style={{ fontSize: "11px", color: T.textDim, marginTop: "2px" }}>Menu</div>
               </div>
             </div>
@@ -579,7 +612,19 @@ const Dashboard = ({ goTo, wards, activities, competitions, pointLog, agenda, in
           <button type="button" className="camp-dash-ghost" onClick={() => goTo("competitions")} style={{ ...css.btn("ghost"), width: "100%", justifyContent: "center", marginTop: "12px" }}>Competitions →</button>
         </div>
       </div>
-      <Modal open={!!mealMenuModal} onClose={() => setMealMenuModal(null)} title={mealMenuModal ? `${MEAL_TYPE_LABELS[mealMenuModal.mealType]} — ${mealMenuModal.wardName}` : ""} width={520}>
+      <Modal
+        open={!!mealMenuModal}
+        onClose={() => setMealMenuModal(null)}
+        title={
+          mealMenuModal ? (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+              <span>{`${MEAL_TYPE_LABELS[mealMenuModal.mealType]} —`}</span>
+              <MealWardLabel name={mealMenuModal.wardName} color={mealMenuModal.wardColor} />
+            </span>
+          ) : ""
+        }
+        width={520}
+      >
         {mealMenuModal ? <p style={{ color: T.text, lineHeight: 1.65, whiteSpace: "pre-wrap", margin: 0, fontSize: "14px" }}>{mealMenuModal.menu}</p> : null}
       </Modal>
     </div>
@@ -916,7 +961,9 @@ const MealsPage = ({ meals, wards, applyResult, canManageContent }) => {
                   {rows.map((m, index) => (
                     <tr key={m.id} style={{ borderBottom: `1px solid ${T.border}`, background: index % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)" }}>
                       <td style={{ padding: "11px 14px", fontFamily: "monospace", color: T.accent, fontWeight: 600 }}>{m.time}</td>
-                      <td style={{ padding: "11px 14px", color: T.text }}>{m.wardName || "—"}</td>
+                      <td style={{ padding: "11px 14px", color: T.text }}>
+                        <MealWardLabel name={m.wardName} color={m.wardColor} />
+                      </td>
                       <td style={{ padding: "11px 14px", color: T.textMuted }}>{MEAL_TYPE_LABELS[m.mealType]}</td>
                       <td style={{ padding: "11px 14px", color: T.textDim, maxWidth: "280px" }}>{preview(m.menu)}</td>
                       {canManageContent ? (

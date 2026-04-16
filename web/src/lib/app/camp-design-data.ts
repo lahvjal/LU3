@@ -10,6 +10,8 @@ type WardRow = {
   leader_phone: string | null;
 };
 
+type WardMealNested = { name: string; theme_color?: string | null };
+
 type WardMealRow = {
   id: string;
   ward_id: string;
@@ -17,7 +19,7 @@ type WardMealRow = {
   meal_type: string;
   time_label: string;
   menu: string;
-  ward: { name: string } | { name: string }[] | null;
+  ward: WardMealNested | WardMealNested[] | null;
 };
 
 type QuorumRow = {
@@ -211,6 +213,8 @@ export type DesignMeal = {
   id: string;
   wardId: string;
   wardName: string;
+  /** Ward theme color for UI (e.g. dot next to name). */
+  wardColor: string;
   mealDate: string;
   mealType: "breakfast" | "lunch" | "dinner";
   time: string;
@@ -396,6 +400,35 @@ function normalizeMealType(
   return "breakfast";
 }
 
+function wardMealNested(
+  value: WardMealRow["ward"],
+): WardMealNested | null {
+  if (!value) {
+    return null;
+  }
+  return Array.isArray(value) ? value[0] ?? null : value;
+}
+
+/** Dot / accent color for a meal row: FK ward theme, then wards list, then stable fallback. */
+function resolveMealWardColor(
+  row: WardMealRow,
+  wardFromMap: DesignWard | undefined,
+  wardsOrdered: DesignWard[],
+): string {
+  const nested = wardMealNested(row.ward);
+  const fromJoin = nested?.theme_color?.trim() ?? "";
+  const fromMap = wardFromMap?.color?.trim() ?? "";
+  const assigned = fromJoin || fromMap;
+  if (assigned) {
+    return assigned;
+  }
+  const idx = row.ward_id
+    ? wardsOrdered.findIndex((w) => w.id === row.ward_id)
+    : -1;
+  const safe = idx >= 0 ? idx : 0;
+  return FALLBACK_WARD_COLORS[safe % FALLBACK_WARD_COLORS.length];
+}
+
 function resolveRelationName(
   value: { name: string } | { name: string }[] | null,
 ): string {
@@ -492,7 +525,7 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
       .order("full_name"),
     supabase
       .from("ward_meals")
-      .select("id, ward_id, meal_date, meal_type, time_label, menu, ward:wards(name)")
+      .select("id, ward_id, meal_date, meal_type, time_label, menu, ward:wards(name, theme_color)")
       .order("meal_date")
       .order("time_label"),
   ]);
@@ -697,10 +730,12 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
     const wardName =
       resolveRelationName(row.ward) ||
       (row.ward_id ? (wardNameById.get(row.ward_id) ?? "") : "");
+    const ward = row.ward_id ? wardById.get(row.ward_id) : undefined;
     return {
       id: row.id,
       wardId: row.ward_id,
       wardName,
+      wardColor: resolveMealWardColor(row, ward, wardsForDisplay),
       mealDate: toDateString(row.meal_date),
       mealType: normalizeMealType(row.meal_type),
       time: row.time_label ?? "",
