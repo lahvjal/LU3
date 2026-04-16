@@ -50,7 +50,7 @@ type AgendaInput = {
 type WardInput = {
   name: string;
   leader: string;
-  leader_email: string;
+  leader_phone: string;
   color: string;
 };
 
@@ -660,7 +660,7 @@ export async function createWardAction(input: WardInput): Promise<ActionResult> 
       {
         name,
         leader_name: input.leader.trim() || null,
-        leader_email: input.leader_email.trim() || null,
+        leader_phone: input.leader_phone.trim() || null,
         theme_color: input.color.trim() || null,
       },
       { onConflict: "name" },
@@ -744,7 +744,7 @@ export async function updateWardAction(
     .update({
       name,
       leader_name: input.leader.trim() || null,
-      leader_email: input.leader_email.trim() || null,
+      leader_phone: input.leader_phone.trim() || null,
       theme_color: input.color.trim() || null,
     })
     .eq("id", wardId);

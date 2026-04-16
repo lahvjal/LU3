@@ -7,7 +7,7 @@ type WardRow = {
   name: string;
   theme_color: string | null;
   leader_name: string | null;
-  leader_email: string | null;
+  leader_phone: string | null;
 };
 
 
@@ -135,7 +135,7 @@ type DesignWard = {
   name: string;
   color: string;
   leader: string;
-  leader_email: string;
+  leader_phone: string;
   campers: Array<{ id: string; name: string; photo_url: string | null }>;
 };
 
@@ -405,7 +405,7 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
   ] = await Promise.all([
     supabase
       .from("wards")
-      .select("id, name, theme_color, leader_name, leader_email")
+      .select("id, name, theme_color, leader_name, leader_phone")
       .order("created_at"),
     supabase
       .from("quorums")
@@ -527,7 +527,7 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
     name: ward.name,
     color: ward.theme_color ?? "",
     leader: ward.leader_name ?? "",
-    leader_email: ward.leader_email ?? "",
+    leader_phone: ward.leader_phone ?? "",
     campers: [],
   }));
 

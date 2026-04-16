@@ -588,7 +588,7 @@ const WardsPage = ({ wards, applyResult, isLeader }) => {
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
   const busy = saving || !!deletingId;
-  const emptyForm = { name: "", leader: "", leader_email: "", color: "" };
+  const emptyForm = { name: "", leader: "", leader_phone: "", color: "" };
   const [wardForm, setWardForm] = useState(emptyForm);
 
   const openCreateModal = () => {
@@ -599,7 +599,7 @@ const WardsPage = ({ wards, applyResult, isLeader }) => {
 
   const openEditModal = (ward) => {
     setEditWard(ward);
-    setWardForm({ name: ward.name, leader: ward.leader, leader_email: ward.leader_email, color: ward.color || "" });
+    setWardForm({ name: ward.name, leader: ward.leader, leader_phone: ward.leader_phone, color: ward.color || "" });
     setModal(true);
   };
 
@@ -645,7 +645,7 @@ const WardsPage = ({ wards, applyResult, isLeader }) => {
       <Modal open={modal} onClose={closeModal} title={editWard ? "Edit Ward" : "Create Ward"} width={560}>
         <Field label="Ward Name"><input style={css.input} value={wardForm.name} onChange={e => setWardForm(p => ({ ...p, name: e.target.value }))} placeholder="Lehi 3rd Ward" /></Field>
         <Field label="Ward Leader"><input style={css.input} value={wardForm.leader} onChange={e => setWardForm(p => ({ ...p, leader: e.target.value }))} placeholder="Bro. Smith" /></Field>
-        <Field label="Leader Email"><input style={css.input} value={wardForm.leader_email} onChange={e => setWardForm(p => ({ ...p, leader_email: e.target.value }))} placeholder="smith@email.com" /></Field>
+        <Field label="Leader Phone"><input style={css.input} type="tel" value={wardForm.leader_phone} onChange={e => setWardForm(p => ({ ...p, leader_phone: e.target.value }))} placeholder="(801) 555-1234" /></Field>
         <Field label="Ward Color">
           <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "8px" }}>
             {WARD_COLOR_PRESETS.map((c) => (
@@ -668,7 +668,7 @@ const WardsPage = ({ wards, applyResult, isLeader }) => {
       ) : (
         <div style={{ ...css.card, padding: 0, overflow: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", minWidth: "640px" }}>
-            <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>{["_color", "Ward", "Leader", "Leader Email", "Young Men", ...(isLeader ? ["_actions"] : [])].map(h => <th key={h} style={{ padding: "11px 14px", textAlign: "left", color: T.textMuted, fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>{h.startsWith("_") ? "" : h}</th>)}</tr></thead>
+            <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>{["_color", "Ward", "Leader", "Phone", "Young Men", ...(isLeader ? ["_actions"] : [])].map(h => <th key={h} style={{ padding: "11px 14px", textAlign: "left", color: T.textMuted, fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>{h.startsWith("_") ? "" : h}</th>)}</tr></thead>
             <tbody>{wards.map((ward, index) => (
               <tr key={ward.id} style={{ borderBottom: `1px solid ${T.border}`, background: index % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)" }}>
                 <td style={{ padding: "11px 14px", width: "36px" }}>
@@ -676,7 +676,7 @@ const WardsPage = ({ wards, applyResult, isLeader }) => {
                 </td>
                 <td style={{ padding: "11px 14px", fontWeight: 700, color: T.text }}>{ward.name}</td>
                 <td style={{ padding: "11px 14px", color: T.textMuted }}>{ward.leader || "—"}</td>
-                <td style={{ padding: "11px 14px", color: T.textMuted }}>{ward.leader_email || "—"}</td>
+                <td style={{ padding: "11px 14px", color: T.textMuted }}>{ward.leader_phone || "—"}</td>
                 <td style={{ padding: "11px 14px", color: T.textMuted }}>{ward.campers.length}</td>
                 {isLeader && <td style={{ padding: "11px 14px", width: "100px" }}>
                   <div style={{ display: "flex", gap: "8px" }}>
