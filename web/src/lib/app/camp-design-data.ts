@@ -437,7 +437,7 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
     { data: youngManRows },
     { data: agendaRows },
     { data: contactRows },
-    { data: leaderInvitationRows },
+    { data: leaderInvitationRows, error: leadersQueryError },
     { data: leaderCallingRows },
     { data: messageRows },
     { data: rulesRows },
@@ -541,7 +541,11 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
   const youngMenRaw = (youngManRows ?? []) as YoungManRow[];
   const agendaRaw = (agendaRows ?? []) as AgendaRow[];
   const contactsRaw = (contactRows ?? []) as ContactRow[];
+  if (leadersQueryError) {
+    console.error("[camp-design-data] leaders query error:", leadersQueryError.message, leadersQueryError.code, leadersQueryError.hint);
+  }
   const leaderInvitationsRaw = (leaderInvitationRows ?? []) as LeaderInvitationRow[];
+  console.log("[camp-design-data] leaders query returned", leaderInvitationsRaw.length, "rows:", leaderInvitationsRaw.map(l => ({ id: l.id, email: l.email, role: l.role })));
   const leaderCallingsRaw = (leaderCallingRows ?? []) as LeaderCallingRow[];
   const messagesRaw = (messageRows ?? []) as DailyMessageRow[];
   const latestRules = ((rulesRows ?? [])[0] ?? null) as RulesRow | null;

@@ -1268,6 +1268,7 @@ export async function inviteLeaderAction(
     : await supabase.from("leaders").insert(invitationPayload);
 
   if (inviteSaveError) {
+    console.error("[inviteLeaderAction] save error:", inviteSaveError.message, inviteSaveError.code, inviteSaveError.details);
     return fail(inviteSaveError.message);
   }
 
