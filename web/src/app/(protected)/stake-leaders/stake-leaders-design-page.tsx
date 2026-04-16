@@ -512,6 +512,42 @@ function Modal({
   );
 }
 
+function ConfirmDeleteModal({
+  open,
+  onClose,
+  onConfirm,
+  title,
+  message,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  title: string;
+  message: string;
+}) {
+  if (!open) return null;
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 110, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
+      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.65)", backdropFilter: "blur(4px)" }} />
+      <div style={{ position: "relative", background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: T.radius, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", width: "100%", maxWidth: 420 }}>
+        <div style={{ padding: "24px 22px 0" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "16px" }}>
+            <div style={{ width: 40, height: 40, borderRadius: "50%", background: T.redBg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <Icon name="trash" size={20} color={T.red} />
+            </div>
+            <h3 style={{ fontFamily: T.fontDisplay, fontSize: "18px", color: T.text, margin: 0 }}>{title}</h3>
+          </div>
+          <p style={{ color: T.textMuted, fontSize: "14px", lineHeight: 1.6, margin: "0 0 20px" }}>{message}</p>
+        </div>
+        <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end", padding: "16px 22px", borderTop: `1px solid ${T.border}` }}>
+          <button onClick={onClose} style={{ ...css.btn("ghost"), padding: "10px 20px" }}>Cancel</button>
+          <button onClick={onConfirm} style={{ background: T.red, color: "#fff", border: "none", borderRadius: T.radiusSm, padding: "10px 20px", fontSize: "14px", fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Delete</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function StakeLeadersDesignPage({
   initialInvitations,
   initialWards,
@@ -533,6 +569,7 @@ export default function StakeLeadersDesignPage({
   const [addingCalling, setAddingCalling] = useState(false);
   const [submittingInvite, setSubmittingInvite] = useState(false);
   const [removingInviteId, setRemovingInviteId] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const modalRoleOptions = useMemo((): RoleOption[] => {
     if (
       inviteDraft.role === "young_men_captain" &&
@@ -677,17 +714,17 @@ export default function StakeLeadersDesignPage({
     router.refresh();
   };
 
-  const removeInvite = async (invitationId: string) => {
-    const confirmed = window.confirm(
-      "Permanently delete this leader’s Supabase login? Their profile and roles will be removed. They will need a new invite to sign in again.",
-    );
-    if (!confirmed) {
-      return;
-    }
+  const removeInvite = (invitationId: string, leaderName: string) => {
+    setDeleteConfirm({ id: invitationId, name: leaderName });
+  };
 
-    setRemovingInviteId(invitationId);
-    const result = await removeLeaderInviteAction(invitationId);
+  const confirmRemoveInvite = async () => {
+    if (!deleteConfirm) return;
+
+    setRemovingInviteId(deleteConfirm.id);
+    const result = await removeLeaderInviteAction(deleteConfirm.id);
     setRemovingInviteId(null);
+    setDeleteConfirm(null);
 
     const errorMessage = normalizeActionMessage(result);
     if (errorMessage) {
@@ -888,7 +925,7 @@ export default function StakeLeadersDesignPage({
                             </button>
                             <button
                               onClick={() => {
-                                void removeInvite(row.invitationId);
+                                removeInvite(row.invitationId, row.displayName || row.email);
                               }}
                               style={{
                                 background: "none",
@@ -913,6 +950,14 @@ export default function StakeLeadersDesignPage({
           )}
         </div>
       </main>
+
+      <ConfirmDeleteModal
+        open={!!deleteConfirm}
+        onClose={() => setDeleteConfirm(null)}
+        onConfirm={confirmRemoveInvite}
+        title={`Delete ${deleteConfirm?.name || "this leader"}?`}
+        message="This will permanently delete this leader's account and roles. They will need a new invite to sign in again. This action cannot be undone."
+      />
 
       <Modal
         open={inviteModalOpen}

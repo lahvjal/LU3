@@ -165,6 +165,27 @@ const Modal = ({ open, onClose, title, children, width = 520 }) => {
     </div>
   </div>);
 };
+const ConfirmDeleteModal = ({ open, onClose, onConfirm, title, message }) => {
+  if (!open) return null;
+  return (<div style={{ position: "fixed", inset: 0, zIndex: 110, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
+    <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.65)", backdropFilter: "blur(4px)" }} />
+    <div style={{ position: "relative", background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: T.radius, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", width: "100%", maxWidth: 420 }}>
+      <div style={{ padding: "24px 22px 0" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "16px" }}>
+          <div style={{ width: 40, height: 40, borderRadius: "50%", background: T.redBg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <Icon name="trash" size={20} color={T.red} />
+          </div>
+          <h3 style={{ fontFamily: T.fontDisplay, fontSize: "18px", color: T.text, margin: 0 }}>{title}</h3>
+        </div>
+        <p style={{ color: T.textMuted, fontSize: "14px", lineHeight: 1.6, margin: "0 0 20px" }}>{message}</p>
+      </div>
+      <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end", padding: "16px 22px", borderTop: `1px solid ${T.border}` }}>
+        <button onClick={onClose} style={{ ...css.btn("ghost"), padding: "10px 20px" }}>Cancel</button>
+        <button onClick={onConfirm} style={{ background: T.red, color: "#fff", border: "none", borderRadius: T.radiusSm, padding: "10px 20px", fontSize: "14px", fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Delete</button>
+      </div>
+    </div>
+  </div>);
+};
 const Field = ({ label, children }) => (<div style={{ marginBottom: "16px" }}><label style={css.label}>{label}</label>{children}</div>);
 
 function initialsFromName(name) {
@@ -1106,6 +1127,7 @@ const RegistrationPage = ({ registrations, applyResult, isLeader }) => {
   const [form, setForm] = useState({ parentName: "", parentEmail: "" });
   const [expanded, setExpanded] = useState({});
   const [sending, setSending] = useState({});
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
 
   const addParent = async () => {
     if (!form.parentName.trim() || !form.parentEmail.trim()) return;
@@ -1126,15 +1148,15 @@ const RegistrationPage = ({ registrations, applyResult, isLeader }) => {
     setSending(p => ({ ...p, [parentId]: false }));
   };
 
-  const del = async (parentId) => {
-    const ok = window.confirm(
-      "Permanently delete this parent’s Supabase login? Their profile, linked young men, and related data will be removed (cascade). This cannot be undone.",
-    );
-    if (!ok) {
-      return;
-    }
-    const result = await deleteParentAction(parentId);
+  const del = (parentId, parentName) => {
+    setDeleteConfirm({ id: parentId, name: parentName });
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteConfirm) return;
+    const result = await deleteParentAction(deleteConfirm.id);
     applyResult(result);
+    setDeleteConfirm(null);
   };
 
   const toggleExpand = (id) => {
@@ -1156,6 +1178,13 @@ const RegistrationPage = ({ registrations, applyResult, isLeader }) => {
         <Field label="Parent's Email"><input style={css.input} value={form.parentEmail} onChange={e => setForm(p => ({ ...p, parentEmail: e.target.value }))} placeholder="parent@email.com" /></Field>
         <button onClick={addParent} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px" }}>Add Parent</button>
       </Modal>
+      <ConfirmDeleteModal
+        open={!!deleteConfirm}
+        onClose={() => setDeleteConfirm(null)}
+        onConfirm={confirmDelete}
+        title={`Delete ${deleteConfirm?.name || "this parent"}?`}
+        message="This will permanently delete this parent's account, their linked young men, and all related data. This action cannot be undone."
+      />
       {!registrations.length ? (
         <EmptyState icon="clipboard" message="No parents have been invited yet. Click 'Invite Parent' to get started." />
       ) : (
@@ -1196,7 +1225,7 @@ const RegistrationPage = ({ registrations, applyResult, isLeader }) => {
                       </button>
                     )}
                     {isLeader && (
-                      <button type="button" onClick={(e) => { e.stopPropagation(); del(reg.id); }} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.4, padding: "4px" }}><Icon name="trash" size={14} color={T.red} /></button>
+                      <button type="button" onClick={(e) => { e.stopPropagation(); del(reg.id, reg.parentName); }} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.4, padding: "4px" }}><Icon name="trash" size={14} color={T.red} /></button>
                     )}
                     {reg.youngMen.length > 0 && <Icon name="chevRight" size={16} color={T.textDim} />}
                   </div>
@@ -1276,6 +1305,7 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult, isLeader }) 
   const [modal, setModal] = useState(false);
   const [editModal, setEditModal] = useState(false);
   const [editLeader, setEditLeader] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [editForm, setEditForm] = useState({ displayName: "", role: "", wardId: "", calling: "", newCalling: "" });
   const [editAddingCalling, setEditAddingCalling] = useState(false);
   const [addingCalling, setAddingCalling] = useState(false);
@@ -1340,15 +1370,15 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult, isLeader }) 
     }
   };
 
-  const removeInvite = async (invitationId) => {
-    const ok = window.confirm(
-      "Permanently delete this leader’s Supabase login? Their profile and roles will be removed. They will need a new invite to sign in again.",
-    );
-    if (!ok) {
-      return;
-    }
-    const result = await deleteLeaderInvitationAction(invitationId);
+  const removeInvite = (invitationId, leaderName) => {
+    setDeleteConfirm({ id: invitationId, name: leaderName });
+  };
+
+  const confirmRemoveInvite = async () => {
+    if (!deleteConfirm) return;
+    const result = await deleteLeaderInvitationAction(deleteConfirm.id);
     applyResult(result);
+    setDeleteConfirm(null);
   };
 
   const openEdit = (leader) => {
@@ -1480,6 +1510,13 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult, isLeader }) 
         )}
         <button onClick={submitEdit} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px" }}>Save Changes</button>
       </Modal>
+      <ConfirmDeleteModal
+        open={!!deleteConfirm}
+        onClose={() => setDeleteConfirm(null)}
+        onConfirm={confirmRemoveInvite}
+        title={`Delete ${deleteConfirm?.name || "this leader"}?`}
+        message="This will permanently delete this leader's account and roles. They will need a new invite to sign in again. This action cannot be undone."
+      />
 
       {!leaders.length ? (
         <EmptyState icon="star" message="No leadership invitations yet." />
@@ -1543,7 +1580,7 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult, isLeader }) 
                     <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                       <button type="button" onClick={() => openEdit(leader)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.55 }}><Icon name="edit" size={14} color={T.accent} /></button>
                       {leader.invitation_id ? (
-                        <button type="button" onClick={() => removeInvite(leader.invitation_id)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.45 }}><Icon name="trash" size={14} color={T.red} /></button>
+                        <button type="button" onClick={() => removeInvite(leader.invitation_id, leader.name)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.45 }}><Icon name="trash" size={14} color={T.red} /></button>
                       ) : null}
                     </div>
                   </td>
