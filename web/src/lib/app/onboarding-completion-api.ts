@@ -1,36 +1,40 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { AppRole } from "@/lib/auth/user-context";
 
-type LeadershipRole =
+type CampStaffRole =
   | "stake_leader"
   | "stake_camp_director"
   | "ward_leader"
-  | "camp_committee"
-  | "young_men_captain";
+  | "camp_committee";
 
-const LEADERSHIP_ROLES = new Set<LeadershipRole>([
+const CAMP_STAFF_ROLES = new Set<CampStaffRole>([
   "stake_leader",
   "stake_camp_director",
   "ward_leader",
   "camp_committee",
-  "young_men_captain",
 ]);
 
-const WARD_SCOPED_LEADERSHIP_ROLES = new Set<LeadershipRole>([
-  "ward_leader",
-  "young_men_captain",
-]);
-
-function isLeadershipRole(value: string): value is LeadershipRole {
-  return LEADERSHIP_ROLES.has(value as LeadershipRole);
+function isCampStaffRole(value: string): value is CampStaffRole {
+  return CAMP_STAFF_ROLES.has(value as CampStaffRole);
 }
 
-async function ensureLeadershipUserRole(
+function userRolesWardIdForRole(
+  role: AppRole,
+  wardIdFromProfile: string | null,
+): string | null {
+  if (role === "ward_leader" || role === "young_men_captain") {
+    return wardIdFromProfile;
+  }
+  return null;
+}
+
+async function ensureUserRoleRow(
   supabase: SupabaseClient,
   userId: string,
-  role: LeadershipRole,
-  wardId: string | null,
+  role: AppRole,
+  wardIdForRow: string | null,
 ) {
   let existingRoleQuery = supabase
     .from("user_roles")
@@ -38,8 +42,8 @@ async function ensureLeadershipUserRole(
     .eq("user_id", userId)
     .eq("role", role);
 
-  existingRoleQuery = wardId
-    ? existingRoleQuery.eq("ward_id", wardId)
+  existingRoleQuery = wardIdForRow
+    ? existingRoleQuery.eq("ward_id", wardIdForRow)
     : existingRoleQuery.is("ward_id", null);
 
   const { data: existingRole } = await existingRoleQuery.limit(1).maybeSingle();
@@ -50,7 +54,7 @@ async function ensureLeadershipUserRole(
   const { error } = await supabase.from("user_roles").insert({
     user_id: userId,
     role,
-    ward_id: wardId,
+    ward_id: wardIdForRow,
     participant_id: null,
   });
 
@@ -164,14 +168,27 @@ export async function completeOnboardingProfileInDb(
     .eq("user_id", userId)
     .maybeSingle();
 
-  if (profileRow?.role && isLeadershipRole(profileRow.role)) {
+  if (profileRow?.role && isCampStaffRole(profileRow.role)) {
     try {
-      const roleWardId = WARD_SCOPED_LEADERSHIP_ROLES.has(profileRow.role)
-        ? (profileRow.ward_id ?? null)
-        : null;
-      await ensureLeadershipUserRole(supabase, userId, profileRow.role, roleWardId);
+      await ensureUserRoleRow(
+        supabase,
+        userId,
+        profileRow.role,
+        userRolesWardIdForRole(profileRow.role as AppRole, profileRow.ward_id),
+      );
     } catch (err) {
       console.error("[onboarding] failed to sync user_role:", err);
+    }
+  } else if (profileRow?.role === "young_men_captain") {
+    try {
+      await ensureUserRoleRow(
+        supabase,
+        userId,
+        "young_men_captain",
+        userRolesWardIdForRole("young_men_captain", profileRow.ward_id),
+      );
+    } catch (err) {
+      console.error("[onboarding] failed to sync young_men_captain user_role:", err);
     }
   }
 

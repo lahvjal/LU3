@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { getUserContext } from "@/lib/auth/user-context";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import StakeLeadersDesignPage from "./stake-leaders-design-page";
@@ -25,6 +26,7 @@ type LeaderProfileRow = {
   user_id: string;
   user_email: string | null;
   display_name: string | null;
+  avatar_url: string | null;
   role: string;
   ward_id: string | null;
   onboarding_completed_at: string | null;
@@ -76,6 +78,10 @@ export default async function StakeLeadersRoutePage() {
     createSupabaseServerClient(),
   ]);
 
+  if (!userContext.isLeader) {
+    redirect("/");
+  }
+
   const [{ data: wardRows }, { data: callingRows }, { data: leaderRows }] =
     await Promise.all([
       supabase.from("wards").select("id, name").order("name"),
@@ -83,7 +89,7 @@ export default async function StakeLeadersRoutePage() {
       supabase
         .from("user_profiles")
         .select(
-          "user_id, user_email, display_name, role, ward_id, onboarding_completed_at, invited_at, calling:leader_callings(name), ward:wards(name)",
+          "user_id, user_email, display_name, avatar_url, role, ward_id, onboarding_completed_at, invited_at, calling:leader_callings(name), ward:wards(name)",
         )
         .not("role", "is", null)
         .not("role", "in", "(parent,young_man)")
@@ -110,6 +116,7 @@ export default async function StakeLeadersRoutePage() {
       invitationId: profile.user_id,
       email,
       displayName: profile.display_name?.trim() || fallbackDisplayName(email),
+      avatarUrl: profile.avatar_url ?? null,
       role,
       roleLabel: LEADER_ROLE_LABELS[role],
       wardId: profile.ward_id,

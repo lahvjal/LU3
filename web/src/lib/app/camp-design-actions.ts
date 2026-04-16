@@ -82,12 +82,17 @@ type ContactInput = {
   emergency: boolean;
 };
 
-type LeadershipRole = Exclude<AppRole, "young_man" | "parent">;
+/** Roles that may be invited as camp staff (synced to `user_roles` for leader tools). */
+export type CampStaffRole =
+  | "stake_leader"
+  | "stake_camp_director"
+  | "ward_leader"
+  | "camp_committee";
 
 type InviteLeaderInput = {
   email: string;
   fullName?: string;
-  role: LeadershipRole;
+  role: CampStaffRole;
   wardId: string | null;
   calling: string;
 };
@@ -115,17 +120,11 @@ type SupabaseActionClient = Awaited<ReturnType<typeof createSupabaseServerClient
 
 const CAMP_START_DATE = new Date("2026-06-15T00:00:00Z");
 
-const LEADERSHIP_ROLES = new Set<LeadershipRole>([
+const CAMP_STAFF_ROLES = new Set<CampStaffRole>([
   "stake_leader",
   "stake_camp_director",
   "ward_leader",
   "camp_committee",
-  "young_men_captain",
-]);
-
-const WARD_SCOPED_LEADERSHIP_ROLES = new Set<LeadershipRole>([
-  "ward_leader",
-  "young_men_captain",
 ]);
 
 function fail(error: string): ActionResult {
@@ -220,15 +219,25 @@ function normalizeEmail(value: string) {
   return value.trim().toLowerCase();
 }
 
-function isLeadershipRole(value: string): value is LeadershipRole {
-  return LEADERSHIP_ROLES.has(value as LeadershipRole);
+function isCampStaffRole(value: string): value is CampStaffRole {
+  return CAMP_STAFF_ROLES.has(value as CampStaffRole);
 }
 
-async function ensureLeadershipUserRole(
+function userRolesWardIdForRole(
+  role: AppRole,
+  wardIdFromProfile: string | null,
+): string | null {
+  if (role === "ward_leader" || role === "young_men_captain") {
+    return wardIdFromProfile;
+  }
+  return null;
+}
+
+async function ensureUserRoleRow(
   supabase: SupabaseActionClient,
   userId: string,
-  role: LeadershipRole,
-  wardId: string | null,
+  role: AppRole,
+  wardIdForRow: string | null,
 ) {
   let existingRoleQuery = supabase
     .from("user_roles")
@@ -236,8 +245,8 @@ async function ensureLeadershipUserRole(
     .eq("user_id", userId)
     .eq("role", role);
 
-  existingRoleQuery = wardId
-    ? existingRoleQuery.eq("ward_id", wardId)
+  existingRoleQuery = wardIdForRow
+    ? existingRoleQuery.eq("ward_id", wardIdForRow)
     : existingRoleQuery.is("ward_id", null);
 
   const { data: existingRole } = await existingRoleQuery.limit(1).maybeSingle();
@@ -248,7 +257,7 @@ async function ensureLeadershipUserRole(
   const { error } = await supabase.from("user_roles").insert({
     user_id: userId,
     role,
-    ward_id: wardId,
+    ward_id: wardIdForRow,
     participant_id: null,
   });
 
@@ -257,11 +266,11 @@ async function ensureLeadershipUserRole(
   }
 }
 
-async function removeLeadershipUserRole(
+async function removeUserRoleRow(
   supabase: SupabaseActionClient,
   userId: string,
-  role: LeadershipRole,
-  wardId: string | null,
+  role: AppRole,
+  wardIdForRow: string | null,
 ) {
   let deleteQuery = supabase
     .from("user_roles")
@@ -269,8 +278,8 @@ async function removeLeadershipUserRole(
     .eq("user_id", userId)
     .eq("role", role);
 
-  deleteQuery = wardId
-    ? deleteQuery.eq("ward_id", wardId)
+  deleteQuery = wardIdForRow
+    ? deleteQuery.eq("ward_id", wardIdForRow)
     : deleteQuery.is("ward_id", null);
 
   const { error } = await deleteQuery;
@@ -1048,7 +1057,7 @@ export async function inviteLeaderAction(
     return fail("Please enter a valid email address.");
   }
 
-  if (!isLeadershipRole(input.role)) {
+  if (!isCampStaffRole(input.role)) {
     return fail("Please select a valid leadership role.");
   }
 
@@ -1126,7 +1135,12 @@ export async function inviteLeaderAction(
 
   // Sync user_roles
   try {
-    await ensureLeadershipUserRole(supabase, authUserId, input.role, wardId);
+    await ensureUserRoleRow(
+      supabase,
+      authUserId,
+      input.role,
+      userRolesWardIdForRole(input.role, wardId),
+    );
   } catch (error) {
     return fail(
       error instanceof Error
@@ -1174,10 +1188,19 @@ export async function updateLeaderAction(
 
   const updates: Record<string, unknown> = {};
 
-  if (input.role && isLeadershipRole(input.role) && input.role !== existing.role) {
-    if (existing.role && isLeadershipRole(existing.role)) {
+  if (input.role && input.role !== existing.role) {
+    if (!isCampStaffRole(input.role)) {
+      return fail("Invalid leadership role.");
+    }
+    const prevRole = existing.role as AppRole | null;
+    if (prevRole && (isCampStaffRole(prevRole) || prevRole === "young_men_captain")) {
       try {
-        await removeLeadershipUserRole(supabase, leaderUserId, existing.role, existing.ward_id);
+        await removeUserRoleRow(
+          supabase,
+          leaderUserId,
+          prevRole,
+          userRolesWardIdForRole(prevRole, existing.ward_id),
+        );
       } catch {}
     }
     updates.role = input.role;
@@ -1186,9 +1209,17 @@ export async function updateLeaderAction(
   if (Object.prototype.hasOwnProperty.call(input, "wardId")) {
     const newWardId = input.wardId?.trim() || null;
     if (newWardId !== existing.ward_id) {
-      if (existing.role && isLeadershipRole(existing.role)) {
+      if (
+        existing.role &&
+        (isCampStaffRole(existing.role) || existing.role === "young_men_captain")
+      ) {
         try {
-          await removeLeadershipUserRole(supabase, leaderUserId, existing.role, existing.ward_id);
+          await removeUserRoleRow(
+            supabase,
+            leaderUserId,
+            existing.role as AppRole,
+            userRolesWardIdForRole(existing.role as AppRole, existing.ward_id),
+          );
         } catch {}
       }
       updates.ward_id = newWardId;
@@ -1200,8 +1231,20 @@ export async function updateLeaderAction(
     ? (updates.ward_id as string | null)
     : existing.ward_id;
 
-  if (isLeadershipRole(finalRole)) {
-    await ensureLeadershipUserRole(supabase, leaderUserId, finalRole, finalWardId);
+  if (isCampStaffRole(finalRole)) {
+    await ensureUserRoleRow(
+      supabase,
+      leaderUserId,
+      finalRole,
+      userRolesWardIdForRole(finalRole, finalWardId),
+    );
+  } else if (finalRole === "young_men_captain") {
+    await ensureUserRoleRow(
+      supabase,
+      leaderUserId,
+      "young_men_captain",
+      userRolesWardIdForRole("young_men_captain", finalWardId),
+    );
   }
 
   if (input.calling?.trim()) {
@@ -1253,13 +1296,16 @@ export async function deleteLeaderInvitationAction(
     return fail(profileError?.message ?? "Leader not found.");
   }
 
-  if (profile.role && isLeadershipRole(profile.role)) {
+  if (
+    profile.role &&
+    (isCampStaffRole(profile.role) || profile.role === "young_men_captain")
+  ) {
     try {
-      await removeLeadershipUserRole(
+      await removeUserRoleRow(
         supabase,
         leaderUserId,
-        profile.role,
-        profile.ward_id,
+        profile.role as AppRole,
+        userRolesWardIdForRole(profile.role as AppRole, profile.ward_id),
       );
     } catch (error) {
       return fail(

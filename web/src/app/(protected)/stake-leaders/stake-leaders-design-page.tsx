@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { CampSidebar } from "@/components/camp-design-app";
 import { signOutCampAction } from "@/lib/app/camp-design-actions";
@@ -28,6 +28,7 @@ type LeaderInvitationRow = {
   invitationId: string;
   email: string;
   displayName: string;
+  avatarUrl: string | null;
   role: LeadershipRole;
   roleLabel: string;
   wardId: string | null;
@@ -87,7 +88,7 @@ const PAGE_TO_PATH: Record<string, string> = {
   profile: "/profile",
 };
 
-const ROLE_OPTIONS: RoleOption[] = [
+const INVITE_ROLE_OPTIONS: RoleOption[] = [
   { value: "stake_leader", label: "Stake Leader", wardRequired: false },
   {
     value: "stake_camp_director",
@@ -96,7 +97,6 @@ const ROLE_OPTIONS: RoleOption[] = [
   },
   { value: "camp_committee", label: "Camp Committee", wardRequired: false },
   { value: "ward_leader", label: "Ward Leader", wardRequired: true },
-  { value: "young_men_captain", label: "Young Men Captain", wardRequired: true },
 ];
 
 const T = {
@@ -350,26 +350,49 @@ const Field = ({ label, children }: { label: string; children: ReactNode }) => (
   </div>
 );
 
-const Avatar = ({ name }: { name: string }) => (
-  <div
-    style={{
-      width: 32,
-      height: 32,
-      borderRadius: "50%",
-      background: `${T.accent}33`,
-      color: T.accent,
-      display: "inline-flex",
-      alignItems: "center",
-      justifyContent: "center",
-      fontSize: 12,
-      fontWeight: 700,
-      letterSpacing: "0.03em",
-      flexShrink: 0,
-    }}
-  >
-    {initialsFromName(name)}
-  </div>
-);
+const Avatar = ({
+  name,
+  src,
+  size = 32,
+}: {
+  name: string;
+  src?: string | null;
+  size?: number;
+}) => {
+  const fontSize = Math.max(10, Math.round(size * 0.38));
+  const initials = initialsFromName(name);
+  const wrapperStyle: CSSProperties = {
+    width: size,
+    height: size,
+    borderRadius: "50%",
+    border: `1px solid ${T.border}`,
+    background: `${T.accent}33`,
+    color: T.accent,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize,
+    fontWeight: 700,
+    letterSpacing: "0.03em",
+    flexShrink: 0,
+    overflow: "hidden",
+  };
+
+  if (src) {
+    return (
+      <div style={wrapperStyle}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={src}
+          alt=""
+          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+        />
+      </div>
+    );
+  }
+
+  return <div style={wrapperStyle}>{initials}</div>;
+};
 
 const PageHeader = ({
   title,
@@ -510,8 +533,25 @@ export default function StakeLeadersDesignPage({
   const [addingCalling, setAddingCalling] = useState(false);
   const [submittingInvite, setSubmittingInvite] = useState(false);
   const [removingInviteId, setRemovingInviteId] = useState<string | null>(null);
+  const modalRoleOptions = useMemo((): RoleOption[] => {
+    if (
+      inviteDraft.role === "young_men_captain" &&
+      !INVITE_ROLE_OPTIONS.some((o) => o.value === inviteDraft.role)
+    ) {
+      return [
+        ...INVITE_ROLE_OPTIONS,
+        {
+          value: "young_men_captain",
+          label: "Young Men Captain (legacy — assign camp staff role)",
+          wardRequired: true,
+        },
+      ];
+    }
+    return INVITE_ROLE_OPTIONS;
+  }, [inviteDraft.role]);
   const selectedRole =
-    ROLE_OPTIONS.find((option) => option.value === inviteDraft.role) ?? ROLE_OPTIONS[0];
+    modalRoleOptions.find((option) => option.value === inviteDraft.role) ??
+    modalRoleOptions[0];
 
   const goToPage = (nextPage: string) => {
     const targetPath = PAGE_TO_PATH[nextPage];
@@ -600,6 +640,15 @@ export default function StakeLeadersDesignPage({
       setAlertState({
         type: "error",
         message: "Please choose a ward for ward-level callings.",
+      });
+      return;
+    }
+
+    if (inviteDraft.role === "young_men_captain") {
+      setAlertState({
+        type: "error",
+        message:
+          "Young Men Captain is a camper role, not camp staff. Pick a staff role (e.g. Ward Leader) before sending.",
       });
       return;
     }
@@ -794,7 +843,7 @@ export default function StakeLeadersDesignPage({
                       >
                         <td style={{ padding: "11px 14px" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                            <Avatar name={row.displayName || row.email} />
+                            <Avatar name={row.displayName || row.email} src={row.avatarUrl} />
                             <div>
                               <div style={{ color: T.text, fontWeight: 600 }}>
                                 {row.displayName || "Pending User"}
@@ -890,13 +939,13 @@ export default function StakeLeadersDesignPage({
                 ...previous,
                 role: nextRole,
                 wardId:
-                  ROLE_OPTIONS.find((option) => option.value === nextRole)?.wardRequired
+                  modalRoleOptions.find((option) => option.value === nextRole)?.wardRequired
                     ? previous.wardId || initialWards[0]?.id || ""
                     : "",
               }));
             }}
           >
-            {ROLE_OPTIONS.map((option) => (
+            {modalRoleOptions.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>

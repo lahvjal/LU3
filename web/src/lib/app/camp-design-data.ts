@@ -137,7 +137,7 @@ type DesignWard = {
   color: string;
   leader: string;
   leader_email: string;
-  campers: Array<{ id: string; name: string }>;
+  campers: Array<{ id: string; name: string; photo_url: string | null }>;
 };
 
 type DesignActivity = {
@@ -171,6 +171,7 @@ type DesignRegistrationYoungMan = {
   id: string;
   name: string;
   age: number;
+  photoUrl: string | null;
   shirtSize: string;
   allergies: string;
   medical: string;
@@ -179,6 +180,7 @@ type DesignRegistrationYoungMan = {
 type DesignRegistration = {
   id: string;
   parentName: string;
+  parentAvatarUrl: string | null;
   email: string;
   phone: string;
   wardId: string | null;
@@ -208,6 +210,7 @@ type DesignContact = {
 type DesignLeader = {
   id: string;
   name: string;
+  avatar_url: string | null;
   calling: string;
   email: string;
   role: string;
@@ -537,6 +540,7 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
     ward.campers.push({
       id: ym.id,
       name: `${ym.first_name} ${ym.last_name}`,
+      photo_url: ym.photo_url ?? null,
     });
   });
 
@@ -613,6 +617,7 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
         parent.display_name?.trim() ||
         parent.user_email?.split("@")[0] ||
         "Parent",
+      parentAvatarUrl: parent.avatar_url ?? null,
       email: parent.user_email ?? "",
       phone: parent.phone ?? "",
       wardId: parent.ward_id,
@@ -624,6 +629,7 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
         id: ym.id,
         name: `${ym.first_name} ${ym.last_name}`,
         age: ym.age,
+        photoUrl: ym.photo_url ?? null,
         shirtSize: ym.shirt_size_code ? (SHIRT_CODE_TO_DISPLAY[ym.shirt_size_code] ?? ym.shirt_size_code) : "",
         allergies: ym.allergies ?? "",
         medical: ym.medical_notes ?? "",
@@ -701,6 +707,7 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
           profile.display_name?.trim() ||
           email.split("@")[0] ||
           "Pending User",
+        avatar_url: profile.avatar_url ?? null,
         calling: callingName || "Leader",
         email,
         role: profile.role!,

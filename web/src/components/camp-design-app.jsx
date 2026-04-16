@@ -109,6 +109,12 @@ const PAGE_TO_PATH = {
   profile: "/profile",
 };
 
+const LEADER_ONLY_PAGE_KEYS = new Set(["wards", "registration", "leaders", "inspiration"]);
+
+function isLeaderOnlyPageKey(key) {
+  return LEADER_ONLY_PAGE_KEYS.has(key);
+}
+
 function resolvePageFromPathname(pathname) {
   if (!pathname || pathname === "/" || pathname === "/dashboard") {
     return "dashboard";
@@ -705,7 +711,7 @@ const WardRostersPage = ({ wards, leaders }) => {
                     <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                       {wardLeaders.map(l => (
                         <div key={l.id} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "6px 0" }}>
-                          <div style={{ width: 28, height: 28, borderRadius: "50%", background: `${wardColor}33`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700, color: wardColor }}>{initialsFromName(l.name)}</div>
+                          <Avatar name={l.name} src={l.avatar_url || null} size={28} fontSize={11} />
                           <span style={{ color: T.text, fontSize: "13px", fontWeight: 600 }}>{l.name}</span>
                           {l.role_label && <span style={{ color: T.textMuted, fontSize: "12px" }}>{l.role_label}</span>}
                         </div>
@@ -720,9 +726,7 @@ const WardRostersPage = ({ wards, leaders }) => {
                     </div>
                     {ward.campers.map((camper, ci) => (
                       <div key={camper.id} style={{ padding: "6px 20px", display: "flex", alignItems: "center", gap: "10px", borderBottom: ci < ward.campers.length - 1 ? `1px solid ${T.border}22` : "none" }}>
-                        <div style={{ width: "28px", height: "28px", borderRadius: "50%", background: `${wardColor}22`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700, color: wardColor }}>
-                          {initialsFromName(camper.name)}
-                        </div>
+                        <Avatar name={camper.name} src={camper.photo_url || null} size={28} fontSize={11} />
                         <span style={{ color: T.text, fontSize: "13px" }}>{camper.name}</span>
                       </div>
                     ))}
@@ -748,7 +752,7 @@ const INVITE_STATUS_COLORS = {
   accepted: { bg: T.greenBg, text: T.green, label: "Accepted" },
 };
 
-const RegistrationPage = ({ registrations, applyResult }) => {
+const RegistrationPage = ({ registrations, applyResult, isLeader }) => {
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ parentName: "", parentEmail: "" });
   const [expanded, setExpanded] = useState({});
@@ -786,7 +790,12 @@ const RegistrationPage = ({ registrations, applyResult }) => {
 
   return (
     <div>
-      <PageHeader icon="clipboard" title="Registration" subtitle={`${registrations.length} parents · ${totalYoungMen} young men`} action={<button onClick={() => setModal(true)} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> Invite Parent</button>} />
+      <PageHeader
+        icon="clipboard"
+        title="Registration"
+        subtitle={`${registrations.length} parents · ${totalYoungMen} young men`}
+        action={isLeader ? <button type="button" onClick={() => setModal(true)} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> Invite Parent</button> : null}
+      />
       <Modal open={modal} onClose={() => setModal(false)} title="Invite a Parent" width={480}>
         <Field label="Parent's Full Name"><input style={css.input} value={form.parentName} onChange={e => setForm(p => ({ ...p, parentName: e.target.value }))} placeholder="John Smith" /></Field>
         <Field label="Parent's Email"><input style={css.input} value={form.parentEmail} onChange={e => setForm(p => ({ ...p, parentEmail: e.target.value }))} placeholder="parent@email.com" /></Field>
@@ -804,6 +813,7 @@ const RegistrationPage = ({ registrations, applyResult }) => {
             return (
               <div key={reg.id} style={{ ...css.card, padding: 0 }}>
                 <div style={{ padding: "14px 18px", display: "flex", alignItems: "center", gap: "12px", cursor: reg.youngMen.length > 0 ? "pointer" : "default" }} onClick={() => reg.youngMen.length > 0 && toggleExpand(reg.id)}>
+                  <Avatar name={reg.parentName} src={reg.parentAvatarUrl || null} size={40} fontSize={14} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                       <span style={{ fontWeight: 700, color: T.text, fontSize: "14px" }}>{reg.parentName}</span>
@@ -820,8 +830,9 @@ const RegistrationPage = ({ registrations, applyResult }) => {
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
                     <Badge bg={regStatusColor.bg} text={regStatusColor.text}>{regStatusColor.label}</Badge>
-                    {canSend && (
+                    {isLeader && canSend && (
                       <button
+                        type="button"
                         onClick={(e) => { e.stopPropagation(); sendInvite(reg.id); }}
                         disabled={sending[reg.id]}
                         style={{ ...css.btn(), fontSize: "11px", padding: "5px 12px", opacity: sending[reg.id] ? 0.5 : 1 }}
@@ -829,7 +840,9 @@ const RegistrationPage = ({ registrations, applyResult }) => {
                         {sending[reg.id] ? "Sending..." : reg.inviteStatus === "sent" ? "Resend" : "Send Invite"}
                       </button>
                     )}
-                    <button onClick={(e) => { e.stopPropagation(); del(reg.id); }} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.4, padding: "4px" }}><Icon name="trash" size={14} color={T.red} /></button>
+                    {isLeader && (
+                      <button type="button" onClick={(e) => { e.stopPropagation(); del(reg.id); }} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.4, padding: "4px" }}><Icon name="trash" size={14} color={T.red} /></button>
+                    )}
                     {reg.youngMen.length > 0 && <Icon name="chevRight" size={16} color={T.textDim} />}
                   </div>
                 </div>
@@ -837,9 +850,7 @@ const RegistrationPage = ({ registrations, applyResult }) => {
                   <div style={{ borderTop: `1px solid ${T.border}`, padding: "4px 0" }}>
                     {reg.youngMen.map((ym, yi) => (
                       <div key={ym.id} style={{ padding: "10px 18px 10px 36px", borderBottom: yi < reg.youngMen.length - 1 ? `1px solid ${T.border}22` : "none", display: "flex", alignItems: "center", gap: "12px" }}>
-                        <div style={{ width: "28px", height: "28px", borderRadius: "50%", background: `${T.accent}22`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700, color: T.accent }}>
-                          {initialsFromName(ym.name)}
-                        </div>
+                        <Avatar name={ym.name} src={ym.photoUrl || null} size={28} fontSize={11} />
                         <div style={{ flex: 1 }}>
                           <span style={{ color: T.text, fontSize: "13px", fontWeight: 600 }}>{ym.name}</span>
                           <span style={{ color: T.textMuted, fontSize: "12px", marginLeft: "8px" }}>Age {ym.age}</span>
@@ -906,7 +917,7 @@ const InspirationPage = ({ inspiration }) => {
   return (<div><PageHeader icon="sun" title="Daily Inspiration" subtitle="A message for each day" /><div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>{messages.map((m, i) => (<div key={i} style={{ ...css.card, borderLeft: `4px solid ${T.accent}`, background: `linear-gradient(135deg, ${T.bgCard} 0%, #2e2518 100%)` }}><div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "12px" }}><Badge bg={T.accentDim + "33"} text={T.accent}>Day {i + 1}</Badge><span style={{ fontSize: "12px", color: T.textDim }}>{CAMP_DAYS[i] ?? `Day ${i + 1}`}</span></div><h3 style={{ fontFamily: T.fontDisplay, fontSize: "22px", color: T.accentLight, margin: "0 0 12px" }}>{m.title}</h3><p style={{ color: T.text, fontSize: "15px", lineHeight: 1.7, fontStyle: "italic", margin: 0 }}>&quot;{m.verse}&quot;</p><p style={{ color: T.textMuted, fontSize: "13px", marginTop: "8px" }}>— {m.ref}</p></div>))}</div></div>);
 };
 
-const LeadersPage = ({ leaders, wards, callingOptions, applyResult }) => {
+const LeadersPage = ({ leaders, wards, callingOptions, applyResult, isLeader }) => {
   const [modal, setModal] = useState(false);
   const [editModal, setEditModal] = useState(false);
   const [editLeader, setEditLeader] = useState(null);
@@ -923,15 +934,30 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult }) => {
     newCalling: "",
   });
 
-  const roleOptions = [
+  const inviteRoleOptions = [
     { value: "stake_leader", label: "Stake Leader", wardRequired: false },
     { value: "stake_camp_director", label: "Stake Camp Director", wardRequired: false },
     { value: "camp_committee", label: "Camp Committee", wardRequired: false },
     { value: "ward_leader", label: "Ward Leader", wardRequired: true },
-    { value: "young_men_captain", label: "Young Men Captain", wardRequired: true },
   ];
+  const editRoleOptions = useMemo(() => {
+    if (
+      editForm.role === "young_men_captain" &&
+      !inviteRoleOptions.some((o) => o.value === editForm.role)
+    ) {
+      return [
+        ...inviteRoleOptions,
+        {
+          value: "young_men_captain",
+          label: "Young Men Captain (legacy — assign camp staff role)",
+          wardRequired: true,
+        },
+      ];
+    }
+    return inviteRoleOptions;
+  }, [editForm.role]);
   const selectedRoleOption =
-    roleOptions.find((option) => option.value === form.role) ?? roleOptions[0];
+    inviteRoleOptions.find((option) => option.value === form.role) ?? inviteRoleOptions[0];
 
   const submitInvite = async () => {
     const callingValue = addingCalling ? form.newCalling : form.calling;
@@ -980,7 +1006,7 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult }) => {
   const submitEdit = async () => {
     if (!editLeader) return;
     const callingValue = editAddingCalling ? editForm.newCalling : editForm.calling;
-    const editRoleOption = roleOptions.find((o) => o.value === editForm.role) ?? roleOptions[0];
+    const editRoleOption = editRoleOptions.find((o) => o.value === editForm.role) ?? editRoleOptions[0];
     const result = await updateLeaderAction(editLeader.invitation_id ?? editLeader.id, {
       displayName: editForm.displayName.trim() || undefined,
       role: editForm.role,
@@ -993,10 +1019,16 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult }) => {
     }
   };
 
-  const editRoleOption = editModal ? (roleOptions.find((o) => o.value === editForm.role) ?? roleOptions[0]) : null;
+  const editRoleOption = editModal ? (editRoleOptions.find((o) => o.value === editForm.role) ?? editRoleOptions[0]) : null;
 
   const sendOrResendInvite = async (leader) => {
     if (!leader?.email || !leader?.calling || leader.status === "active") {
+      return;
+    }
+    if (leader.role === "young_men_captain") {
+      window.alert(
+        "Young Men Captain is a camper role, not camp staff. Use Edit to assign a staff role (e.g. Ward Leader) before sending an invite.",
+      );
       return;
     }
 
@@ -1013,11 +1045,16 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult }) => {
 
   return (
     <div>
-      <PageHeader icon="star" title="Leaders" subtitle="Manage stake and ward leadership invitations, statuses, and roles" action={<button onClick={() => setModal(true)} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> Invite Leader</button>} />
+      <PageHeader
+        icon="star"
+        title="Leaders"
+        subtitle="Manage stake and ward leadership invitations, statuses, and roles"
+        action={isLeader ? <button type="button" onClick={() => setModal(true)} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> Invite Leader</button> : null}
+      />
       <Modal open={modal} onClose={() => setModal(false)} title="Invite Leader" width={560}>
         <Field label="Full Name"><input style={css.input} value={form.fullName} onChange={e => setForm(p => ({ ...p, fullName: e.target.value }))} placeholder="John Doe" /></Field>
         <Field label="Email"><input style={css.input} value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} placeholder="leader@email.com" /></Field>
-        <Field label="Leadership Role"><select style={css.select} value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value }))}>{roleOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
+        <Field label="Leadership Role"><select style={css.select} value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value }))}>{inviteRoleOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
         <Field label="Ward">
           <select style={css.select} value={form.wardId} onChange={e => setForm(p => ({ ...p, wardId: e.target.value }))}>
             <option value="">Stake-wide (no ward)</option>
@@ -1051,7 +1088,7 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult }) => {
 
       <Modal open={editModal} onClose={() => setEditModal(false)} title="Edit Leader" width={560}>
         <Field label="Full Name"><input style={css.input} value={editForm.displayName} onChange={e => setEditForm(p => ({ ...p, displayName: e.target.value }))} placeholder="Full name" /></Field>
-        <Field label="Leadership Role"><select style={css.select} value={editForm.role} onChange={e => setEditForm(p => ({ ...p, role: e.target.value }))}>{roleOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
+        <Field label="Leadership Role"><select style={css.select} value={editForm.role} onChange={e => setEditForm(p => ({ ...p, role: e.target.value }))}>{editRoleOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
         <Field label="Ward">
           <select style={css.select} value={editForm.wardId} onChange={e => setEditForm(p => ({ ...p, wardId: e.target.value }))}>
             <option value="">{editRoleOption?.wardRequired ? "Select ward" : "Stake-wide (no ward)"}</option>
@@ -1087,13 +1124,13 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult }) => {
         <EmptyState icon="star" message="No leadership invitations yet." />
       ) : (
         <div style={{ ...css.card, padding: 0, overflow: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", minWidth: "1120px" }}>
-            <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>{["Leader", "Role", "Ward", "Calling", "Invite", "Status", "Actions"].map(h => <th key={h} style={{ padding: "11px 14px", textAlign: "left", color: T.textMuted, fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>{h}</th>)}</tr></thead>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", minWidth: isLeader ? "1120px" : "720px" }}>
+            <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>{["Leader", "Role", "Ward", "Calling", ...(isLeader ? ["Invite", "Status", "Actions"] : ["Status"])].map(h => <th key={h} style={{ padding: "11px 14px", textAlign: "left", color: T.textMuted, fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>{h}</th>)}</tr></thead>
             <tbody>{leaders.map((leader, index) => (
               <tr key={leader.id} style={{ borderBottom: `1px solid ${T.border}`, background: index % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)" }}>
                 <td style={{ padding: "11px 14px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                    <Avatar name={leader.name || leader.email} src={null} size={30} />
+                    <Avatar name={leader.name || leader.email} src={leader.avatar_url || null} size={30} />
                     <div>
                       <div style={{ color: T.text, fontWeight: 600 }}>{leader.name || "Pending User"}</div>
                       <div style={{ color: T.textDim, fontSize: "11px" }}>{leader.email}</div>
@@ -1103,47 +1140,53 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult }) => {
                 <td style={{ padding: "11px 14px", color: T.textMuted }}>{leader.role_label || leader.role}</td>
                 <td style={{ padding: "11px 14px", color: T.textMuted }}>{leader.ward_name || "Stake-wide"}</td>
                 <td style={{ padding: "11px 14px", color: T.accent }}>{leader.calling}</td>
-                <td style={{ padding: "11px 14px", color: T.textDim, fontSize: "12px", lineHeight: 1.45 }}>
-                  {leader.invitation_id ? (
-                    <>
-                      <div>Sent {formatInviteTimestamp(leader.invite_sent_at)}</div>
-                      <div>{leader.invite_accepted_at ? `Accepted ${formatInviteTimestamp(leader.invite_accepted_at)}` : "Awaiting acceptance"}</div>
-                    </>
-                  ) : (
-                    <span>Role-managed</span>
-                  )}
-                  <div style={{ marginTop: "8px" }}>
-                    <button
-                      onClick={() => sendOrResendInvite(leader)}
-                      style={{ ...css.btn("ghost"), padding: "6px 10px", fontSize: "12px" }}
-                      disabled={
-                        resendingLeaderId === leader.id ||
-                        leader.status === "active" ||
-                        !leader.email ||
-                        !leader.calling
-                      }
-                    >
-                      {resendingLeaderId === leader.id
-                        ? "Sending..."
-                        : leader.status === "active"
-                          ? "Active"
-                          : leader.invitation_id
-                            ? "Send Again"
-                            : "Send Invite"}
-                    </button>
-                  </div>
-                </td>
+                {isLeader ? (
+                  <td style={{ padding: "11px 14px", color: T.textDim, fontSize: "12px", lineHeight: 1.45 }}>
+                    {leader.invitation_id ? (
+                      <>
+                        <div>Sent {formatInviteTimestamp(leader.invite_sent_at)}</div>
+                        <div>{leader.invite_accepted_at ? `Accepted ${formatInviteTimestamp(leader.invite_accepted_at)}` : "Awaiting acceptance"}</div>
+                      </>
+                    ) : (
+                      <span>Role-managed</span>
+                    )}
+                    <div style={{ marginTop: "8px" }}>
+                      <button
+                        type="button"
+                        onClick={() => sendOrResendInvite(leader)}
+                        style={{ ...css.btn("ghost"), padding: "6px 10px", fontSize: "12px" }}
+                        disabled={
+                          resendingLeaderId === leader.id ||
+                          leader.status === "active" ||
+                          !leader.email ||
+                          !leader.calling ||
+                          leader.role === "young_men_captain"
+                        }
+                      >
+                        {resendingLeaderId === leader.id
+                          ? "Sending..."
+                          : leader.status === "active"
+                            ? "Active"
+                            : leader.invitation_id
+                              ? "Send Again"
+                              : "Send Invite"}
+                      </button>
+                    </div>
+                  </td>
+                ) : null}
                 <td style={{ padding: "11px 14px" }}>
                   <StatusBadge status={leader.status} />
                 </td>
-                <td style={{ padding: "11px 14px" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                    <button onClick={() => openEdit(leader)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.55 }}><Icon name="edit" size={14} color={T.accent} /></button>
-                    {leader.invitation_id ? (
-                      <button onClick={() => removeInvite(leader.invitation_id)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.45 }}><Icon name="trash" size={14} color={T.red} /></button>
-                    ) : null}
-                  </div>
-                </td>
+                {isLeader ? (
+                  <td style={{ padding: "11px 14px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <button type="button" onClick={() => openEdit(leader)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.55 }}><Icon name="edit" size={14} color={T.accent} /></button>
+                      {leader.invitation_id ? (
+                        <button type="button" onClick={() => removeInvite(leader.invitation_id)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.45 }}><Icon name="trash" size={14} color={T.red} /></button>
+                      ) : null}
+                    </div>
+                  </td>
+                ) : null}
               </tr>
             ))}</tbody>
           </table>
@@ -1933,13 +1976,23 @@ export default function CampDesignApp({ initialData, profile }) {
 
   useEffect(() => {
     const routePage = resolvePageFromPathname(pathname);
+    if (!profileData.isLeader && isLeaderOnlyPageKey(routePage)) {
+      router.replace("/");
+      if (page !== "dashboard") {
+        setPage("dashboard");
+      }
+      return;
+    }
     if (routePage !== page) {
       setPage(routePage);
     }
-  }, [pathname, page]);
+  }, [pathname, page, profileData.isLeader, router]);
 
 
   const goToPage = (nextPage) => {
+    if (!profileData.isLeader && isLeaderOnlyPageKey(nextPage)) {
+      return;
+    }
     const targetPath = PAGE_TO_PATH[nextPage];
     if (targetPath) {
       if (targetPath !== pathname) {
@@ -2180,12 +2233,12 @@ export default function CampDesignApp({ initialData, profile }) {
     wardRosters: <WardRostersPage wards={wards} leaders={leaders} />,
     wards: <WardsPage wards={wards} applyResult={applyResult} isLeader={isLeader} />,
     competitions: <CompetitionsPage competitions={competitions} pointLog={pointLog} wards={wards} leaderNames={leaderNames} applyResult={applyResult} isLeader={isLeader} />,
-    registration: <RegistrationPage registrations={registrations} applyResult={applyResult} />,
+    registration: <RegistrationPage registrations={registrations} applyResult={applyResult} isLeader={isLeader} />,
     photos: <PhotosPage photos={photos} />,
     contacts: <ContactsPage contacts={contacts} applyResult={applyResult} isLeader={isLeader} />,
     rules: <RulesPage rules={rules} />,
     inspiration: <InspirationPage inspiration={inspiration} />,
-    leaders: <LeadersPage leaders={leaders} wards={profileOptions.wards} callingOptions={leaderCallingOptions} applyResult={applyResult} />,
+    leaders: <LeadersPage leaders={leaders} wards={profileOptions.wards} callingOptions={leaderCallingOptions} applyResult={applyResult} isLeader={isLeader} />,
     docs: <DocsPage docs={docs} />,
     profile: (
       <ProfilePage

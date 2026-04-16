@@ -808,7 +808,7 @@ export default function RegisterDesignPage({
         onSignOut={handleSignOut}
         signingOut={signingOut}
         profile={profile}
-        isLeader
+        isLeader={canManageRegistrations}
       />
       <div
         className="mobile-menu"

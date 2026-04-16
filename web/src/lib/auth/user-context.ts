@@ -41,6 +41,17 @@ const roleLabelMap: Record<AppRole, string> = {
   parent: "Parent",
 };
 
+/**
+ * Camp staff (`user_roles`) — only these grant leader UI and registration tools.
+ * Parents, campers, and young men captains use `parent` / `young_man` / `young_men_captain` and never match here.
+ */
+const CAMP_STAFF_ROLE_SET = new Set<AppRole>([
+  "stake_leader",
+  "stake_camp_director",
+  "camp_committee",
+  "ward_leader",
+]);
+
 export type UserContext = {
   user: User;
   displayName: string;
@@ -98,6 +109,7 @@ export async function getUserContext(
       supabase
         .from("user_roles")
         .select("role, ward_id, participant_id")
+        .eq("user_id", user.id)
         .order("role"),
       supabase
         .from("user_profiles")
@@ -153,22 +165,17 @@ export async function getUserContext(
     roleSet.has("stake_leader") || roleSet.has("stake_camp_director");
   const canManageContent = isStakeAdmin || roleSet.has("camp_committee");
   const canManageUnits = isStakeAdmin || roleSet.has("ward_leader");
-  const canManageRegistrations =
-    canManageContent ||
-    roleSet.has("ward_leader") ||
-    roleSet.has("young_men_captain");
-  const isLeader = canManageRegistrations;
-  const isCamper = roleSet.has("young_man");
+  const canManageRegistrations = canManageContent || roleSet.has("ward_leader");
+  const isLeader = roles.some((row) => CAMP_STAFF_ROLE_SET.has(row.role));
+  const isCamper =
+    roleSet.has("young_man") || roleSet.has("young_men_captain");
 
   const managedWardIds = isStakeAdmin
     ? wardIds
     : ([
         ...new Set(
           roles
-            .filter(
-              (role) =>
-                role.role === "ward_leader" || role.role === "young_men_captain",
-            )
+            .filter((role) => role.role === "ward_leader")
             .map((role) => role.ward_id)
             .filter(Boolean),
         ),
