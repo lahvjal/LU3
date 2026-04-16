@@ -8,6 +8,10 @@ import { leaderInviteEmail, parentInviteEmail } from "@/lib/email/templates";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
+  completeOnboardingProfileInDb,
+  insertParentYoungMenInDb,
+} from "@/lib/app/onboarding-completion-api";
+import {
   type CampDesignInitialData,
   getCampDesignInitialData,
 } from "@/lib/app/camp-design-data";
@@ -388,9 +392,26 @@ export async function updateMyProfileAction(
     }
   }
 
-  const onboardingCompletedAt = shouldCompleteOnboarding
-    ? new Date().toISOString()
-    : (context.onboardingCompletedAt ?? null);
+  if (shouldCompleteOnboarding) {
+    const r = await completeOnboardingProfileInDb(
+      supabase,
+      context.user.id,
+      context.user.email?.toLowerCase() ?? undefined,
+      {
+        displayName,
+        avatarUrl: avatarRaw,
+        phone,
+        wardId,
+        signatureName: input.signatureName,
+      },
+    );
+    if (!r.ok) {
+      return fail(r.error);
+    }
+    return { ok: true as const, onboardingDone: true };
+  }
+
+  const onboardingCompletedAt = context.onboardingCompletedAt ?? null;
 
   const profilePayload: Record<string, string | number | null> = {
     user_id: context.user.id,
@@ -401,10 +422,6 @@ export async function updateMyProfileAction(
     ward_id: wardId,
   };
 
-  if (shouldCompleteOnboarding) {
-    profilePayload.onboarding_completed_at = onboardingCompletedAt;
-  }
-
   if (input.signatureName !== undefined) {
     profilePayload.terms_accepted_at = input.signatureName?.trim()
       ? (onboardingCompletedAt ?? new Date().toISOString())
@@ -412,37 +429,13 @@ export async function updateMyProfileAction(
     profilePayload.signature_name = input.signatureName?.trim() || null;
   }
 
-  const { error, data: upsertedRows } = await supabase
+  const { error } = await supabase
     .from("user_profiles")
     .upsert(profilePayload, { onConflict: "user_id" })
     .select("user_id, display_name, onboarding_completed_at");
 
   if (error) {
     return fail(error.message);
-  }
-
-  if (shouldCompleteOnboarding && onboardingCompletedAt) {
-    // If user has a leadership role on their profile, ensure user_roles is in sync
-    const { data: profileRow } = await supabase
-      .from("user_profiles")
-      .select("role, ward_id")
-      .eq("user_id", context.user.id)
-      .maybeSingle();
-
-    if (profileRow?.role && isLeadershipRole(profileRow.role)) {
-      try {
-        const roleWardId = WARD_SCOPED_LEADERSHIP_ROLES.has(profileRow.role as LeadershipRole)
-          ? (profileRow.ward_id ?? null)
-          : null;
-        await ensureLeadershipUserRole(supabase, context.user.id, profileRow.role, roleWardId);
-      } catch (err) {
-        console.error("[onboarding] failed to sync user_role:", err);
-      }
-    }
-  }
-
-  if (shouldCompleteOnboarding) {
-    return { ok: true as const, onboardingDone: true };
   }
 
   return success({
@@ -464,36 +457,11 @@ export async function saveParentYoungMenAction(input: {
   youngMen: YoungManInput[];
 }): Promise<ActionResult> {
   const context = await getUserContext();
-  if (context.profileRole !== "parent") {
-    return fail("Only parent accounts can register young men here.");
+  const supabase = await createSupabaseServerClient();
+  const r = await insertParentYoungMenInDb(supabase, context.user.id, input.youngMen ?? []);
+  if (!r.ok) {
+    return fail(r.error);
   }
-  if (!context.onboardingCompletedAt) {
-    return fail("Finish profile setup first, then try again.");
-  }
-
-  const rows = (input.youngMen ?? []).filter(
-    (ym) => ym.firstName?.trim() && ym.lastName?.trim(),
-  );
-  if (rows.length === 0) {
-    return { ok: true, onboardingDone: true };
-  }
-
-  const admin = createSupabaseAdminClient() as any;
-  const youngMenPayload = rows.map((ym) => ({
-    parent_id: context.user.id,
-    first_name: ym.firstName.trim(),
-    last_name: ym.lastName.trim(),
-    age: Number(ym.age) || 12,
-    shirt_size_code: ym.shirtSizeCode?.trim() || null,
-    allergies: ym.allergies?.trim() || null,
-    medical_notes: ym.medicalNotes?.trim() || null,
-  }));
-
-  const { error: ymError } = await admin.from("young_men").insert(youngMenPayload);
-  if (ymError) {
-    return fail(`Could not save young men: ${ymError.message}`);
-  }
-
   return { ok: true, onboardingDone: true };
 }
 

@@ -24,7 +24,6 @@ import {
   sendParentInviteAction,
   signOutCampAction,
   updateMyProfileAction,
-  saveParentYoungMenAction,
 } from "@/lib/app/camp-design-actions";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
@@ -1878,17 +1877,29 @@ export default function CampDesignApp({ initialData, profile }) {
         return;
       }
 
-      const result = await updateMyProfileAction({
-        displayName: onboardingForm.displayName,
-        avatarUrl: profileData.avatarUrl ?? "",
-        phone: onboardingForm.phone,
-        wardId: onboardingForm.wardId,
-        markOnboardingComplete: true,
-        signatureName: isParent && extraData?.signatureName ? extraData.signatureName : undefined,
+      const profileRes = await fetch("/api/onboarding/complete-profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          displayName: onboardingForm.displayName,
+          avatarUrl: profileData.avatarUrl ?? "",
+          phone: onboardingForm.phone,
+          wardId: onboardingForm.wardId,
+          signatureName:
+            isParent && extraData?.signatureName
+              ? extraData.signatureName
+              : undefined,
+        }),
       });
-
-      if (!result.ok) {
-        window.alert(result.error);
+      const profileJson = await profileRes.json().catch(() => ({}));
+      if (!profileRes.ok || !profileJson.ok) {
+        window.alert(
+          profileJson.error ||
+            (profileRes.status === 401
+              ? "Your session expired. Please sign in again."
+              : "Could not complete registration. Please try again."),
+        );
         return;
       }
 
@@ -1901,18 +1912,22 @@ export default function CampDesignApp({ initialData, profile }) {
           allergies: ym.allergies,
           medicalNotes: ym.medicalNotes,
         }));
-        const ymResult = await saveParentYoungMenAction({ youngMen: youngMenPayload });
-        if (!ymResult.ok) {
+        const ymRes = await fetch("/api/onboarding/parent-young-men", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ youngMen: youngMenPayload }),
+        });
+        const ymJson = await ymRes.json().catch(() => ({}));
+        if (!ymRes.ok || !ymJson.ok) {
           window.alert(
-            `${ymResult.error}\n\nYour profile was saved. You can refresh the page and contact support if this keeps happening.`,
+            `${ymJson.error || "Could not save young men."}\n\nYour profile was saved. Refresh the page or contact support if this keeps happening.`,
           );
           return;
         }
       }
 
-      if (result.onboardingDone) {
-        window.location.href = "/";
-      }
+      window.location.href = "/";
     } catch (err) {
       window.alert(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
