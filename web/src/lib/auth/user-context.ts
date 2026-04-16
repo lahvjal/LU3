@@ -209,7 +209,7 @@ export async function getUserContext(
     canManageContent,
     canManageUnits,
     canManageRegistrations,
-    canAwardCompetitionPoints: isStakeAdmin || isCompetitionStaff,
+    canAwardCompetitionPoints: isLeader,
     isCamper,
     inviteType,
   };
