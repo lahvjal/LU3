@@ -99,7 +99,7 @@ export default async function StakeLeadersRoutePage() {
       supabase.from("wards").select("id, name").order("name"),
       supabase.from("leader_callings").select("id, name").order("name"),
       supabase
-        .from("leader_invitations")
+        .from("leaders")
         .select(
           "id, email, user_id, role, ward_id, status, invited_at, accepted_at, calling:leader_callings(name), ward:wards(name)",
         )

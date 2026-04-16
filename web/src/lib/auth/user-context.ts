@@ -154,7 +154,7 @@ export async function getUserContext(
       const admin = createSupabaseAdminClient() as any;
       const normalizedEmail = user.email.trim().toLowerCase();
       const { data: pendingInvites } = await admin
-        .from("leader_invitations")
+        .from("leaders")
         .select("id, role, ward_id")
         .ilike("email", normalizedEmail)
         .eq("status", "pending");
@@ -175,7 +175,7 @@ export async function getUserContext(
           );
 
           await admin
-            .from("leader_invitations")
+            .from("leaders")
             .update({
               user_id: user.id,
               status: "active",

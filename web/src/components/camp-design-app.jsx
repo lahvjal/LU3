@@ -3,14 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  addCamperAction,
   addContactAction,
   addParentAction,
   awardPointsAction,
   createActivityAction,
   createAgendaItemAction,
   createCompetitionAction,
-  createUnitAction,
   createWardAction,
   deleteLeaderInvitationAction,
   deleteActivityAction,
@@ -18,11 +16,11 @@ import {
   deleteCompetitionAction,
   deleteContactAction,
   deleteParentAction,
-  deleteUnitAction,
   deleteWardAction,
+  updateWardAction,
   inviteLeaderAction,
+  updateLeaderAction,
   refreshCampDesignDataAction,
-  removeCamperAction,
   sendParentInviteAction,
   signOutCampAction,
   updateMyProfileAction,
@@ -64,6 +62,7 @@ const Icon = ({ name, size = 20, color }) => {
     flag: <><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></>,
     check: <><path d="M20 6L9 17l-5-5"/></>,
     trash: <><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></>,
+    edit: <><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></>,
     user: <><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></>,
     logOut: <><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></>,
   };
@@ -87,7 +86,6 @@ const NAV = [
   { key: "dashboard", label: "Dashboard", icon: "home" }, { key: "activities", label: "Activities", icon: "calendar" },
   { key: "agenda", label: "Daily Agenda", icon: "clock" }, { key: "wardRosters", label: "Ward Rosters", icon: "users" },
   { key: "wards", label: "Wards", icon: "flag", leaderOnly: true },
-  { key: "units", label: "Unit Rosters", icon: "flag" },
   { key: "competitions", label: "Competitions", icon: "trophy" }, { key: "registration", label: "Registration", icon: "clipboard", leaderOnly: true },
   { key: "photos", label: "Photo Gallery", icon: "camera" }, { key: "contacts", label: "Contacts", icon: "phone" },
   { key: "rules", label: "Camp Rules", icon: "shield" }, { key: "inspiration", label: "Daily Inspiration", icon: "sun", leaderOnly: true },
@@ -99,7 +97,6 @@ const PAGE_TO_PATH = {
   activities: "/activities",
   agenda: "/agenda",
   wardRosters: "/ward-rosters",
-  units: "/units",
   wards: "/wards",
   competitions: "/competitions",
   registration: "/register",
@@ -120,7 +117,6 @@ function resolvePageFromPathname(pathname) {
   if (pathname.startsWith("/activities")) return "activities";
   if (pathname.startsWith("/agenda")) return "agenda";
   if (pathname.startsWith("/ward-rosters") || pathname.startsWith("/unit-roster")) return "wardRosters";
-  if (pathname.startsWith("/units")) return "units";
   if (pathname.startsWith("/wards")) return "wards";
   if (pathname.startsWith("/competitions")) return "competitions";
   if (pathname.startsWith("/contacts")) return "contacts";
@@ -288,12 +284,12 @@ const EMPTY_PROFILE_OPTIONS = {
 // PAGES
 // ═══════════════════════════════════════════
 
-const Dashboard = ({ goTo, units, activities, competitions, pointLog, agenda, inspiration }) => {
+const Dashboard = ({ goTo, wards, activities, competitions, pointLog, agenda, inspiration }) => {
   const today = inspiration[0] || { verse: "", ref: "" };
   const todayAgenda = agenda[0] || [];
-  const totalCampers = units.reduce((s, u) => s + u.campers.length, 0);
-  const totals = {}; units.forEach(u => { totals[u.id] = 0; }); pointLog.forEach(p => { totals[p.unitId] = (totals[p.unitId] || 0) + p.points; });
-  const top = Object.entries(totals).sort((a, b) => b[1] - a[1]).map(([uid]) => units.find(u => u.id === uid)).filter(Boolean);
+  const totalCampers = wards.reduce((s, w) => s + w.campers.length, 0);
+  const totals = {}; wards.forEach(w => { totals[w.id] = 0; }); pointLog.forEach(p => { totals[p.wardId] = (totals[p.wardId] || 0) + p.points; });
+  const top = Object.entries(totals).sort((a, b) => b[1] - a[1]).map(([wid]) => wards.find(w => w.id === wid)).filter(Boolean);
   return (
     <div>
       <PageHeader icon="home" title="Camp Dashboard" subtitle="Lehi Utah 3rd Stake — June 15–19, 2026" />
@@ -303,7 +299,7 @@ const Dashboard = ({ goTo, units, activities, competitions, pointLog, agenda, in
         <p style={{ color: T.textMuted, fontSize: "13px", margin: 0 }}>— {today.ref}</p>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "14px", marginBottom: "28px" }}>
-        {[{ label: "Units", value: units.length, icon: "flag", color: T.green, go: "units" }, { label: "Campers", value: totalCampers, icon: "users", color: T.blue, go: "units" }, { label: "Activities", value: activities.length, icon: "calendar", color: T.accent, go: "activities" }, { label: "Competitions", value: competitions.length, icon: "trophy", color: T.yellow, go: "competitions" }].map(s => (
+        {[{ label: "Wards", value: wards.length, icon: "flag", color: T.green, go: "wardRosters" }, { label: "Young Men", value: totalCampers, icon: "users", color: T.blue, go: "wardRosters" }, { label: "Activities", value: activities.length, icon: "calendar", color: T.accent, go: "activities" }, { label: "Competitions", value: competitions.length, icon: "trophy", color: T.yellow, go: "competitions" }].map(s => (
           <div key={s.label} style={{ ...css.card, textAlign: "center", padding: "18px", cursor: "pointer" }} onClick={() => goTo(s.go)}>
             <Icon name={s.icon} size={22} color={s.color} />
             <div style={{ fontSize: "28px", fontWeight: 700, color: T.text, margin: "8px 0 2px", fontFamily: T.fontDisplay }}>{s.value}</div>
@@ -418,78 +414,46 @@ const AgendaPage = ({ agenda, applyResult, isLeader }) => {
   );
 };
 
-const UnitsPage = ({ units, applyResult, isLeader }) => {
-  const [modal, setModal] = useState(null);
-  const [unitForm, setUnitForm] = useState({ name: "", leader: "", leader_email: "" });
-  const [camperName, setCamperName] = useState("");
-  const [addingTo, setAddingTo] = useState(null);
-  const addUnit = async () => {
-    if (!unitForm.name) return;
-    const result = await createUnitAction(unitForm);
-    if (applyResult(result)) {
-      setUnitForm({ name: "", leader: "", leader_email: "" });
-      setModal(null);
-    }
-  };
-  const addCamper = async (uid) => {
-    if (!camperName.trim()) return;
-    const result = await addCamperAction({
-      unitId: uid,
-      camperName: camperName.trim(),
-    });
-    if (applyResult(result)) {
-      setCamperName("");
-    }
-  };
-  const removeCamper = async (camperId) => {
-    const result = await removeCamperAction(camperId);
-    applyResult(result);
-  };
-  const delUnit = async (id) => {
-    const result = await deleteUnitAction(id);
-    applyResult(result);
-  };
-  return (
-    <div>
-      <PageHeader icon="users" title="Unit Rosters" subtitle={`${units.length} camp teams · ${units.reduce((s, u) => s + u.campers.length, 0)} campers`} action={isLeader ? <button onClick={() => setModal("unit")} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> New Unit</button> : null} />
-      <Modal open={modal === "unit"} onClose={() => setModal(null)} title="Create New Unit">
-        <Field label="Unit Name"><input style={css.input} value={unitForm.name} onChange={e => setUnitForm(p => ({ ...p, name: e.target.value }))} placeholder="Trailblazers" /></Field>
-        <Field label="Leader Name"><input style={css.input} value={unitForm.leader} onChange={e => setUnitForm(p => ({ ...p, leader: e.target.value }))} placeholder="Bro. Smith" /></Field>
-        <Field label="Leader Email"><input style={css.input} value={unitForm.leader_email} onChange={e => setUnitForm(p => ({ ...p, leader_email: e.target.value }))} placeholder="smith@email.com" /></Field>
-        <button onClick={addUnit} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px" }}>Create Unit</button>
-      </Modal>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: "16px" }}>
-        {units.map(u => (
-          <div key={u.id} style={{ ...css.card, borderTop: `3px solid ${u.color}` }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
-              <h3 style={{ fontFamily: T.fontDisplay, fontSize: "18px", color: T.text, margin: 0 }}>{u.name}</h3>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}><Badge bg={u.color + "22"} text={u.color}>{u.campers.length}</Badge>{isLeader && <button onClick={() => delUnit(u.id)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.4 }}><Icon name="trash" size={14} color={T.red} /></button>}</div>
-            </div>
-            <div style={{ fontSize: "13px", color: T.textMuted, marginBottom: "14px" }}><Icon name="star" size={14} color={u.color} /> <strong style={{ color: T.text }}>{u.leader}</strong> — {u.leader_email}</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "12px" }}>
-              {u.campers.map((c) => (<div key={c.id} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "7px 12px", borderRadius: T.radiusSm, background: T.bg }}><div style={{ width: "26px", height: "26px", borderRadius: "50%", background: u.color + "33", color: u.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700 }}>{c.name[0]}</div><span style={{ fontSize: "13px", color: T.text, flex: 1 }}>{c.name}</span>{isLeader && <button onClick={() => removeCamper(c.id)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.3 }}><Icon name="x" size={12} color={T.red} /></button>}</div>))}
-            </div>
-            {isLeader && <div style={{ display: "flex", gap: "8px" }}>
-              <input style={{ ...css.input, flex: 1, padding: "8px 12px", fontSize: "13px" }} placeholder="Assign existing camper..." value={addingTo === u.id ? camperName : ""} onFocus={() => { setAddingTo(u.id); setCamperName(""); }} onChange={e => setCamperName(e.target.value)} onKeyDown={e => e.key === "Enter" && addCamper(u.id)} />
-              <button onClick={() => addCamper(u.id)} style={{ ...css.btn(), padding: "8px 12px" }}><Icon name="plus" size={14} color="#1a1612" /></button>
-            </div>}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-};
+
+const WARD_COLOR_PRESETS = [
+  "#d4915e", "#6b9e6b", "#6b8eb0", "#c46b5e", "#c4a84e",
+  "#9a7eb8", "#e6735c", "#5c9e9e", "#b8864e", "#7a8ec4",
+  "#c47ea8", "#8eb85c", "#d4b86b", "#6bc4c4", "#b85c7a",
+];
 
 const WardsPage = ({ wards, applyResult, isLeader }) => {
   const [modal, setModal] = useState(false);
-  const [wardForm, setWardForm] = useState({ name: "", leader: "", leader_email: "" });
+  const [editWard, setEditWard] = useState(null);
+  const emptyForm = { name: "", leader: "", leader_email: "", color: "" };
+  const [wardForm, setWardForm] = useState(emptyForm);
 
-  const addWard = async () => {
+  const openCreateModal = () => {
+    setEditWard(null);
+    setWardForm(emptyForm);
+    setModal(true);
+  };
+
+  const openEditModal = (ward) => {
+    setEditWard(ward);
+    setWardForm({ name: ward.name, leader: ward.leader, leader_email: ward.leader_email, color: ward.color || "" });
+    setModal(true);
+  };
+
+  const saveWard = async () => {
     if (!wardForm.name.trim()) return;
-    const result = await createWardAction(wardForm);
-    if (applyResult(result)) {
-      setWardForm({ name: "", leader: "", leader_email: "" });
-      setModal(false);
+    if (editWard) {
+      const result = await updateWardAction(editWard.id, wardForm);
+      if (applyResult(result)) {
+        setWardForm(emptyForm);
+        setEditWard(null);
+        setModal(false);
+      }
+    } else {
+      const result = await createWardAction(wardForm);
+      if (applyResult(result)) {
+        setWardForm(emptyForm);
+        setModal(false);
+      }
     }
   };
 
@@ -498,29 +462,56 @@ const WardsPage = ({ wards, applyResult, isLeader }) => {
     applyResult(result);
   };
 
+  const closeModal = () => {
+    setModal(false);
+    setEditWard(null);
+    setWardForm(emptyForm);
+  };
+
   return (
     <div>
-      <PageHeader icon="flag" title="Wards" subtitle={`${wards.length} wards in the stake`} action={isLeader ? <button onClick={() => setModal(true)} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> Add Ward</button> : null} />
-      <Modal open={modal} onClose={() => setModal(false)} title="Create Ward" width={560}>
+      <PageHeader icon="flag" title="Wards" subtitle={`${wards.length} wards in the stake`} action={isLeader ? <button onClick={openCreateModal} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> Add Ward</button> : null} />
+      <Modal open={modal} onClose={closeModal} title={editWard ? "Edit Ward" : "Create Ward"} width={560}>
         <Field label="Ward Name"><input style={css.input} value={wardForm.name} onChange={e => setWardForm(p => ({ ...p, name: e.target.value }))} placeholder="Lehi 3rd Ward" /></Field>
         <Field label="Ward Leader"><input style={css.input} value={wardForm.leader} onChange={e => setWardForm(p => ({ ...p, leader: e.target.value }))} placeholder="Bro. Smith" /></Field>
         <Field label="Leader Email"><input style={css.input} value={wardForm.leader_email} onChange={e => setWardForm(p => ({ ...p, leader_email: e.target.value }))} placeholder="smith@email.com" /></Field>
-        <button onClick={addWard} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px" }}>Create Ward</button>
+        <Field label="Ward Color">
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "8px" }}>
+            {WARD_COLOR_PRESETS.map((c) => (
+              <button key={c} onClick={() => setWardForm(p => ({ ...p, color: c }))} style={{
+                width: 32, height: 32, borderRadius: "6px", border: wardForm.color === c ? "2px solid #fff" : "2px solid transparent",
+                background: c, cursor: "pointer", boxShadow: wardForm.color === c ? "0 0 0 2px " + c : "none", transition: "all 0.15s",
+              }} />
+            ))}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <input type="color" value={wardForm.color || "#d4915e"} onChange={e => setWardForm(p => ({ ...p, color: e.target.value }))} style={{ width: 40, height: 32, border: "none", background: "none", cursor: "pointer", padding: 0 }} />
+            <input style={{ ...css.input, flex: 1 }} value={wardForm.color} onChange={e => setWardForm(p => ({ ...p, color: e.target.value }))} placeholder="#d4915e" />
+            {wardForm.color && <button onClick={() => setWardForm(p => ({ ...p, color: "" }))} style={{ background: "none", border: "none", color: T.textMuted, cursor: "pointer", fontSize: "12px" }}>Clear</button>}
+          </div>
+        </Field>
+        <button onClick={saveWard} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px" }}>{editWard ? "Save Changes" : "Create Ward"}</button>
       </Modal>
       {!wards.length ? (
         <EmptyState icon="flag" message="No wards yet. Create your first ward to get started." />
       ) : (
         <div style={{ ...css.card, padding: 0, overflow: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", minWidth: "640px" }}>
-            <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>{["Ward", "Leader", "Leader Email", "Campers", ...(isLeader ? [""] : [])].map(h => <th key={h} style={{ padding: "11px 14px", textAlign: "left", color: T.textMuted, fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>{h}</th>)}</tr></thead>
+            <thead><tr style={{ borderBottom: `2px solid ${T.border}` }}>{["_color", "Ward", "Leader", "Leader Email", "Young Men", ...(isLeader ? ["_actions"] : [])].map(h => <th key={h} style={{ padding: "11px 14px", textAlign: "left", color: T.textMuted, fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>{h.startsWith("_") ? "" : h}</th>)}</tr></thead>
             <tbody>{wards.map((ward, index) => (
               <tr key={ward.id} style={{ borderBottom: `1px solid ${T.border}`, background: index % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)" }}>
+                <td style={{ padding: "11px 14px", width: "36px" }}>
+                  <div style={{ width: 14, height: 14, borderRadius: "50%", background: ward.color || T.textDim, border: `1px solid ${T.border}` }} />
+                </td>
                 <td style={{ padding: "11px 14px", fontWeight: 700, color: T.text }}>{ward.name}</td>
                 <td style={{ padding: "11px 14px", color: T.textMuted }}>{ward.leader || "—"}</td>
                 <td style={{ padding: "11px 14px", color: T.textMuted }}>{ward.leader_email || "—"}</td>
                 <td style={{ padding: "11px 14px", color: T.textMuted }}>{ward.campers.length}</td>
-                {isLeader && <td style={{ padding: "11px 14px", width: "70px" }}>
-                  <button onClick={() => deleteWard(ward.id)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.45 }}><Icon name="trash" size={14} color={T.red} /></button>
+                {isLeader && <td style={{ padding: "11px 14px", width: "100px" }}>
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <button onClick={() => openEditModal(ward)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.45 }}><Icon name="edit" size={14} color={T.accent} /></button>
+                    <button onClick={() => deleteWard(ward.id)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.45 }}><Icon name="trash" size={14} color={T.red} /></button>
+                  </div>
                 </td>}
               </tr>
             ))}</tbody>
@@ -531,15 +522,15 @@ const WardsPage = ({ wards, applyResult, isLeader }) => {
   );
 };
 
-const CompetitionsPage = ({ competitions, pointLog, units, leaderNames, applyResult, isLeader }) => {
+const CompetitionsPage = ({ competitions, pointLog, wards, leaderNames, applyResult, isLeader }) => {
   const [expanded, setExpanded] = useState(null);
   const [modal, setModal] = useState(null);
   const [awardComp, setAwardComp] = useState(null);
   const [compForm, setCompForm] = useState({ name: "", rules: "", status: "upcoming" });
-  const [pointForm, setPointForm] = useState({ unitId: "", points: "", note: "", leader: "" });
+  const [pointForm, setPointForm] = useState({ wardId: "", points: "", note: "", leader: "" });
 
-  const totals = useMemo(() => { const t = {}; units.forEach(u => { t[u.id] = 0; }); pointLog.forEach(p => { t[p.unitId] = (t[p.unitId] || 0) + p.points; }); return t; }, [pointLog, units]);
-  const leaderboard = useMemo(() => Object.entries(totals).map(([uid, pts]) => ({ unit: units.find(u => u.id === uid), pts })).filter(e => e.unit).sort((a, b) => b.pts - a.pts), [totals, units]);
+  const totals = useMemo(() => { const t = {}; wards.forEach(w => { t[w.id] = 0; }); pointLog.forEach(p => { t[p.wardId] = (t[p.wardId] || 0) + p.points; }); return t; }, [pointLog, wards]);
+  const leaderboard = useMemo(() => Object.entries(totals).map(([wid, pts]) => ({ ward: wards.find(w => w.id === wid), pts })).filter(e => e.ward).sort((a, b) => b.pts - a.pts), [totals, wards]);
 
   const addComp = async () => {
     if (!compForm.name) return;
@@ -553,20 +544,20 @@ const CompetitionsPage = ({ competitions, pointLog, units, leaderNames, applyRes
     const result = await deleteCompetitionAction(id);
     applyResult(result);
   };
-  const openAward = (c) => { setAwardComp(c); setPointForm({ unitId: units[0]?.id || "", points: "", note: "", leader: "" }); setModal("points"); };
+  const openAward = (c) => { setAwardComp(c); setPointForm({ wardId: wards[0]?.id || "", points: "", note: "", leader: "" }); setModal("points"); };
   const award = async () => {
     const pts = parseInt(pointForm.points, 10);
-    if (!pts || !pointForm.unitId || !pointForm.leader || !pointForm.note || !awardComp?.id) return;
+    if (!pts || !pointForm.wardId || !pointForm.leader || !pointForm.note || !awardComp?.id) return;
     if (Math.abs(pts) > 100) return;
     const result = await awardPointsAction({
       competitionId: awardComp.id,
-      unitId: pointForm.unitId,
+      wardId: pointForm.wardId,
       points: pts,
       note: pointForm.note,
       leader: pointForm.leader,
     });
     if (applyResult(result)) {
-      setPointForm({ unitId: units[0]?.id || "", points: "", note: "", leader: "" });
+      setPointForm({ wardId: wards[0]?.id || "", points: "", note: "", leader: "" });
       setModal(null);
     }
   };
@@ -582,7 +573,7 @@ const CompetitionsPage = ({ competitions, pointLog, units, leaderNames, applyRes
       </Modal>
       <Modal open={modal === "points"} onClose={() => setModal(null)} title={`Award Points — ${awardComp?.name || ""}`}>
         <Field label="Your Name (Leader)"><select style={css.select} value={pointForm.leader} onChange={e => setPointForm(p => ({ ...p, leader: e.target.value }))}><option value="">Select your name...</option>{leaderNames.map(n => <option key={n} value={n}>{n}</option>)}</select></Field>
-        <Field label="Unit"><select style={css.select} value={pointForm.unitId} onChange={e => setPointForm(p => ({ ...p, unitId: e.target.value }))}>{units.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}</select></Field>
+        <Field label="Ward"><select style={css.select} value={pointForm.wardId} onChange={e => setPointForm(p => ({ ...p, wardId: e.target.value }))}>{wards.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select></Field>
         <Field label="Points (negative for deductions, max ±100)"><input style={css.input} type="number" min="-100" max="100" value={pointForm.points} onChange={e => setPointForm(p => ({ ...p, points: e.target.value }))} placeholder="25 or -5" /></Field>
         <Field label="Note (required)"><textarea style={{ ...css.input, minHeight: "60px", resize: "vertical" }} value={pointForm.note} onChange={e => setPointForm(p => ({ ...p, note: e.target.value }))} placeholder="Won round 2, Best presentation..." /></Field>
         <div style={{ display: "flex", gap: "10px" }}>
@@ -597,12 +588,12 @@ const CompetitionsPage = ({ competitions, pointLog, units, leaderNames, applyRes
           <h3 style={{ fontFamily: T.fontDisplay, fontSize: "18px", color: T.text, margin: 0 }}>🏆 Overall Leaderboard</h3>
           <span style={{ fontSize: "12px", color: T.textDim }}>{pointLog.length} point entries</span>
         </div>
-        {leaderboard.map((entry, i) => { const maxPts = Math.max(leaderboard[0]?.pts || 1, 1); return (
-          <div key={entry.unit.id} style={{ display: "flex", alignItems: "center", gap: "14px", padding: "10px 14px", borderRadius: T.radiusSm, background: i === 0 ? T.yellowBg : T.bg, marginBottom: "6px" }}>
+        {leaderboard.map((entry, i) => { const maxPts = Math.max(leaderboard[0]?.pts || 1, 1); const wardColor = entry.ward.color || T.accent; return (
+          <div key={entry.ward.id} style={{ display: "flex", alignItems: "center", gap: "14px", padding: "10px 14px", borderRadius: T.radiusSm, background: i === 0 ? T.yellowBg : T.bg, marginBottom: "6px" }}>
             <span style={{ fontSize: "20px", fontWeight: 800, color: i === 0 ? T.yellow : T.textDim, fontFamily: T.fontDisplay, minWidth: "30px" }}>#{i + 1}</span>
-            <div style={{ width: "12px", height: "12px", borderRadius: "50%", background: entry.unit.color }} />
-            <span style={{ fontWeight: 600, color: T.text, minWidth: "100px" }}>{entry.unit.name}</span>
-            <div style={{ flex: 1, height: "8px", borderRadius: "4px", background: T.border, overflow: "hidden" }}><div style={{ height: "100%", borderRadius: "4px", background: entry.unit.color, width: `${Math.max(0, (entry.pts / maxPts) * 100)}%`, transition: "width 0.5s ease" }} /></div>
+            <div style={{ width: "12px", height: "12px", borderRadius: "50%", background: wardColor }} />
+            <span style={{ fontWeight: 600, color: T.text, minWidth: "100px" }}>{entry.ward.name}</span>
+            <div style={{ flex: 1, height: "8px", borderRadius: "4px", background: T.border, overflow: "hidden" }}><div style={{ height: "100%", borderRadius: "4px", background: wardColor, width: `${Math.max(0, (entry.pts / maxPts) * 100)}%`, transition: "width 0.5s ease" }} /></div>
             <span style={{ fontWeight: 700, color: T.accent, minWidth: "55px", textAlign: "right", fontFamily: "monospace" }}>{entry.pts} pts</span>
           </div>
         ); })}
@@ -613,7 +604,7 @@ const CompetitionsPage = ({ competitions, pointLog, units, leaderNames, applyRes
         {competitions.map(c => {
           const isExp = expanded === c.id;
           const logs = pointLog.filter(p => p.compId === c.id);
-          const ct = {}; units.forEach(u => { ct[u.id] = 0; }); logs.forEach(l => { ct[l.unitId] = (ct[l.unitId] || 0) + l.points; });
+          const ct = {}; wards.forEach(w => { ct[w.id] = 0; }); logs.forEach(l => { ct[l.wardId] = (ct[l.wardId] || 0) + l.points; });
           return (
             <div key={c.id} style={{ ...css.card, padding: 0, overflow: "hidden" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "14px", padding: "16px 20px", cursor: "pointer" }} onClick={() => setExpanded(isExp ? null : c.id)}>
@@ -625,15 +616,15 @@ const CompetitionsPage = ({ competitions, pointLog, units, leaderNames, applyRes
               </div>
               {isExp && <div style={{ borderTop: `1px solid ${T.border}` }}>
                 <div style={{ padding: "16px 20px", background: "rgba(255,255,255,0.01)" }}><p style={{ fontSize: "13px", color: T.textMuted, margin: 0 }}><strong style={{ color: T.text }}>Rules:</strong> {c.rules}</p></div>
-                <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, display: "flex", gap: "10px", flexWrap: "wrap" }}>{units.map(u => <div key={u.id} style={{ ...css.badge(u.color + "22", u.color), fontSize: "12px", padding: "5px 12px" }}>{u.name}: {ct[u.id] || 0} pts</div>)}</div>
+                <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, display: "flex", gap: "10px", flexWrap: "wrap" }}>{wards.map(w => { const wc = w.color || T.accent; return <div key={w.id} style={{ ...css.badge(wc + "22", wc), fontSize: "12px", padding: "5px 12px" }}>{w.name}: {ct[w.id] || 0} pts</div>; })}</div>
                 <div style={{ borderTop: `1px solid ${T.border}` }}>
                   <div style={{ padding: "12px 20px", display: "flex", alignItems: "center", gap: "8px" }}><Icon name="clock" size={14} color={T.textDim} /><span style={{ fontSize: "12px", fontWeight: 600, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.04em" }}>Point History ({logs.length})</span></div>
                   {!logs.length ? <div style={{ padding: "20px", textAlign: "center", color: T.textDim, fontSize: "13px" }}>No points awarded yet.</div> : (
                     <div style={{ maxHeight: "300px", overflowY: "auto" }}>{[...logs].reverse().map(l => {
-                      const unit = units.find(u => u.id === l.unitId); const isNeg = l.points < 0;
+                      const ward = wards.find(w => w.id === l.wardId); const isNeg = l.points < 0; const wc = ward?.color || T.textDim;
                       return (<div key={l.id} style={{ display: "flex", gap: "14px", padding: "10px 20px", borderTop: `1px solid ${T.border}`, alignItems: "flex-start" }}>
                         <div style={{ minWidth: "50px", textAlign: "right" }}><span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "15px", color: isNeg ? T.red : T.green }}>{isNeg ? "" : "+"}{l.points}</span></div>
-                        <div style={{ width: "10px", height: "10px", borderRadius: "50%", background: unit?.color || T.textDim, marginTop: "5px", flexShrink: 0 }} />
+                        <div style={{ width: "10px", height: "10px", borderRadius: "50%", background: wc, marginTop: "5px", flexShrink: 0 }} />
                         <div style={{ flex: 1 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "3px" }}><span style={{ fontWeight: 600, color: T.text, fontSize: "13px" }}>{unit?.name || "?"}</span>{isNeg && <Badge bg={T.redBg} text={T.red}>deduction</Badge>}</div>
                           <p style={{ fontSize: "13px", color: T.textMuted, margin: "0 0 4px", lineHeight: 1.4 }}>{l.note}</p>
@@ -652,40 +643,75 @@ const CompetitionsPage = ({ competitions, pointLog, units, leaderNames, applyRes
   );
 };
 
-const WardRostersPage = ({ wards }) => {
+const WardRostersPage = ({ wards, leaders }) => {
+  const leadersByWard = useMemo(() => {
+    const map = {};
+    (leaders || []).forEach(l => {
+      if (l.ward_id && l.status === "active") {
+        if (!map[l.ward_id]) map[l.ward_id] = [];
+        map[l.ward_id].push(l);
+      }
+    });
+    return map;
+  }, [leaders]);
+
+  const totalYoungMen = wards.reduce((sum, w) => sum + w.campers.length, 0);
+  const totalLeaders = Object.values(leadersByWard).reduce((sum, arr) => sum + arr.length, 0);
+
   return (
     <div>
-      <PageHeader icon="users" title="Ward Rosters" subtitle={`${wards.length} wards`} />
+      <PageHeader icon="users" title="Ward Rosters" subtitle={`${wards.length} wards · ${totalLeaders} leaders · ${totalYoungMen} young men`} />
       {!wards.length ? (
         <EmptyState icon="users" message="No wards have been created yet." />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-          {wards.map(ward => (
-            <div key={ward.id} style={{ ...css.card, padding: 0 }}>
-              <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: "12px" }}>
-                <div style={{ width: "10px", height: "10px", borderRadius: "50%", background: T.accent, flexShrink: 0 }} />
-                <div style={{ flex: 1 }}>
-                  <h3 style={{ fontFamily: T.fontDisplay, fontSize: "17px", color: T.text, margin: 0 }}>{ward.name}</h3>
-                  {ward.leader && <p style={{ color: T.textMuted, fontSize: "12px", margin: "2px 0 0" }}>Leader: {ward.leader}{ward.leader_email ? ` · ${ward.leader_email}` : ""}</p>}
+          {wards.map(ward => {
+            const wardColor = ward.color || T.accent;
+            const wardLeaders = leadersByWard[ward.id] || [];
+            const memberCount = wardLeaders.length + ward.campers.length;
+            return (
+              <div key={ward.id} style={{ ...css.card, padding: 0, borderLeft: `3px solid ${wardColor}` }}>
+                <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: "12px" }}>
+                  <div style={{ width: "12px", height: "12px", borderRadius: "50%", background: wardColor, flexShrink: 0 }} />
+                  <div style={{ flex: 1 }}>
+                    <h3 style={{ fontFamily: T.fontDisplay, fontSize: "17px", color: T.text, margin: 0 }}>{ward.name}</h3>
+                  </div>
+                  <Badge bg={`${wardColor}22`} text={wardColor}>{memberCount} {memberCount === 1 ? "member" : "members"}</Badge>
                 </div>
-                <Badge bg={T.blueBg} text={T.blue}>{ward.campers.length} young men</Badge>
-              </div>
-              {ward.campers.length > 0 ? (
-                <div style={{ padding: "8px 0" }}>
-                  {ward.campers.map((camper, ci) => (
-                    <div key={camper.id} style={{ padding: "8px 20px", display: "flex", alignItems: "center", gap: "10px", borderBottom: ci < ward.campers.length - 1 ? `1px solid ${T.border}22` : "none" }}>
-                      <div style={{ width: "28px", height: "28px", borderRadius: "50%", background: `${T.accent}22`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700, color: T.accent }}>
-                        {initialsFromName(camper.name)}
-                      </div>
-                      <span style={{ color: T.text, fontSize: "13px" }}>{camper.name}</span>
+                {wardLeaders.length > 0 && (
+                  <div style={{ padding: "10px 20px", borderBottom: `1px solid ${T.border}`, background: "rgba(255,255,255,0.015)" }}>
+                    <p style={{ fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em", color: T.textDim, fontWeight: 600, margin: "0 0 6px" }}>Leaders ({wardLeaders.length})</p>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                      {wardLeaders.map(l => (
+                        <div key={l.id} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "6px 0" }}>
+                          <div style={{ width: 28, height: 28, borderRadius: "50%", background: `${wardColor}33`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700, color: wardColor }}>{initialsFromName(l.name)}</div>
+                          <span style={{ color: T.text, fontSize: "13px", fontWeight: 600 }}>{l.name}</span>
+                          {l.role_label && <span style={{ color: T.textMuted, fontSize: "12px" }}>{l.role_label}</span>}
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <p style={{ padding: "16px 20px", color: T.textDim, fontSize: "13px" }}>No young men registered yet.</p>
-              )}
-            </div>
-          ))}
+                  </div>
+                )}
+                {ward.campers.length > 0 ? (
+                  <div style={{ padding: "0" }}>
+                    <div style={{ padding: "10px 20px 4px" }}>
+                      <p style={{ fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em", color: T.textDim, fontWeight: 600, margin: 0 }}>Young Men ({ward.campers.length})</p>
+                    </div>
+                    {ward.campers.map((camper, ci) => (
+                      <div key={camper.id} style={{ padding: "6px 20px", display: "flex", alignItems: "center", gap: "10px", borderBottom: ci < ward.campers.length - 1 ? `1px solid ${T.border}22` : "none" }}>
+                        <div style={{ width: "28px", height: "28px", borderRadius: "50%", background: `${wardColor}22`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700, color: wardColor }}>
+                          {initialsFromName(camper.name)}
+                        </div>
+                        <span style={{ color: T.text, fontSize: "13px" }}>{camper.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p style={{ padding: "16px 20px", color: T.textDim, fontSize: "13px" }}>No young men registered yet.</p>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -861,6 +887,10 @@ const InspirationPage = ({ inspiration }) => {
 
 const LeadersPage = ({ leaders, wards, callingOptions, applyResult }) => {
   const [modal, setModal] = useState(false);
+  const [editModal, setEditModal] = useState(false);
+  const [editLeader, setEditLeader] = useState(null);
+  const [editForm, setEditForm] = useState({ displayName: "", role: "", wardId: "", calling: "", newCalling: "" });
+  const [editAddingCalling, setEditAddingCalling] = useState(false);
   const [addingCalling, setAddingCalling] = useState(false);
   const [resendingLeaderId, setResendingLeaderId] = useState(null);
   const [form, setForm] = useState({
@@ -912,6 +942,37 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult }) => {
     const result = await deleteLeaderInvitationAction(invitationId);
     applyResult(result);
   };
+
+  const openEdit = (leader) => {
+    setEditLeader(leader);
+    setEditForm({
+      displayName: leader.name || "",
+      role: leader.role || "ward_leader",
+      wardId: leader.ward_id || "",
+      calling: leader.calling || "",
+      newCalling: "",
+    });
+    setEditAddingCalling(false);
+    setEditModal(true);
+  };
+
+  const submitEdit = async () => {
+    if (!editLeader) return;
+    const callingValue = editAddingCalling ? editForm.newCalling : editForm.calling;
+    const editRoleOption = roleOptions.find((o) => o.value === editForm.role) ?? roleOptions[0];
+    const result = await updateLeaderAction(editLeader.invitation_id ?? editLeader.id, {
+      displayName: editForm.displayName.trim() || undefined,
+      role: editForm.role,
+      wardId: editRoleOption.wardRequired ? editForm.wardId || null : null,
+      calling: callingValue.trim() || undefined,
+    });
+    if (applyResult(result)) {
+      setEditModal(false);
+      setEditLeader(null);
+    }
+  };
+
+  const editRoleOption = editModal ? (roleOptions.find((o) => o.value === editForm.role) ?? roleOptions[0]) : null;
 
   const sendOrResendInvite = async (leader) => {
     if (!leader?.email || !leader?.calling || leader.status === "active") {
@@ -968,6 +1029,40 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult }) => {
         <button onClick={submitInvite} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px" }}>Send Invitation</button>
       </Modal>
 
+      <Modal open={editModal} onClose={() => setEditModal(false)} title="Edit Leader" width={560}>
+        <Field label="Full Name"><input style={css.input} value={editForm.displayName} onChange={e => setEditForm(p => ({ ...p, displayName: e.target.value }))} placeholder="Full name" /></Field>
+        <Field label="Leadership Role"><select style={css.select} value={editForm.role} onChange={e => setEditForm(p => ({ ...p, role: e.target.value }))}>{roleOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
+        <Field label="Ward">
+          <select style={css.select} value={editForm.wardId} onChange={e => setEditForm(p => ({ ...p, wardId: e.target.value }))}>
+            <option value="">{editRoleOption?.wardRequired ? "Select ward" : "Stake-wide (no ward)"}</option>
+            {wards.map((ward) => (
+              <option key={ward.id} value={ward.id}>{ward.name}</option>
+            ))}
+          </select>
+        </Field>
+        {!editAddingCalling ? (
+          <Field label="Calling">
+            <div style={{ display: "flex", gap: "8px" }}>
+              <select style={{ ...css.select, flex: 1 }} value={editForm.calling} onChange={e => setEditForm(p => ({ ...p, calling: e.target.value }))}>
+                <option value="">Select a calling</option>
+                {callingOptions.map((calling) => (
+                  <option key={calling} value={calling}>{calling}</option>
+                ))}
+              </select>
+              <button type="button" onClick={() => setEditAddingCalling(true)} style={css.btn("ghost")}>New</button>
+            </div>
+          </Field>
+        ) : (
+          <Field label="New Calling">
+            <div style={{ display: "flex", gap: "8px" }}>
+              <input style={{ ...css.input, flex: 1 }} value={editForm.newCalling} onChange={e => setEditForm(p => ({ ...p, newCalling: e.target.value }))} placeholder="Assistant Camp Director" />
+              <button type="button" onClick={() => setEditAddingCalling(false)} style={css.btn("ghost")}>Use List</button>
+            </div>
+          </Field>
+        )}
+        <button onClick={submitEdit} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px" }}>Save Changes</button>
+      </Modal>
+
       {!leaders.length ? (
         <EmptyState icon="star" message="No leadership invitations yet." />
       ) : (
@@ -1022,13 +1117,12 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult }) => {
                   <StatusBadge status={leader.status} />
                 </td>
                 <td style={{ padding: "11px 14px" }}>
-                  {leader.invitation_id ? (
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <button onClick={() => openEdit(leader)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.55 }}><Icon name="edit" size={14} color={T.accent} /></button>
+                    {leader.invitation_id ? (
                       <button onClick={() => removeInvite(leader.invitation_id)} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.45 }}><Icon name="trash" size={14} color={T.red} /></button>
-                    </div>
-                  ) : (
-                    <span style={{ color: T.textDim, fontSize: "12px" }}>Role-managed</span>
-                  )}
+                    ) : null}
+                  </div>
                 </td>
               </tr>
             ))}</tbody>
@@ -1732,7 +1826,6 @@ export default function CampDesignApp({ initialData, profile }) {
   const [savingProfile, setSavingProfile] = useState(false);
   const [completingOnboarding, setCompletingOnboarding] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
-  const [units, setUnits] = useState(() => initialData?.units ?? EMPTY_ARRAY);
   const [wards, setWards] = useState(() => initialData?.wards ?? EMPTY_ARRAY);
   const [activities, setActivities] = useState(() => initialData?.activities ?? EMPTY_ARRAY);
   const [competitions, setCompetitions] = useState(() => initialData?.competitions ?? EMPTY_ARRAY);
@@ -1787,7 +1880,6 @@ export default function CampDesignApp({ initialData, profile }) {
   }));
 
   const applyData = (data) => {
-    setUnits(data.units ?? []);
     setWards(data.wards ?? []);
     setActivities(data.activities ?? []);
     setCompetitions(data.competitions ?? []);
@@ -1828,50 +1920,6 @@ export default function CampDesignApp({ initialData, profile }) {
     }
   }, [pathname, page]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const refreshUnitsData = async () => {
-      if (page !== "units") {
-        return;
-      }
-
-      const result = await refreshCampDesignDataAction();
-      if (cancelled || !result.ok) {
-        return;
-      }
-
-      const data = result.data;
-      setUnits(data.units ?? []);
-      setWards(data.wards ?? []);
-      setActivities(data.activities ?? []);
-      setCompetitions(data.competitions ?? []);
-      setPointLog(data.pointLog ?? []);
-      setRegistrations(data.registrations ?? []);
-      setAgenda(data.agenda ?? {});
-      setContacts(data.contacts ?? []);
-      setLeaders(data.leaders ?? []);
-      setInspiration(data.inspiration ?? []);
-      setRules(data.rules ?? []);
-      setPhotos(data.photos ?? []);
-      setDocs(data.docs ?? []);
-      setUserProfiles(data.userProfiles ?? []);
-      setLeaderCallingOptions(data.leaderCallingOptions ?? []);
-      setProfileOptions(data.profileOptions ?? EMPTY_PROFILE_OPTIONS);
-      if (result.profile) {
-        setProfileData((previous) => ({
-          ...previous,
-          ...result.profile,
-        }));
-      }
-    };
-
-    void refreshUnitsData();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [page]);
 
   const goToPage = (nextPage) => {
     const targetPath = PAGE_TO_PATH[nextPage];
@@ -1893,7 +1941,6 @@ export default function CampDesignApp({ initialData, profile }) {
         ...leaders
           .filter((leader) => leader.status === "active")
           .map((leader) => leader.name),
-        ...units.map((unit) => unit.leader),
       ]
         .map((value) => value.trim())
         .filter(Boolean),
@@ -2045,13 +2092,12 @@ export default function CampDesignApp({ initialData, profile }) {
   const isLeader = profileData.isLeader;
 
   const pages = {
-    dashboard: <Dashboard goTo={goToPage} units={units} activities={activities} competitions={competitions} pointLog={pointLog} agenda={agenda} inspiration={inspiration} />,
+    dashboard: <Dashboard goTo={goToPage} wards={wards} activities={activities} competitions={competitions} pointLog={pointLog} agenda={agenda} inspiration={inspiration} />,
     activities: <ActivitiesPage activities={activities} applyResult={applyResult} isLeader={isLeader} />,
     agenda: <AgendaPage agenda={agenda} applyResult={applyResult} isLeader={isLeader} />,
-    wardRosters: <WardRostersPage wards={wards} />,
-    units: <UnitsPage units={units} applyResult={applyResult} isLeader={isLeader} />,
+    wardRosters: <WardRostersPage wards={wards} leaders={leaders} />,
     wards: <WardsPage wards={wards} applyResult={applyResult} isLeader={isLeader} />,
-    competitions: <CompetitionsPage competitions={competitions} pointLog={pointLog} units={units} leaderNames={leaderNames} applyResult={applyResult} isLeader={isLeader} />,
+    competitions: <CompetitionsPage competitions={competitions} pointLog={pointLog} wards={wards} leaderNames={leaderNames} applyResult={applyResult} isLeader={isLeader} />,
     registration: <RegistrationPage registrations={registrations} applyResult={applyResult} />,
     photos: <PhotosPage photos={photos} />,
     contacts: <ContactsPage contacts={contacts} applyResult={applyResult} isLeader={isLeader} />,

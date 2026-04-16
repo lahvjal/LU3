@@ -45,22 +45,14 @@ type AgendaInput = {
   location: string;
 };
 
-type UnitInput = {
-  name: string;
-  leader: string;
-  leader_email: string;
-};
 
 type WardInput = {
   name: string;
   leader: string;
   leader_email: string;
+  color: string;
 };
 
-type CamperInput = {
-  unitId: string;
-  camperName: string;
-};
 
 type CompetitionInput = {
   name: string;
@@ -70,7 +62,7 @@ type CompetitionInput = {
 
 type AwardPointsInput = {
   competitionId: string;
-  unitId: string;
+  wardId: string;
   points: number;
   note: string;
   leader: string;
@@ -242,26 +234,6 @@ function splitChildName(childName: string) {
   return { firstName, lastName };
 }
 
-function splitCamperName(camperName: string) {
-  const tokens = camperName
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
-  if (tokens.length === 0) {
-    return null;
-  }
-
-  const firstName = tokens[0];
-  const lastName = tokens.slice(1).join(" ");
-  if (!lastName) {
-    return null;
-  }
-
-  return {
-    firstName,
-    lastName,
-  };
-}
 
 function normalizeAvatarUrl(value: string) {
   const trimmed = value.trim();
@@ -355,6 +327,7 @@ async function syncLeaderInvitationsForUser(
   userId: string,
   userEmail: string,
   onboardingCompletedAt: string,
+  selectedWardId?: string | null,
 ) {
   const normalizedEmail = normalizeEmail(userEmail);
   if (!normalizedEmail) {
@@ -366,12 +339,12 @@ async function syncLeaderInvitationsForUser(
 
   const [leaderByEmailResult, leaderByUserResult] = await Promise.all([
     admin
-      .from("leader_invitations")
+      .from("leaders")
       .select("id, role, ward_id, status, accepted_at, user_id")
       .ilike("email", normalizedEmail)
       .in("status", ["pending", "active"]),
     admin
-      .from("leader_invitations")
+      .from("leaders")
       .select("id, role, ward_id, status, accepted_at, user_id")
       .eq("user_id", userId)
       .in("status", ["pending", "active"]),
@@ -404,12 +377,19 @@ async function syncLeaderInvitationsForUser(
 
       if (needsUpdate) {
         await admin
-          .from("leader_invitations")
+          .from("leaders")
           .update({
             user_id: userId,
             status: "active",
             accepted_at: nextAcceptedAt,
           })
+          .eq("id", invitation.id);
+      }
+
+      if (!invitation.ward_id && selectedWardId) {
+        await admin
+          .from("leaders")
+          .update({ ward_id: selectedWardId })
           .eq("id", invitation.id);
       }
     } catch (err) {
@@ -489,13 +469,6 @@ async function requireStakeAdmin() {
   return context;
 }
 
-async function requireUnitManager() {
-  const context = await getUserContext();
-  if (!context.canManageUnits) {
-    return null;
-  }
-  return context;
-}
 
 export async function refreshCampDesignDataAction(): Promise<ActionResult> {
   await getUserContext();
@@ -646,13 +619,16 @@ export async function updateMyProfileAction(
     profilePayload.onboarding_completed_at = onboardingCompletedAt;
   }
 
-  const { error } = await supabase
+  const { error, data: upsertedRows } = await supabase
     .from("user_profiles")
-    .upsert(profilePayload, { onConflict: "user_id" });
+    .upsert(profilePayload, { onConflict: "user_id" })
+    .select("user_id, display_name");
 
   if (error) {
+    console.error("[updateMyProfileAction] user_profiles upsert failed:", error.message, error.code, error.details);
     return fail(error.message);
   }
+  console.log("[updateMyProfileAction] user_profiles upserted:", JSON.stringify(upsertedRows));
 
   if (shouldCompleteOnboarding && onboardingCompletedAt && context.user.email) {
     try {
@@ -660,6 +636,7 @@ export async function updateMyProfileAction(
         context.user.id,
         context.user.email,
         onboardingCompletedAt,
+        wardId,
       );
     } catch (syncError) {
       console.error("Failed to sync leader invitations:", syncError);
@@ -821,63 +798,6 @@ export async function deleteAgendaItemAction(id: string): Promise<ActionResult> 
   return success();
 }
 
-export async function createUnitAction(input: UnitInput): Promise<ActionResult> {
-  const context = await requireUnitManager();
-  if (!context) {
-    return fail("You do not have permission to create units.");
-  }
-
-  const name = input.name.trim();
-  if (!name) {
-    return fail("Unit name is required.");
-  }
-
-  const supabase = await createSupabaseServerClient();
-  const { data: unit, error: unitError } = await supabase
-    .from("camp_units")
-    .upsert(
-      {
-        name,
-        color: null,
-        leader_name: input.leader.trim() || null,
-        leader_email: input.leader_email.trim() || null,
-        created_by: context.user.id,
-      },
-      { onConflict: "name" },
-    )
-    .select("id")
-    .single();
-
-  if (unitError || !unit?.id) {
-    return fail(unitError?.message ?? "Unable to save unit.");
-  }
-
-  return success();
-}
-
-export async function deleteUnitAction(unitId: string): Promise<ActionResult> {
-  const context = await requireUnitManager();
-  if (!context) {
-    return fail("You do not have permission to delete units.");
-  }
-
-  const supabase = await createSupabaseServerClient();
-  const { data: deletedUnits, error: unitDeleteError } = await supabase
-    .from("camp_units")
-    .delete()
-    .eq("id", unitId)
-    .select("id");
-  if (unitDeleteError) {
-    return fail(unitDeleteError.message);
-  }
-
-  if (!deletedUnits?.length) {
-    return fail("Unit not found. Refresh and try again.");
-  }
-
-  return success();
-}
-
 export async function createWardAction(input: WardInput): Promise<ActionResult> {
   const context = await requireStakeAdmin();
   if (!context) {
@@ -897,6 +817,7 @@ export async function createWardAction(input: WardInput): Promise<ActionResult> 
         name,
         leader_name: input.leader.trim() || null,
         leader_email: input.leader_email.trim() || null,
+        theme_color: input.color.trim() || null,
       },
       { onConflict: "name" },
     )
@@ -930,18 +851,18 @@ export async function deleteWardAction(wardId: string): Promise<ActionResult> {
   }
 
   const supabase = await createSupabaseServerClient();
-  const { count, error: countError } = await supabase
-    .from("participants")
+  const { count: parentCount, error: parentCountError } = await supabase
+    .from("parents")
     .select("id", { count: "exact", head: true })
     .eq("ward_id", wardId);
 
-  if (countError) {
-    return fail(countError.message);
+  if (parentCountError) {
+    return fail(parentCountError.message);
   }
 
-  if ((count ?? 0) > 0) {
+  if ((parentCount ?? 0) > 0) {
     return fail(
-      "Cannot delete a ward that still has participants. Reassign or remove campers first.",
+      "Cannot delete a ward that still has registered parents. Reassign or remove them first.",
     );
   }
 
@@ -958,97 +879,33 @@ export async function deleteWardAction(wardId: string): Promise<ActionResult> {
   return success();
 }
 
-export async function addCamperAction(input: CamperInput): Promise<ActionResult> {
-  const context = await requireUnitManager();
-  if (!context) {
-    return fail("You do not have permission to add campers.");
-  }
-
-  const parsedName = splitCamperName(input.camperName);
-  if (!parsedName) {
-    return fail("Please enter a camper's first and last name.");
-  }
-
-  const supabase = await createSupabaseServerClient();
-  const { data: unitRow, error: unitError } = await supabase
-    .from("camp_units")
-    .select("id")
-    .eq("id", input.unitId)
-    .maybeSingle();
-  if (unitError || !unitRow?.id) {
-    return fail(unitError?.message ?? "Selected unit could not be found.");
-  }
-
-  const { data: matches, error: matchError } = await supabase
-    .from("participants")
-    .select("id")
-    .ilike("first_name", parsedName.firstName)
-    .ilike("last_name", parsedName.lastName)
-    .eq("active", true)
-    .limit(5);
-
-  if (matchError) {
-    return fail(matchError.message);
-  }
-
-  if (!matches?.length) {
-    return fail(
-      "No existing camper matched that name. Add him to participants first, then assign him to a unit.",
-    );
-  }
-
-  if (matches.length > 1) {
-    return fail(
-      "Multiple campers matched that name. Use a more specific name before assigning to a unit.",
-    );
-  }
-
-  const { error } = await supabase.from("camp_unit_members").upsert(
-    {
-      unit_id: input.unitId,
-      participant_id: matches[0].id,
-      created_by: context.user.id,
-    },
-    {
-      onConflict: "unit_id,participant_id",
-      ignoreDuplicates: true,
-    },
-  );
-
-  if (error) {
-    return fail(error.message);
-  }
-
-  return success();
-}
-
-export async function removeCamperAction(
-  unitMemberId: string,
+export async function updateWardAction(
+  wardId: string,
+  input: WardInput,
 ): Promise<ActionResult> {
-  const context = await requireUnitManager();
+  const context = await requireStakeAdmin();
   if (!context) {
-    return fail("You do not have permission to remove campers.");
+    return fail("Only stake admins can edit wards.");
+  }
+
+  const name = input.name.trim();
+  if (!name) {
+    return fail("Ward name is required.");
   }
 
   const supabase = await createSupabaseServerClient();
-  const { data: removedMembershipRows, error } = await supabase
-    .from("camp_unit_members")
-    .delete()
-    .eq("id", unitMemberId)
-    .select("id");
+  const { error } = await supabase
+    .from("wards")
+    .update({
+      name,
+      leader_name: input.leader.trim() || null,
+      leader_email: input.leader_email.trim() || null,
+      theme_color: input.color.trim() || null,
+    })
+    .eq("id", wardId);
 
   if (error) {
     return fail(error.message);
-  }
-
-  if (!removedMembershipRows?.length) {
-    const { error: participantDeleteError } = await supabase
-      .from("participants")
-      .delete()
-      .eq("id", unitMemberId);
-    if (participantDeleteError) {
-      return fail(participantDeleteError.message);
-    }
   }
 
   return success();
@@ -1118,7 +975,7 @@ export async function awardPointsAction(
 
   if (
     !input.competitionId ||
-    !input.unitId ||
+    !input.wardId ||
     !Number.isFinite(input.points) ||
     input.points === 0 ||
     Math.abs(input.points) > 100
@@ -1129,8 +986,8 @@ export async function awardPointsAction(
   const supabase = await createSupabaseServerClient();
   const { error } = await supabase.from("competition_points").insert({
     competition_id: input.competitionId,
-    ward_id: null,
-    unit_id: input.unitId,
+    ward_id: input.wardId,
+    unit_id: null,
     points: input.points,
     reason: input.note.trim() || null,
     awarded_by: context.user.id,
@@ -1373,7 +1230,7 @@ export async function inviteLeaderAction(
     : null;
 
   let existingInviteQuery = supabase
-    .from("leader_invitations")
+    .from("leaders")
     .select("id")
     .eq("email", email)
     .eq("role", input.role);
@@ -1397,10 +1254,10 @@ export async function inviteLeaderAction(
 
   const { error: inviteSaveError } = existingInvite?.id
     ? await supabase
-        .from("leader_invitations")
+        .from("leaders")
         .update(invitationPayload)
         .eq("id", existingInvite.id)
-    : await supabase.from("leader_invitations").insert(invitationPayload);
+    : await supabase.from("leaders").insert(invitationPayload);
 
   if (inviteSaveError) {
     return fail(inviteSaveError.message);
@@ -1431,6 +1288,96 @@ export async function inviteLeaderAction(
   return success();
 }
 
+export async function updateLeaderAction(
+  leaderId: string,
+  input: {
+    displayName?: string;
+    role?: string;
+    wardId?: string | null;
+    calling?: string;
+  },
+): Promise<ActionResult> {
+  const context = await requireStakeAdmin();
+  if (!context) {
+    return fail("Only stake admins can edit leaders.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { data: existing, error: fetchError } = await supabase
+    .from("leaders")
+    .select("id, role, ward_id, user_id, calling_id")
+    .eq("id", leaderId)
+    .maybeSingle();
+
+  if (fetchError || !existing) {
+    return fail(fetchError?.message ?? "Leader not found.");
+  }
+
+  const updates: Record<string, unknown> = {};
+
+  if (input.role && isLeadershipRole(input.role) && input.role !== existing.role) {
+    if (existing.user_id && isLeadershipRole(existing.role)) {
+      try {
+        await removeLeadershipUserRole(supabase, existing.user_id, existing.role, existing.ward_id);
+      } catch {}
+    }
+    updates.role = input.role;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(input, "wardId")) {
+    const newWardId = input.wardId?.trim() || null;
+    if (newWardId !== existing.ward_id) {
+      if (existing.user_id && isLeadershipRole(existing.role)) {
+        try {
+          await removeLeadershipUserRole(supabase, existing.user_id, existing.role, existing.ward_id);
+        } catch {}
+      }
+      updates.ward_id = newWardId;
+    }
+  }
+
+  const finalRole = (updates.role as string) ?? existing.role;
+  const finalWardId = Object.prototype.hasOwnProperty.call(updates, "ward_id")
+    ? (updates.ward_id as string | null)
+    : existing.ward_id;
+
+  if (existing.user_id && isLeadershipRole(finalRole)) {
+    await ensureLeadershipUserRole(supabase, existing.user_id, finalRole, finalWardId);
+  }
+
+  if (input.calling?.trim()) {
+    const callingName = input.calling.trim();
+    const { data: callingRow } = await supabase
+      .from("leader_callings")
+      .upsert({ name: callingName }, { onConflict: "name" })
+      .select("id")
+      .single();
+    if (callingRow?.id) {
+      updates.calling_id = callingRow.id;
+    }
+  }
+
+  if (input.displayName?.trim() && existing.user_id) {
+    const admin = createSupabaseAdminClient() as any;
+    await admin
+      .from("user_profiles")
+      .update({ display_name: input.displayName.trim() })
+      .eq("user_id", existing.user_id);
+  }
+
+  if (Object.keys(updates).length > 0) {
+    const { error: updateError } = await supabase
+      .from("leaders")
+      .update(updates)
+      .eq("id", leaderId);
+    if (updateError) {
+      return fail(updateError.message);
+    }
+  }
+
+  return success();
+}
+
 export async function deleteLeaderInvitationAction(
   invitationId: string,
 ): Promise<ActionResult> {
@@ -1441,7 +1388,7 @@ export async function deleteLeaderInvitationAction(
 
   const supabase = await createSupabaseServerClient();
   const { data: invitationRow, error: invitationError } = await supabase
-    .from("leader_invitations")
+    .from("leaders")
     .select("id, role, ward_id, user_id")
     .eq("id", invitationId)
     .maybeSingle();
@@ -1468,7 +1415,7 @@ export async function deleteLeaderInvitationAction(
   }
 
   const { error: deleteError } = await supabase
-    .from("leader_invitations")
+    .from("leaders")
     .delete()
     .eq("id", invitationId);
   if (deleteError) {

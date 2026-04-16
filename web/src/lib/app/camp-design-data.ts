@@ -10,19 +10,6 @@ type WardRow = {
   leader_email: string | null;
 };
 
-type CampUnitRow = {
-  id: string;
-  name: string;
-  color: string | null;
-  leader_name: string | null;
-  leader_email: string | null;
-};
-
-type CampUnitMemberRow = {
-  id: string;
-  unit_id: string;
-  participant_id: string;
-};
 
 type QuorumRow = {
   id: string;
@@ -37,12 +24,6 @@ type ShirtSizeRow = {
   sort_order: number;
 };
 
-type ParticipantRow = {
-  id: string;
-  ward_id: string;
-  first_name: string;
-  last_name: string;
-};
 
 type ActivityRow = {
   id: string;
@@ -173,18 +154,11 @@ type UserProfileRow = {
   age: number | null;
 };
 
-type DesignUnit = {
-  id: string;
-  name: string;
-  color: string;
-  leader: string;
-  leader_email: string;
-  campers: Array<{ id: string; name: string }>;
-};
 
 type DesignWard = {
   id: string;
   name: string;
+  color: string;
   leader: string;
   leader_email: string;
   campers: Array<{ id: string; name: string }>;
@@ -210,7 +184,7 @@ type DesignCompetition = {
 type DesignPoint = {
   id: string;
   compId: string;
-  unitId: string;
+  wardId: string;
   points: number;
   note: string;
   leader: string;
@@ -321,7 +295,6 @@ type DesignProfileOptions = {
 };
 
 export type CampDesignInitialData = {
-  units: DesignUnit[];
   wards: DesignWard[];
   activities: DesignActivity[];
   competitions: DesignCompetition[];
@@ -341,7 +314,7 @@ export type CampDesignInitialData = {
 
 const CAMP_START_DATE = new Date("2026-06-15T00:00:00Z");
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
-const FALLBACK_UNIT_COLORS = [
+const FALLBACK_WARD_COLORS = [
   "#6b9e6b",
   "#6b8eb0",
   "#d4915e",
@@ -455,11 +428,8 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
 
   const [
     { data: wardRows },
-    { data: campUnitRows },
-    { data: campUnitMemberRows },
     { data: quorumRows },
     { data: shirtSizeRows },
-    { data: participantRows },
     { data: activityRows },
     { data: competitionRows },
     { data: pointRows },
@@ -480,14 +450,6 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
       .select("id, name, theme_color, leader_name, leader_email")
       .order("created_at"),
     supabase
-      .from("camp_units")
-      .select("id, name, color, leader_name, leader_email")
-      .order("created_at"),
-    supabase
-      .from("camp_unit_members")
-      .select("id, unit_id, participant_id")
-      .order("created_at"),
-    supabase
       .from("quorums")
       .select("id, ward_id, display_name, quorum_type")
       .order("display_name"),
@@ -495,10 +457,6 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
       .from("shirt_sizes")
       .select("code, label, sort_order")
       .order("sort_order"),
-    supabase
-      .from("participants")
-      .select("id, ward_id, first_name, last_name")
-      .order("created_at"),
     supabase
       .from("activities")
       .select("id, title, description, category, starts_at, location")
@@ -536,7 +494,7 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
       .order("is_emergency", { ascending: false })
       .order("full_name"),
     supabase
-      .from("leader_invitations")
+      .from("leaders")
       .select(
         "id, email, user_id, role, ward_id, status, invited_at, accepted_at, calling:leader_callings(name), ward:wards(name)",
       )
@@ -571,14 +529,11 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
   ]);
 
   const wards = (wardRows ?? []) as WardRow[];
-  const campUnitsRaw = (campUnitRows ?? []) as CampUnitRow[];
-  const campUnitMembersRaw = (campUnitMemberRows ?? []) as CampUnitMemberRow[];
   const wardNameById = new Map<string, string>(
     wards.map((ward) => [ward.id, ward.name]),
   );
   const quorums = (quorumRows ?? []) as QuorumRow[];
   const shirtSizesRaw = (shirtSizeRows ?? []) as ShirtSizeRow[];
-  const participants = (participantRows ?? []) as ParticipantRow[];
   const activitiesRaw = (activityRows ?? []) as ActivityRow[];
   const competitionsRaw = (competitionRows ?? []) as CompetitionRow[];
   const pointsRaw = (pointRows ?? []) as CompetitionPointRow[];
@@ -594,9 +549,17 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
   const docsRaw = (docRows ?? []) as DocumentationRow[];
   const userProfilesRaw = (userProfileRows ?? []) as UserProfileRow[];
 
+  const parentWardMap = new Map<string, string>();
+  parentsRaw.forEach((parent) => {
+    if (parent.ward_id) {
+      parentWardMap.set(parent.id, parent.ward_id);
+    }
+  });
+
   const wardsForDisplay: DesignWard[] = wards.map((ward) => ({
     id: ward.id,
     name: ward.name,
+    color: ward.theme_color ?? "",
     leader: ward.leader_name ?? "",
     leader_email: ward.leader_email ?? "",
     campers: [],
@@ -607,49 +570,17 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
     wardById.set(ward.id, ward);
   });
 
-  participants.forEach((participant) => {
-    const ward = wardById.get(participant.ward_id);
-    if (!ward) {
-      return;
-    }
-
+  youngMenRaw.forEach((ym) => {
+    const wardId = parentWardMap.get(ym.parent_id);
+    if (!wardId) return;
+    const ward = wardById.get(wardId);
+    if (!ward) return;
     ward.campers.push({
-      id: participant.id,
-      name: `${participant.first_name} ${participant.last_name}`,
+      id: ym.id,
+      name: `${ym.first_name} ${ym.last_name}`,
     });
   });
 
-  const units: DesignUnit[] = campUnitsRaw.map((unit, index) => ({
-    id: unit.id,
-    name: unit.name,
-    color: unit.color ?? FALLBACK_UNIT_COLORS[index % FALLBACK_UNIT_COLORS.length],
-    leader: unit.leader_name ?? "Leader TBD",
-    leader_email: unit.leader_email ?? "",
-    campers: [],
-  }));
-
-  const unitById = new Map<string, DesignUnit>();
-  units.forEach((unit) => {
-    unitById.set(unit.id, unit);
-  });
-
-  const participantById = new Map<string, ParticipantRow>();
-  participants.forEach((participant) => {
-    participantById.set(participant.id, participant);
-  });
-
-  campUnitMembersRaw.forEach((membership) => {
-    const unit = unitById.get(membership.unit_id);
-    const participant = participantById.get(membership.participant_id);
-    if (!unit || !participant) {
-      return;
-    }
-
-    unit.campers.push({
-      id: membership.id,
-      name: `${participant.first_name} ${participant.last_name}`,
-    });
-  });
 
   const activities: DesignActivity[] = activitiesRaw.map((activity) => ({
     id: activity.id,
@@ -670,14 +601,14 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
 
   const pointLog: DesignPoint[] = pointsRaw
     .map((point) => {
-      if (!point.unit_id || !unitById.has(point.unit_id)) {
+      if (!point.ward_id || !wardById.has(point.ward_id)) {
         return null;
       }
 
       return {
         id: point.id,
         compId: point.competition_id,
-        unitId: point.unit_id,
+        wardId: point.ward_id,
         points: point.points,
         note: point.reason ?? "",
         leader: point.awarded_by_name ?? "Leader",
@@ -786,9 +717,10 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
       const email = invitation.email || profile?.user_email || "";
       const fallbackName = email.split("@")[0] || "Pending User";
       const callingName = resolveRelationName(invitation.calling);
+      const effectiveWardId = invitation.ward_id ?? profile?.ward_id ?? null;
       const wardName =
         resolveRelationName(invitation.ward) ||
-        (invitation.ward_id ? wardNameById.get(invitation.ward_id) ?? "" : "");
+        (effectiveWardId ? wardNameById.get(effectiveWardId) ?? "" : "");
 
       return {
         id: invitation.id,
@@ -798,7 +730,7 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
         email,
         role: invitation.role,
         role_label: LEADER_ROLE_LABELS[invitation.role] ?? invitation.role,
-        ward_id: invitation.ward_id ?? null,
+        ward_id: effectiveWardId,
         ward_name: wardName,
         status: normalizeLeaderStatus(invitation.status),
         invite_sent_at: invitation.invited_at ?? null,
@@ -848,7 +780,6 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
   };
 
   return {
-    units,
     wards: wardsForDisplay,
     activities,
     competitions,
