@@ -1,6 +1,5 @@
 import type { User } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export type AppRole =
@@ -9,7 +8,8 @@ export type AppRole =
   | "ward_leader"
   | "camp_committee"
   | "young_men_captain"
-  | "young_man";
+  | "young_man"
+  | "parent";
 
 export type UserRoleRow = {
   role: AppRole;
@@ -22,10 +22,12 @@ type UserProfileRow = {
   avatar_url: string | null;
   phone: string | null;
   ward_id: string | null;
-  quorum_id: string | null;
-  medical_notes: string | null;
-  shirt_size_code: string | null;
-  age: number | null;
+  role: AppRole | null;
+  calling_id: string | null;
+  invited_by: string | null;
+  invited_at: string | null;
+  terms_accepted_at: string | null;
+  signature_name: string | null;
   onboarding_completed_at: string | null;
 };
 
@@ -36,6 +38,7 @@ const roleLabelMap: Record<AppRole, string> = {
   camp_committee: "Camp Committee",
   young_men_captain: "Young Men Captain",
   young_man: "Camper",
+  parent: "Parent",
 };
 
 export type UserContext = {
@@ -45,10 +48,10 @@ export type UserContext = {
   onboardingCompletedAt: string | null;
   phone: string | null;
   wardId: string | null;
-  quorumId: string | null;
-  medicalNotes: string | null;
-  shirtSizeCode: string | null;
-  age: number | null;
+  profileRole: AppRole | null;
+  callingId: string | null;
+  termsAcceptedAt: string | null;
+  signatureName: string | null;
   roles: UserRoleRow[];
   roleLabels: string[];
   wardIds: string[];
@@ -107,15 +110,15 @@ export async function getUserContext(
   let onboardingCompletedAt: string | null = null;
   let phone: string | null = null;
   let wardId: string | null = null;
-  let quorumId: string | null = null;
-  let medicalNotes: string | null = null;
-  let shirtSizeCode: string | null = null;
-  let age: number | null = null;
+  let profileRole: AppRole | null = null;
+  let callingId: string | null = null;
+  let termsAcceptedAt: string | null = null;
+  let signatureName: string | null = null;
 
   const { data: profileRowRaw } = await supabase
     .from("user_profiles")
     .select(
-      "display_name, avatar_url, onboarding_completed_at, phone, ward_id, quorum_id, medical_notes, shirt_size_code, age",
+      "display_name, avatar_url, onboarding_completed_at, phone, ward_id, role, calling_id, invited_by, invited_at, terms_accepted_at, signature_name",
     )
     .eq("user_id", user.id)
     .maybeSingle();
@@ -129,10 +132,10 @@ export async function getUserContext(
     onboardingCompletedAt = profileRow.onboarding_completed_at ?? null;
     phone = profileRow.phone ?? null;
     wardId = profileRow.ward_id ?? null;
-    quorumId = profileRow.quorum_id ?? null;
-    medicalNotes = profileRow.medical_notes ?? null;
-    shirtSizeCode = profileRow.shirt_size_code ?? null;
-    age = profileRow.age ?? null;
+    profileRole = profileRow.role ?? null;
+    callingId = profileRow.calling_id ?? null;
+    termsAcceptedAt = profileRow.terms_accepted_at ?? null;
+    signatureName = profileRow.signature_name ?? null;
   }
 
   let isCompetitionStaff = false;
@@ -146,75 +149,6 @@ export async function getUserContext(
 
     if (!error && contactRows && contactRows.length > 0) {
       isCompetitionStaff = true;
-    }
-  }
-
-  if (onboardingCompletedAt && user.email) {
-    try {
-      const admin = createSupabaseAdminClient() as any;
-      const normalizedEmail = user.email.trim().toLowerCase();
-      const { data: unlinkedInvites } = await admin
-        .from("leaders")
-        .select("id, role, ward_id, user_id")
-        .ilike("email", normalizedEmail)
-        .in("status", ["pending", "active"]);
-
-      const invitesNeedingSync = (unlinkedInvites ?? []).filter(
-        (inv: { user_id: string | null }) => inv.user_id !== user.id,
-      );
-
-      if (invitesNeedingSync.length > 0) {
-        const WARD_ROLES = new Set(["ward_leader", "young_men_captain"]);
-
-        for (const inv of invitesNeedingSync as Array<{ id: string; role: string; ward_id: string | null; user_id: string | null }>) {
-          const roleValue = inv.role as AppRole;
-          if (roleValue === "young_man") continue;
-
-          // Always link the leaders row first
-          await admin
-            .from("leaders")
-            .update({
-              user_id: user.id,
-              status: "active",
-              accepted_at: onboardingCompletedAt,
-            })
-            .eq("id", inv.id);
-
-          // Assign user_roles separately — only pass ward_id for ward-scoped roles
-          try {
-            const roleWardId = WARD_ROLES.has(roleValue) ? (inv.ward_id ?? null) : null;
-            await admin.from("user_roles").upsert(
-              {
-                user_id: user.id,
-                role: roleValue,
-                ward_id: roleWardId,
-                participant_id: null,
-              },
-              { onConflict: "user_id,role,ward_id" },
-            );
-          } catch (roleErr) {
-            console.error("Failed to upsert user_role for leader", inv.id, roleErr);
-          }
-        }
-
-        const { data: refreshedRoles } = await supabase
-          .from("user_roles")
-          .select("role, ward_id, participant_id")
-          .order("role");
-
-        if (refreshedRoles && refreshedRoles.length > 0) {
-          roles.length = 0;
-          roles.push(...(refreshedRoles as UserRoleRow[]));
-          roleSet.clear();
-          roles.forEach((r) => roleSet.add(r.role));
-          wardIds.length = 0;
-          wardIds.push(
-            ...([...new Set(roles.map((r) => r.ward_id).filter(Boolean))] as string[]),
-          );
-        }
-      }
-    } catch (err) {
-      console.error("Fallback leader sync failed:", err);
     }
   }
 
@@ -258,10 +192,10 @@ export async function getUserContext(
     onboardingCompletedAt,
     phone,
     wardId,
-    quorumId,
-    medicalNotes,
-    shirtSizeCode,
-    age,
+    profileRole,
+    callingId,
+    termsAcceptedAt,
+    signatureName,
     roles,
     roleLabels: roles.map((role) => roleLabelMap[role.role] ?? role.role),
     wardIds,

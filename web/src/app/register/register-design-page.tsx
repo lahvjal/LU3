@@ -139,7 +139,7 @@ const PAGE_TO_PATH: Record<string, string> = {
   units: "/units",
   wards: "/wards",
   competitions: "/competitions",
-  registration: "/register",
+  registration: "/registration",
   photos: "/photos",
   contacts: "/contacts",
   rules: "/rules",

@@ -17,7 +17,7 @@ type LeadershipRole =
   | "camp_committee"
   | "young_men_captain";
 
-type LeaderInviteStatus = "pending" | "active" | "revoked";
+type LeaderInviteStatus = "pending" | "active";
 
 type WardOption = {
   id: string;
@@ -34,7 +34,7 @@ type LeaderInvitationRow = {
   wardName: string;
   calling: string;
   status: LeaderInviteStatus;
-  invitedAt: string;
+  invitedAt: string | null;
   acceptedAt: string | null;
   onboardingCompleted: boolean;
 };
@@ -205,7 +205,6 @@ const css = {
 const STATUS_COLORS: Record<LeaderInviteStatus, { bg: string; text: string }> = {
   pending: { bg: T.yellowBg, text: T.yellow },
   active: { bg: T.greenBg, text: T.green },
-  revoked: { bg: T.redBg, text: T.red },
 };
 
 function createInitialInviteDraft(wards: WardOption[]): InviteDraft {

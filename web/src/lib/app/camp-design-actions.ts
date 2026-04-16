@@ -23,10 +23,6 @@ type ProfilePayload = {
   onboardingCompletedAt: string | null;
   phone: string | null;
   wardId: string | null;
-  quorumId: string | null;
-  medicalNotes: string | null;
-  shirtSizeCode: string | null;
-  age: number | null;
 };
 
 type ActivityInput = {
@@ -81,11 +77,11 @@ type ContactInput = {
   emergency: boolean;
 };
 
-type LeadershipRole = Exclude<AppRole, "young_man">;
+type LeadershipRole = Exclude<AppRole, "young_man" | "parent">;
 
 type InviteLeaderInput = {
   email: string;
-  fullName: string;
+  fullName?: string;
   role: LeadershipRole;
   wardId: string | null;
   calling: string;
@@ -106,51 +102,13 @@ type ProfileUpdateInput = {
   markOnboardingComplete?: boolean;
   phone?: string;
   wardId?: string | null;
-  quorumId?: string | null;
-  medicalNotes?: string;
-  shirtSizeCode?: string | null;
-  age?: number | null;
   youngMen?: YoungManInput[];
   signatureName?: string;
 };
 
 type SupabaseActionClient = Awaited<ReturnType<typeof createSupabaseServerClient>>;
 
-type LeaderInvitationClaimRow = {
-  id: string;
-  role: string;
-  ward_id: string | null;
-  status: "pending" | "active" | "revoked";
-  accepted_at: string | null;
-  user_id: string | null;
-};
-
-type RegistrationInviteClaimRow = {
-  id: string;
-  participant_id: string;
-  status: "sent" | "accepted" | "revoked";
-  accepted_at: string | null;
-};
-
 const CAMP_START_DATE = new Date("2026-06-15T00:00:00Z");
-
-const DISPLAY_TO_SHIRT_CODE: Record<string, string> = {
-  YS: "YS",
-  YM: "YM",
-  YL: "YL",
-  S: "AS",
-  M: "AM",
-  L: "AL",
-  XL: "AXL",
-  "2XL": "A2XL",
-  "3XL": "A3XL",
-  AS: "AS",
-  AM: "AM",
-  AL: "AL",
-  AXL: "AXL",
-  A2XL: "A2XL",
-  A3XL: "A3XL",
-};
 
 const LEADERSHIP_ROLES = new Set<LeadershipRole>([
   "stake_leader",
@@ -267,8 +225,6 @@ async function ensureLeadershipUserRole(
   role: LeadershipRole,
   wardId: string | null,
 ) {
-  console.log("[onboarding] ensureLeadershipUserRole: userId=", userId, "role=", role, "wardId=", wardId);
-
   let existingRoleQuery = supabase
     .from("user_roles")
     .select("id")
@@ -281,153 +237,18 @@ async function ensureLeadershipUserRole(
 
   const { data: existingRole } = await existingRoleQuery.limit(1).maybeSingle();
   if (existingRole?.id) {
-    console.log("[onboarding] user_roles row already exists:", existingRole.id);
-    return;
-  }
-
-  const insertPayload = {
-    user_id: userId,
-    role,
-    ward_id: wardId,
-    participant_id: null,
-  };
-  console.log("[onboarding] inserting into user_roles:", JSON.stringify(insertPayload));
-
-  const { error } = await supabase.from("user_roles").insert(insertPayload);
-
-  if (error) {
-    console.error("[onboarding] user_roles insert FAILED:", error.message, error.code, error.details);
-    throw new Error(error.message);
-  }
-  console.log("[onboarding] user_roles insert SUCCESS");
-}
-
-async function ensureYoungManUserRole(
-  supabase: SupabaseActionClient,
-  userId: string,
-  participantId: string,
-) {
-  const { data: existingRole } = await supabase
-    .from("user_roles")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("role", "young_man")
-    .eq("participant_id", participantId)
-    .limit(1)
-    .maybeSingle();
-
-  if (existingRole?.id) {
     return;
   }
 
   const { error } = await supabase.from("user_roles").insert({
     user_id: userId,
-    role: "young_man",
-    ward_id: null,
-    participant_id: participantId,
+    role,
+    ward_id: wardId,
+    participant_id: null,
   });
 
   if (error) {
     throw new Error(error.message);
-  }
-}
-
-async function syncLeaderInvitationsForUser(
-  userId: string,
-  userEmail: string,
-  onboardingCompletedAt: string,
-  selectedWardId?: string | null,
-) {
-  const normalizedEmail = normalizeEmail(userEmail);
-  if (!normalizedEmail) {
-    console.log("[syncLeader] no normalized email, skipping");
-    return;
-  }
-
-  console.log("[syncLeader] syncing for", normalizedEmail, "userId:", userId);
-
-  const admin = createSupabaseAdminClient() as any;
-  const adminClient = admin as unknown as SupabaseActionClient;
-
-  const [leaderByEmailResult, leaderByUserResult] = await Promise.all([
-    admin
-      .from("leaders")
-      .select("id, email, role, ward_id, status, accepted_at, user_id")
-      .ilike("email", normalizedEmail),
-    admin
-      .from("leaders")
-      .select("id, email, role, ward_id, status, accepted_at, user_id")
-      .eq("user_id", userId),
-  ]);
-
-  console.log("[syncLeader] by email:", JSON.stringify(leaderByEmailResult.data));
-  console.log("[syncLeader] by email error:", leaderByEmailResult.error?.message ?? "none");
-  console.log("[syncLeader] by user_id:", JSON.stringify(leaderByUserResult.data));
-
-  const leaderInvitations = new Map<string, LeaderInvitationClaimRow>();
-  [...(leaderByEmailResult.data ?? []), ...(leaderByUserResult.data ?? [])].forEach((row) => {
-    const casted = row as LeaderInvitationClaimRow;
-    leaderInvitations.set(casted.id, casted);
-  });
-
-  console.log("[syncLeader] matched invitations:", leaderInvitations.size);
-
-  for (const invitation of leaderInvitations.values()) {
-    if (!isLeadershipRole(invitation.role)) {
-      console.log("[syncLeader] skipping non-leadership role:", invitation.role);
-      continue;
-    }
-
-    const nextAcceptedAt = invitation.accepted_at ?? onboardingCompletedAt;
-    const needsLeaderUpdate =
-      invitation.status !== "active" ||
-      invitation.user_id !== userId ||
-      invitation.accepted_at === null;
-
-    console.log("[syncLeader] invitation", invitation.id, "role:", invitation.role, "needsUpdate:", needsLeaderUpdate, "status:", invitation.status, "existing user_id:", invitation.user_id);
-
-    // Always update the leaders row first — this must not depend on user_roles succeeding
-    if (needsLeaderUpdate) {
-      const { error: updateError } = await admin
-        .from("leaders")
-        .update({
-          user_id: userId,
-          status: "active",
-          accepted_at: nextAcceptedAt,
-        })
-        .eq("id", invitation.id);
-
-      if (updateError) {
-        console.error("[syncLeader] FAILED to update leaders.user_id for", invitation.id, ":", updateError.message, updateError.code);
-      } else {
-        console.log("[syncLeader] updated leaders.user_id for", invitation.id);
-      }
-    }
-
-    if (!invitation.ward_id && selectedWardId) {
-      const { error: wardError } = await admin
-        .from("leaders")
-        .update({ ward_id: selectedWardId })
-        .eq("id", invitation.id);
-      if (wardError) {
-        console.error("[syncLeader] FAILED to update leaders.ward_id for", invitation.id, ":", wardError.message);
-      }
-    }
-
-    // Assign user_roles separately — failures here should not block the leader link
-    try {
-      const roleWardId = WARD_SCOPED_LEADERSHIP_ROLES.has(invitation.role as LeadershipRole)
-        ? invitation.ward_id
-        : null;
-      await ensureLeadershipUserRole(
-        adminClient,
-        userId,
-        invitation.role,
-        roleWardId,
-      );
-    } catch (err) {
-      console.error(`[syncLeader] Failed to assign user_role for ${invitation.id}:`, err instanceof Error ? err.message : err);
-    }
   }
 }
 
@@ -526,12 +347,7 @@ export async function updateMyProfileAction(
 ): Promise<ActionResult> {
   const context = await getUserContext();
   const shouldCompleteOnboarding = input.markOnboardingComplete === true;
-  console.log("[onboarding] === updateMyProfileAction START ===");
-  console.log("[onboarding] user.id:", context.user.id);
-  console.log("[onboarding] user.email:", context.user.email);
-  console.log("[onboarding] shouldCompleteOnboarding:", shouldCompleteOnboarding);
-  console.log("[onboarding] existing onboardingCompletedAt:", context.onboardingCompletedAt);
-  console.log("[onboarding] existing roles:", context.roles.length, JSON.stringify(context.roles));
+
   const displayName =
     (typeof input.displayName === "string" ? input.displayName : context.displayName).trim();
   if (!displayName) {
@@ -549,54 +365,15 @@ export async function updateMyProfileAction(
 
   const phoneRaw =
     typeof input.phone === "string" ? input.phone : (context.phone ?? "");
-  const medicalNotesRaw =
-    typeof input.medicalNotes === "string"
-      ? input.medicalNotes
-      : (context.medicalNotes ?? "");
   const phone = phoneRaw.trim() || null;
-  const medicalNotes = medicalNotesRaw.trim() || null;
 
   const hasWardIdInput = Object.prototype.hasOwnProperty.call(input, "wardId");
-  const hasQuorumIdInput = Object.prototype.hasOwnProperty.call(input, "quorumId");
-  const hasShirtSizeInput = Object.prototype.hasOwnProperty.call(input, "shirtSizeCode");
-  const hasAgeInput = Object.prototype.hasOwnProperty.call(input, "age");
-
   const wardInputValue = hasWardIdInput ? input.wardId : context.wardId;
-  const quorumInputValue = hasQuorumIdInput ? input.quorumId : context.quorumId;
-  const shirtSizeInputValue = hasShirtSizeInput
-    ? input.shirtSizeCode
-    : context.shirtSizeCode;
-  const ageInputValue = hasAgeInput ? input.age : context.age;
 
   let wardId =
     typeof wardInputValue === "string"
       ? (wardInputValue.trim() || null)
       : null;
-  let quorumId =
-    typeof quorumInputValue === "string"
-      ? (quorumInputValue.trim() || null)
-      : null;
-  const shirtSizeCode =
-    typeof shirtSizeInputValue === "string"
-      ? (shirtSizeInputValue.trim() || null)
-      : null;
-
-  let age: number | null = null;
-  if (ageInputValue === null || ageInputValue === undefined) {
-    age = null;
-  } else if (typeof ageInputValue === "number") {
-    age = ageInputValue;
-  } else {
-    age = Number(ageInputValue);
-  }
-
-  if (age !== null && (!Number.isInteger(age) || age < 8 || age > 99)) {
-    return fail("Age must be a whole number between 8 and 99.");
-  }
-
-  if (!context.isCamper) {
-    quorumId = null;
-  }
 
   const supabase = await createSupabaseServerClient();
 
@@ -611,32 +388,6 @@ export async function updateMyProfileAction(
     }
   }
 
-  if (quorumId) {
-    const { data: quorumRow } = await supabase
-      .from("quorums")
-      .select("id, ward_id")
-      .eq("id", quorumId)
-      .maybeSingle();
-    if (!quorumRow) {
-      return fail("Selected quorum could not be found.");
-    }
-    if (wardId && quorumRow.ward_id !== wardId) {
-      return fail("Selected quorum must belong to the selected ward.");
-    }
-    wardId = wardId ?? quorumRow.ward_id;
-  }
-
-  if (shirtSizeCode) {
-    const { data: shirtSizeRow } = await supabase
-      .from("shirt_sizes")
-      .select("code")
-      .eq("code", shirtSizeCode)
-      .maybeSingle();
-    if (!shirtSizeRow) {
-      return fail("Selected shirt size is invalid.");
-    }
-  }
-
   const onboardingCompletedAt = shouldCompleteOnboarding
     ? new Date().toISOString()
     : (context.onboardingCompletedAt ?? null);
@@ -648,17 +399,18 @@ export async function updateMyProfileAction(
     avatar_url: avatarUrl,
     phone,
     ward_id: wardId,
-    quorum_id: quorumId,
-    medical_notes: medicalNotes,
-    shirt_size_code: shirtSizeCode,
-    age,
   };
 
   if (shouldCompleteOnboarding) {
     profilePayload.onboarding_completed_at = onboardingCompletedAt;
   }
 
-  console.log("[onboarding] upserting user_profiles with:", JSON.stringify(profilePayload));
+  if (input.signatureName !== undefined) {
+    profilePayload.terms_accepted_at = input.signatureName?.trim()
+      ? (onboardingCompletedAt ?? new Date().toISOString())
+      : null;
+    profilePayload.signature_name = input.signatureName?.trim() || null;
+  }
 
   const { error, data: upsertedRows } = await supabase
     .from("user_profiles")
@@ -666,102 +418,52 @@ export async function updateMyProfileAction(
     .select("user_id, display_name, onboarding_completed_at");
 
   if (error) {
-    console.error("[onboarding] user_profiles upsert FAILED:", error.message, error.code, error.details);
     return fail(error.message);
-  }
-  console.log("[onboarding] user_profiles upsert SUCCESS:", JSON.stringify(upsertedRows));
-
-  console.log("[onboarding] checking sync conditions: email=", context.user.email, "onboardingCompletedAt=", onboardingCompletedAt);
-  if (context.user.email && onboardingCompletedAt) {
-    console.log("[onboarding] calling syncLeaderInvitationsForUser...");
-    try {
-      await syncLeaderInvitationsForUser(
-        context.user.id,
-        context.user.email,
-        onboardingCompletedAt,
-        wardId,
-      );
-      console.log("[onboarding] syncLeaderInvitationsForUser completed");
-    } catch (syncError) {
-      console.error("[onboarding] syncLeaderInvitationsForUser THREW:", syncError);
-    }
-  } else {
-    console.log("[onboarding] SKIPPED syncLeaderInvitationsForUser — conditions not met");
   }
 
   if (shouldCompleteOnboarding && onboardingCompletedAt && context.user.email) {
+    // If user has a leadership role on their profile, ensure user_roles is in sync
+    const { data: profileRow } = await supabase
+      .from("user_profiles")
+      .select("role, ward_id")
+      .eq("user_id", context.user.id)
+      .maybeSingle();
 
+    if (profileRow?.role && isLeadershipRole(profileRow.role)) {
+      try {
+        const roleWardId = WARD_SCOPED_LEADERSHIP_ROLES.has(profileRow.role as LeadershipRole)
+          ? (profileRow.ward_id ?? null)
+          : null;
+        await ensureLeadershipUserRole(supabase, context.user.id, profileRow.role, roleWardId);
+      } catch (err) {
+        console.error("[onboarding] failed to sync user_role:", err);
+      }
+    }
+
+    // Insert young men if provided (parent flow)
     if (input.youngMen && input.youngMen.length > 0 && wardId) {
       try {
         const admin = createSupabaseAdminClient() as any;
-        const normalizedEmail = context.user.email.toLowerCase().trim();
 
-        const { data: parentRow } = await admin
-          .from("parents")
-          .select("id")
-          .ilike("email", normalizedEmail)
-          .limit(1)
-          .maybeSingle();
+        const youngMenPayload = input.youngMen
+          .filter((ym) => ym.firstName?.trim() && ym.lastName?.trim())
+          .map((ym) => ({
+            parent_id: context.user.id,
+            first_name: ym.firstName.trim(),
+            last_name: ym.lastName.trim(),
+            age: Number(ym.age) || 12,
+            shirt_size_code: ym.shirtSizeCode?.trim() || null,
+            allergies: ym.allergies?.trim() || null,
+            medical_notes: ym.medicalNotes?.trim() || null,
+          }));
 
-        if (parentRow?.id) {
-          await admin
-            .from("parents")
-            .update({
-              user_id: context.user.id,
-              first_name: displayName.split(/\s+/)[0] || displayName,
-              last_name: displayName.split(/\s+/).slice(1).join(" ") || "",
-              phone: input.phone?.trim() || null,
-              ward_id: wardId,
-              registration_status: "active",
-              invite_status: "accepted",
-              onboarding_completed_at: onboardingCompletedAt,
-              terms_accepted_at: input.signatureName ? onboardingCompletedAt : null,
-              signature_name: input.signatureName?.trim() || null,
-            })
-            .eq("id", parentRow.id);
-
-          const youngMenPayload = input.youngMen
-            .filter((ym) => ym.firstName?.trim() && ym.lastName?.trim())
-            .map((ym) => ({
-              parent_id: parentRow.id,
-              first_name: ym.firstName.trim(),
-              last_name: ym.lastName.trim(),
-              age: Number(ym.age) || 12,
-              shirt_size_code: ym.shirtSizeCode?.trim() || null,
-              allergies: ym.allergies?.trim() || null,
-              medical_notes: ym.medicalNotes?.trim() || null,
-            }));
-
-          if (youngMenPayload.length > 0) {
-            await admin.from("young_men").insert(youngMenPayload);
-          }
+        if (youngMenPayload.length > 0) {
+          await admin.from("young_men").insert(youngMenPayload);
         }
       } catch (parentSyncError) {
-        console.error("Failed to sync parent registration:", parentSyncError);
+        console.error("Failed to insert young men:", parentSyncError);
       }
     }
-  }
-
-  if (shouldCompleteOnboarding) {
-    try {
-      const adminVerify = createSupabaseAdminClient() as any;
-      const { data: leaderRows } = await adminVerify
-        .from("leaders")
-        .select("id, email, user_id, role, ward_id, status")
-        .eq("user_id", context.user.id);
-      console.log("[onboarding] === FINAL leaders table state for this user ===");
-      console.log(JSON.stringify(leaderRows, null, 2));
-
-      const { data: roleRows } = await adminVerify
-        .from("user_roles")
-        .select("id, user_id, role, ward_id")
-        .eq("user_id", context.user.id);
-      console.log("[onboarding] === FINAL user_roles state for this user ===");
-      console.log(JSON.stringify(roleRows, null, 2));
-    } catch (verifyErr) {
-      console.error("[onboarding] verification query failed:", verifyErr);
-    }
-    console.log("[onboarding] === updateMyProfileAction END ===");
   }
 
   return success({
@@ -771,10 +473,6 @@ export async function updateMyProfileAction(
     onboardingCompletedAt,
     phone,
     wardId,
-    quorumId,
-    medicalNotes,
-    shirtSizeCode,
-    age,
   });
 }
 
@@ -923,8 +621,9 @@ export async function deleteWardAction(wardId: string): Promise<ActionResult> {
 
   const supabase = await createSupabaseServerClient();
   const { count: parentCount, error: parentCountError } = await supabase
-    .from("parents")
-    .select("id", { count: "exact", head: true })
+    .from("user_profiles")
+    .select("user_id", { count: "exact", head: true })
+    .eq("role", "parent")
     .eq("ward_id", wardId);
 
   if (parentCountError) {
@@ -1028,7 +727,6 @@ export async function deleteCompetitionAction(
     .from("competitions")
     .delete()
     .eq("id", competitionId);
-
   if (error) {
     return fail(error.message);
   }
@@ -1044,25 +742,17 @@ export async function awardPointsAction(
     return fail("You do not have permission to award points.");
   }
 
-  if (
-    !input.competitionId ||
-    !input.wardId ||
-    !Number.isFinite(input.points) ||
-    input.points === 0 ||
-    Math.abs(input.points) > 100
-  ) {
-    return fail("Please provide valid points and targets.");
+  if (!input.competitionId || !input.wardId || input.points <= 0) {
+    return fail("Competition, ward, and a positive point value are required.");
   }
 
   const supabase = await createSupabaseServerClient();
   const { error } = await supabase.from("competition_points").insert({
     competition_id: input.competitionId,
     ward_id: input.wardId,
-    unit_id: null,
     points: input.points,
     reason: input.note.trim() || null,
-    awarded_by: context.user.id,
-    awarded_by_name: input.leader.trim() || null,
+    awarded_by_name: input.leader.trim() || context.displayName,
   });
 
   if (error) {
@@ -1071,6 +761,26 @@ export async function awardPointsAction(
 
   return success();
 }
+
+export async function deletePointAction(pointId: string): Promise<ActionResult> {
+  const context = await getUserContext();
+  if (!context.canAwardCompetitionPoints) {
+    return fail("You do not have permission to delete points.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase
+    .from("competition_points")
+    .delete()
+    .eq("id", pointId);
+  if (error) {
+    return fail(error.message);
+  }
+
+  return success();
+}
+
+export { addParentAction as addRegistrationAction };
 
 export async function addParentAction(
   input: AddParentInput,
@@ -1093,34 +803,45 @@ export async function addParentAction(
   const supabase = await createSupabaseServerClient();
 
   const { data: existing } = await supabase
-    .from("parents")
-    .select("id")
-    .ilike("email", email)
+    .from("user_profiles")
+    .select("user_id, role")
+    .ilike("user_email", email)
     .limit(1)
     .maybeSingle();
 
-  if (existing?.id) {
+  if (existing?.user_id && existing.role === "parent") {
     return fail("A parent with this email already exists.");
   }
 
-  const { error } = await supabase.from("parents").insert({
-    first_name: parentName.firstName,
-    last_name: parentName.lastName,
-    email,
-    registration_status: "not_invited_yet",
-    invite_status: "not_sent",
-    invited_by: context.user.id,
-  });
+  const admin = createSupabaseAdminClient() as any;
 
-  if (error) {
-    return fail(error.message);
+  // Ensure auth user + user_profiles row exists
+  const { userId: authUserId } = await generateMagicLink(email);
+
+  if (!authUserId) {
+    return fail("Unable to create account for this email.");
+  }
+
+  const displayName = `${parentName.firstName} ${parentName.lastName}`;
+
+  const { error: updateError } = await admin
+    .from("user_profiles")
+    .update({
+      role: "parent",
+      display_name: displayName,
+      invited_by: context.user.id,
+    })
+    .eq("user_id", authUserId);
+
+  if (updateError) {
+    return fail(updateError.message);
   }
 
   return success();
 }
 
 export async function sendParentInviteAction(
-  parentId: string,
+  parentUserId: string,
 ): Promise<ActionResult> {
   const context = await getUserContext();
   if (!context.canManageRegistrations) {
@@ -1128,61 +849,70 @@ export async function sendParentInviteAction(
   }
 
   const supabase = await createSupabaseServerClient();
-  const { data: parent } = await supabase
-    .from("parents")
-    .select("id, first_name, last_name, email, registration_status")
-    .eq("id", parentId)
+  const { data: profile } = await supabase
+    .from("user_profiles")
+    .select("user_id, user_email, display_name, role, onboarding_completed_at")
+    .eq("user_id", parentUserId)
+    .eq("role", "parent")
     .maybeSingle();
 
-  if (!parent?.id) {
+  if (!profile?.user_id) {
     return fail("Parent not found.");
   }
 
-  if (parent.registration_status === "active") {
+  if (profile.onboarding_completed_at) {
     return fail("This parent has already completed registration.");
   }
 
-  const { actionLink: parentLink } = await generateMagicLink(parent.email);
+  if (!profile.user_email) {
+    return fail("Parent has no email address on file.");
+  }
+
+  const { actionLink: parentLink } = await generateMagicLink(profile.user_email);
   if (parentLink) {
-    const parentName = `${parent.first_name} ${parent.last_name}`.trim();
+    const parentName = profile.display_name?.trim() || profile.user_email.split("@")[0] || "Parent";
     const template = parentInviteEmail(parentName, parentLink);
     await sendEmail({
-      to: parent.email,
+      to: profile.user_email,
       subject: template.subject,
       html: template.html,
     });
   }
 
-  const { error } = await supabase
-    .from("parents")
+  const admin = createSupabaseAdminClient() as any;
+  await admin
+    .from("user_profiles")
     .update({
-      registration_status: "pending",
-      invite_status: "sent",
       invited_at: new Date().toISOString(),
       invited_by: context.user.id,
     })
-    .eq("id", parentId);
-
-  if (error) {
-    return fail(error.message);
-  }
+    .eq("user_id", parentUserId);
 
   return success();
 }
 
 export async function deleteParentAction(
-  parentId: string,
+  parentUserId: string,
 ): Promise<ActionResult> {
   const context = await getUserContext();
   if (!context.canManageRegistrations) {
     return fail("You do not have permission to delete registrations.");
   }
 
-  const supabase = await createSupabaseServerClient();
-  const { error } = await supabase
-    .from("parents")
-    .delete()
-    .eq("id", parentId);
+  const admin = createSupabaseAdminClient() as any;
+
+  // Null out parent-specific data rather than deleting the auth user
+  const { error } = await admin
+    .from("user_profiles")
+    .update({
+      role: null,
+      terms_accepted_at: null,
+      signature_name: null,
+      invited_by: null,
+      invited_at: null,
+    })
+    .eq("user_id", parentUserId)
+    .eq("role", "parent");
 
   if (error) {
     return fail(error.message);
@@ -1197,17 +927,18 @@ export async function addContactAction(input: ContactInput): Promise<ActionResul
     return fail("You do not have permission to add contacts.");
   }
 
-  if (!input.name.trim()) {
+  const fullName = input.name.trim();
+  if (!fullName) {
     return fail("Contact name is required.");
   }
 
   const supabase = await createSupabaseServerClient();
   const { error } = await supabase.from("contacts").insert({
-    full_name: input.name.trim(),
+    full_name: fullName,
     role_title: input.role.trim() || null,
     phone: input.phone.trim() || null,
     email: input.email.trim() || null,
-    is_emergency: input.emergency,
+    is_emergency: input.emergency ?? false,
   });
 
   if (error) {
@@ -1217,7 +948,9 @@ export async function addContactAction(input: ContactInput): Promise<ActionResul
   return success();
 }
 
-export async function deleteContactAction(contactId: string): Promise<ActionResult> {
+export async function deleteContactAction(
+  contactId: string,
+): Promise<ActionResult> {
   const context = await requireContentManager();
   if (!context) {
     return fail("You do not have permission to delete contacts.");
@@ -1225,6 +958,86 @@ export async function deleteContactAction(contactId: string): Promise<ActionResu
 
   const supabase = await createSupabaseServerClient();
   const { error } = await supabase.from("contacts").delete().eq("id", contactId);
+  if (error) {
+    return fail(error.message);
+  }
+
+  return success();
+}
+
+export async function saveDailyMessageAction(
+  messageDate: string,
+  messageContent: { title: string; scripture: string; message: string },
+): Promise<ActionResult> {
+  const context = await requireContentManager();
+  if (!context) {
+    return fail("You do not have permission to edit daily messages.");
+  }
+
+  if (!messageContent.message.trim()) {
+    return fail("Message content is required.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.from("daily_messages").upsert(
+    {
+      message_date: messageDate,
+      title: messageContent.title.trim() || null,
+      scripture: messageContent.scripture.trim() || null,
+      message: messageContent.message.trim(),
+    },
+    { onConflict: "message_date" },
+  );
+
+  if (error) {
+    return fail(error.message);
+  }
+
+  return success();
+}
+
+export async function deleteDailyMessageAction(
+  messageDate: string,
+): Promise<ActionResult> {
+  const context = await requireContentManager();
+  if (!context) {
+    return fail("You do not have permission to delete daily messages.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase
+    .from("daily_messages")
+    .delete()
+    .eq("message_date", messageDate);
+  if (error) {
+    return fail(error.message);
+  }
+
+  return success();
+}
+
+export async function saveCampRulesAction(
+  content: string,
+): Promise<ActionResult> {
+  const context = await requireContentManager();
+  if (!context) {
+    return fail("You do not have permission to edit camp rules.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { data: existing } = await supabase
+    .from("camp_rules_documents")
+    .select("id")
+    .limit(1)
+    .maybeSingle();
+
+  const { error } = existing?.id
+    ? await supabase
+        .from("camp_rules_documents")
+        .update({ content: content.trim() })
+        .eq("id", existing.id)
+    : await supabase.from("camp_rules_documents").insert({ content: content.trim() });
+
   if (error) {
     return fail(error.message);
   }
@@ -1280,92 +1093,56 @@ export async function inviteLeaderAction(
     return fail("Unable to save calling.");
   }
 
-  const { data: userProfile } = await supabase
-    .from("user_profiles")
-    .select("user_id, onboarding_completed_at")
-    .ilike("user_email", email)
-    .limit(1)
-    .maybeSingle();
+  // Ensure auth user exists (creates user_profiles row via trigger)
+  const { actionLink, userId: authUserId } = await generateMagicLink(email);
 
-  const invitedUserId = userProfile?.user_id ?? null;
-  const onboardingCompleted = Boolean(userProfile?.onboarding_completed_at);
-  const invitationStatus = onboardingCompleted ? "active" : "pending";
-  const acceptedAt = onboardingCompleted
-    ? (userProfile!.onboarding_completed_at as string)
-    : null;
-
-  let existingInviteQuery = supabase
-    .from("leaders")
-    .select("id")
-    .eq("email", email)
-    .eq("role", input.role);
-  existingInviteQuery = wardId
-    ? existingInviteQuery.eq("ward_id", wardId)
-    : existingInviteQuery.is("ward_id", null);
-
-  const { data: existingInvite } = await existingInviteQuery.limit(1).maybeSingle();
+  if (!authUserId) {
+    return fail("Unable to create account for this email.");
+  }
 
   const fullName = input.fullName?.trim() || null;
 
-  const invitationPayload = {
-    email,
-    full_name: fullName,
-    user_id: invitedUserId,
+  const admin = createSupabaseAdminClient() as any;
+
+  // Check if this user already has this role assigned
+  const { data: existingProfile } = await admin
+    .from("user_profiles")
+    .select("user_id, role, onboarding_completed_at")
+    .eq("user_id", authUserId)
+    .maybeSingle();
+
+  const onboardingCompleted = Boolean(existingProfile?.onboarding_completed_at);
+
+  const updatePayload: Record<string, string | null> = {
     role: input.role,
-    ward_id: wardId,
     calling_id: callingId,
-    status: invitationStatus,
+    ward_id: wardId,
     invited_by: context.user.id,
     invited_at: new Date().toISOString(),
-    accepted_at: acceptedAt,
   };
 
-  const { error: inviteSaveError } = existingInvite?.id
-    ? await supabase
-        .from("leaders")
-        .update(invitationPayload)
-        .eq("id", existingInvite.id)
-    : await supabase.from("leaders").insert(invitationPayload);
-
-  if (inviteSaveError) {
-    console.error("[inviteLeaderAction] save error:", inviteSaveError.message, inviteSaveError.code, inviteSaveError.details);
-    return fail(inviteSaveError.message);
+  if (fullName) {
+    updatePayload.display_name = fullName;
   }
 
-  if (invitedUserId) {
-    try {
-      await ensureLeadershipUserRole(supabase, invitedUserId, input.role, wardId);
-    } catch (error) {
-      return fail(
-        error instanceof Error
-          ? error.message
-          : "Unable to assign the requested role to this user.",
-      );
-    }
+  const { error: updateError } = await admin
+    .from("user_profiles")
+    .update(updatePayload)
+    .eq("user_id", authUserId);
+
+  if (updateError) {
+    return fail(updateError.message);
   }
 
-  const { actionLink, userId: authUserId } = await generateMagicLink(email);
-
-  // If we now have an auth user_id that wasn't available at insert time, link it
-  if (authUserId && !invitedUserId) {
-    const admin = createSupabaseAdminClient() as any;
-    const { error: linkError } = await admin
-      .from("leaders")
-      .update({ user_id: authUserId })
-      .eq("email", email)
-      .is("user_id", null);
-
-    if (linkError) {
-      console.error("[inviteLeaderAction] failed to link auth user_id to leaders:", linkError.message);
-    } else {
-      console.log("[inviteLeaderAction] linked auth user_id", authUserId, "to leaders row for", email);
-    }
-
-    try {
-      await ensureLeadershipUserRole(supabase, authUserId, input.role, wardId);
-    } catch (roleErr) {
-      console.error("[inviteLeaderAction] failed to assign role for newly linked user:", roleErr);
-    }
+  // Sync user_roles
+  try {
+    await ensureLeadershipUserRole(supabase, authUserId, input.role, wardId);
+  } catch (error) {
+    return fail(
+      error instanceof Error
+        ? error.message
+        : "Unable to assign the requested role to this user.",
+    );
   }
 
   if (actionLink) {
@@ -1381,7 +1158,7 @@ export async function inviteLeaderAction(
 }
 
 export async function updateLeaderAction(
-  leaderId: string,
+  leaderUserId: string,
   input: {
     displayName?: string;
     role?: string;
@@ -1396,9 +1173,9 @@ export async function updateLeaderAction(
 
   const supabase = await createSupabaseServerClient();
   const { data: existing, error: fetchError } = await supabase
-    .from("leaders")
-    .select("id, role, ward_id, user_id, calling_id")
-    .eq("id", leaderId)
+    .from("user_profiles")
+    .select("user_id, role, ward_id, calling_id")
+    .eq("user_id", leaderUserId)
     .maybeSingle();
 
   if (fetchError || !existing) {
@@ -1408,9 +1185,9 @@ export async function updateLeaderAction(
   const updates: Record<string, unknown> = {};
 
   if (input.role && isLeadershipRole(input.role) && input.role !== existing.role) {
-    if (existing.user_id && isLeadershipRole(existing.role)) {
+    if (existing.role && isLeadershipRole(existing.role)) {
       try {
-        await removeLeadershipUserRole(supabase, existing.user_id, existing.role, existing.ward_id);
+        await removeLeadershipUserRole(supabase, leaderUserId, existing.role, existing.ward_id);
       } catch {}
     }
     updates.role = input.role;
@@ -1419,9 +1196,9 @@ export async function updateLeaderAction(
   if (Object.prototype.hasOwnProperty.call(input, "wardId")) {
     const newWardId = input.wardId?.trim() || null;
     if (newWardId !== existing.ward_id) {
-      if (existing.user_id && isLeadershipRole(existing.role)) {
+      if (existing.role && isLeadershipRole(existing.role)) {
         try {
-          await removeLeadershipUserRole(supabase, existing.user_id, existing.role, existing.ward_id);
+          await removeLeadershipUserRole(supabase, leaderUserId, existing.role, existing.ward_id);
         } catch {}
       }
       updates.ward_id = newWardId;
@@ -1433,8 +1210,8 @@ export async function updateLeaderAction(
     ? (updates.ward_id as string | null)
     : existing.ward_id;
 
-  if (existing.user_id && isLeadershipRole(finalRole)) {
-    await ensureLeadershipUserRole(supabase, existing.user_id, finalRole, finalWardId);
+  if (isLeadershipRole(finalRole)) {
+    await ensureLeadershipUserRole(supabase, leaderUserId, finalRole, finalWardId);
   }
 
   if (input.calling?.trim()) {
@@ -1449,19 +1226,16 @@ export async function updateLeaderAction(
     }
   }
 
-  if (input.displayName?.trim() && existing.user_id) {
-    const admin = createSupabaseAdminClient() as any;
-    await admin
-      .from("user_profiles")
-      .update({ display_name: input.displayName.trim() })
-      .eq("user_id", existing.user_id);
+  if (input.displayName?.trim()) {
+    updates.display_name = input.displayName.trim();
   }
 
   if (Object.keys(updates).length > 0) {
-    const { error: updateError } = await supabase
-      .from("leaders")
+    const admin = createSupabaseAdminClient() as any;
+    const { error: updateError } = await admin
+      .from("user_profiles")
       .update(updates)
-      .eq("id", leaderId);
+      .eq("user_id", leaderUserId);
     if (updateError) {
       return fail(updateError.message);
     }
@@ -1471,7 +1245,7 @@ export async function updateLeaderAction(
 }
 
 export async function deleteLeaderInvitationAction(
-  invitationId: string,
+  leaderUserId: string,
 ): Promise<ActionResult> {
   const context = await requireStakeAdmin();
   if (!context) {
@@ -1479,23 +1253,23 @@ export async function deleteLeaderInvitationAction(
   }
 
   const supabase = await createSupabaseServerClient();
-  const { data: invitationRow, error: invitationError } = await supabase
-    .from("leaders")
-    .select("id, role, ward_id, user_id")
-    .eq("id", invitationId)
+  const { data: profile, error: profileError } = await supabase
+    .from("user_profiles")
+    .select("user_id, role, ward_id")
+    .eq("user_id", leaderUserId)
     .maybeSingle();
 
-  if (invitationError || !invitationRow?.id) {
-    return fail(invitationError?.message ?? "Invitation not found.");
+  if (profileError || !profile?.user_id) {
+    return fail(profileError?.message ?? "Leader not found.");
   }
 
-  if (invitationRow.user_id && isLeadershipRole(invitationRow.role)) {
+  if (profile.role && isLeadershipRole(profile.role)) {
     try {
       await removeLeadershipUserRole(
         supabase,
-        invitationRow.user_id,
-        invitationRow.role,
-        invitationRow.ward_id,
+        leaderUserId,
+        profile.role,
+        profile.ward_id,
       );
     } catch (error) {
       return fail(
@@ -1506,12 +1280,19 @@ export async function deleteLeaderInvitationAction(
     }
   }
 
-  const { error: deleteError } = await supabase
-    .from("leaders")
-    .delete()
-    .eq("id", invitationId);
-  if (deleteError) {
-    return fail(deleteError.message);
+  const admin = createSupabaseAdminClient() as any;
+  const { error: updateError } = await admin
+    .from("user_profiles")
+    .update({
+      role: null,
+      calling_id: null,
+      invited_by: null,
+      invited_at: null,
+    })
+    .eq("user_id", leaderUserId);
+
+  if (updateError) {
+    return fail(updateError.message);
   }
 
   return success();

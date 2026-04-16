@@ -99,7 +99,7 @@ const PAGE_TO_PATH = {
   wardRosters: "/ward-rosters",
   wards: "/wards",
   competitions: "/competitions",
-  registration: "/register",
+  registration: "/registration",
   photos: "/photos",
   contacts: "/contacts",
   rules: "/rules",
@@ -126,7 +126,7 @@ function resolvePageFromPathname(pathname) {
   if (pathname.startsWith("/photos")) return "photos";
   if (pathname.startsWith("/documentation")) return "docs";
   if (pathname.startsWith("/profile")) return "profile";
-  if (pathname.startsWith("/register")) return "registration";
+  if (pathname.startsWith("/registration")) return "registration";
 
   return "dashboard";
 }
@@ -1168,30 +1168,15 @@ const ProfilePage = ({
   const [avatarUrl, setAvatarUrl] = useState(profile.avatarUrl || "");
   const [phone, setPhone] = useState(profile.phone || "");
   const [wardId, setWardId] = useState(profile.wardId || "");
-  const [quorumId, setQuorumId] = useState(profile.quorumId || "");
-  const [medicalNotes, setMedicalNotes] = useState(profile.medicalNotes || "");
-  const [shirtSizeCode, setShirtSizeCode] = useState(profile.shirtSizeCode || "");
-  const [age, setAge] = useState(profile.age ? String(profile.age) : "");
+  
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef(null);
-
-  const filteredQuorums = useMemo(() => {
-    const allQuorums = profileOptions?.quorums ?? [];
-    if (!wardId) {
-      return allQuorums;
-    }
-    return allQuorums.filter((quorum) => quorum.ward_id === wardId);
-  }, [profileOptions?.quorums, wardId]);
 
   const buildProfileInput = (overrides = {}) => ({
     displayName,
     avatarUrl,
     phone,
     wardId: wardId || null,
-    quorumId: profile.isCamper ? (quorumId || null) : null,
-    medicalNotes,
-    shirtSizeCode: shirtSizeCode || null,
-    age: age.trim() ? Number(age) : null,
     ...overrides,
   });
 
@@ -1261,32 +1246,12 @@ const ProfilePage = ({
               placeholder="(555) 555-5555"
             />
           </Field>
-          <Field label="Age">
-            <input
-              style={css.input}
-              type="number"
-              min={8}
-              max={99}
-              value={age}
-              onChange={(event) => setAge(event.target.value)}
-              placeholder="16"
-            />
-          </Field>
           <Field label="Ward">
             <select
               style={css.select}
               value={wardId}
               onChange={(event) => {
-                const nextWardId = event.target.value;
-                setWardId(nextWardId);
-                if (
-                  quorumId &&
-                  !((profileOptions?.quorums ?? []).some(
-                    (quorum) => quorum.id === quorumId && quorum.ward_id === nextWardId,
-                  ))
-                ) {
-                  setQuorumId("");
-                }
+                setWardId(event.target.value);
               }}
             >
               <option value="">Select ward</option>
@@ -1296,44 +1261,6 @@ const ProfilePage = ({
                 </option>
               ))}
             </select>
-          </Field>
-          {profile.isCamper ? (
-            <Field label="Quorum">
-              <select
-                style={css.select}
-                value={quorumId}
-                onChange={(event) => setQuorumId(event.target.value)}
-              >
-                <option value="">Select quorum</option>
-                {filteredQuorums.map((quorum) => (
-                  <option key={quorum.id} value={quorum.id}>
-                    {quorum.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          ) : null}
-          <Field label="Shirt Size">
-            <select
-              style={css.select}
-              value={shirtSizeCode}
-              onChange={(event) => setShirtSizeCode(event.target.value)}
-            >
-              <option value="">Select shirt size</option>
-              {(profileOptions?.shirtSizes ?? []).map((shirtSize) => (
-                <option key={shirtSize.code} value={shirtSize.code}>
-                  {shirtSize.label}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Medical Notes">
-            <textarea
-              style={{ ...css.input, minHeight: "84px", resize: "vertical" }}
-              value={medicalNotes}
-              onChange={(event) => setMedicalNotes(event.target.value)}
-              placeholder="Any medical considerations..."
-            />
           </Field>
           <Field label="Upload Avatar (Drag & Drop or Click)">
             <div
@@ -1408,12 +1335,7 @@ const ProfilePage = ({
           </Field>
           <button
             onClick={() => {
-              const payload = buildProfileInput();
-              if (payload.age !== null && Number.isNaN(payload.age)) {
-                window.alert("Please enter a valid age.");
-                return;
-              }
-              onSaveProfile(payload);
+              onSaveProfile(buildProfileInput());
             }}
             style={{ ...css.btn(), width: "100%", justifyContent: "center" }}
             disabled={savingProfile || uploadingAvatar}
@@ -1546,13 +1468,8 @@ const OnboardingOverlay = ({
 }) => {
   const effectiveType = inviteType || (isCamper ? "youth" : "default");
   const copy = ONBOARDING_COPY[effectiveType] || ONBOARDING_COPY.default;
-  const isYouth = effectiveType === "youth";
   const isParent = effectiveType === "parent";
   const showWard = true;
-  const showQuorum = isYouth;
-  const showAge = isYouth;
-  const showShirtSize = isYouth;
-  const showMedicalNotes = isYouth;
   const showYoungMen = isParent;
   const showTerms = isParent;
 
@@ -1561,14 +1478,6 @@ const OnboardingOverlay = ({
   const [youngMen, setYoungMen] = useState([emptyYoungMan()]);
   const [termsRead, setTermsRead] = useState(false);
   const [signatureName, setSignatureName] = useState("");
-
-  const availableQuorums = useMemo(() => {
-    const quorums = profileOptions?.quorums ?? [];
-    if (!form.wardId) {
-      return quorums;
-    }
-    return quorums.filter((quorum) => quorum.ward_id === form.wardId);
-  }, [form.wardId, profileOptions?.quorums]);
 
   const processUploadFile = async (file) => {
     if (!file) return;
@@ -1585,10 +1494,6 @@ const OnboardingOverlay = ({
       avatarUrl: avatarUrl || "",
       phone: form.phone,
       wardId: form.wardId || null,
-      quorumId: form.quorumId || null,
-      medicalNotes: form.medicalNotes,
-      shirtSizeCode: form.shirtSizeCode || null,
-      age: form.age.trim() ? Number(form.age) : null,
     });
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
@@ -1609,9 +1514,6 @@ const OnboardingOverlay = ({
     form.password.length >= 8 &&
     !!avatarUrl &&
     form.wardId &&
-    (!showAge || form.age.trim()) &&
-    (!showQuorum || form.quorumId) &&
-    (!showShirtSize || form.shirtSizeCode) &&
     youngMenValid &&
     termsValid;
 
@@ -1666,13 +1568,7 @@ const OnboardingOverlay = ({
           </Field>
           <Field label="Ward">
             <select style={css.select} value={form.wardId} onChange={(event) => {
-              const nextWardId = event.target.value;
-              setForm((previous) => {
-                const quorumStillValid = (profileOptions?.quorums ?? []).some(
-                  (quorum) => quorum.id === previous.quorumId && quorum.ward_id === nextWardId,
-                );
-                return { ...previous, wardId: nextWardId, quorumId: quorumStillValid ? previous.quorumId : "" };
-              });
+              setForm((previous) => ({ ...previous, wardId: event.target.value }));
             }}>
               <option value="">Select ward</option>
               {(profileOptions?.wards ?? []).map((ward) => (
@@ -1680,37 +1576,7 @@ const OnboardingOverlay = ({
               ))}
             </select>
           </Field>
-          {showAge ? (
-            <Field label="Age">
-              <input style={css.input} type="number" min={8} max={99} value={form.age} onChange={(event) => setForm((previous) => ({ ...previous, age: event.target.value }))} placeholder="16" />
-            </Field>
-          ) : null}
-          {showShirtSize ? (
-            <Field label="Shirt Size">
-              <select style={css.select} value={form.shirtSizeCode} onChange={(event) => setForm((previous) => ({ ...previous, shirtSizeCode: event.target.value }))}>
-                <option value="">Select shirt size</option>
-                {(profileOptions?.shirtSizes ?? []).map((shirtSize) => (
-                  <option key={shirtSize.code} value={shirtSize.code}>{shirtSize.label}</option>
-                ))}
-              </select>
-            </Field>
-          ) : null}
-          {showQuorum ? (
-            <Field label="Quorum">
-              <select style={css.select} value={form.quorumId} onChange={(event) => setForm((previous) => ({ ...previous, quorumId: event.target.value }))}>
-                <option value="">Select quorum</option>
-                {availableQuorums.map((quorum) => (
-                  <option key={quorum.id} value={quorum.id}>{quorum.name}</option>
-                ))}
-              </select>
-            </Field>
-          ) : null}
         </div>
-        {showMedicalNotes ? (
-          <Field label="Medical Notes (Optional)">
-            <textarea style={{ ...css.input, minHeight: "80px", resize: "vertical" }} value={form.medicalNotes} onChange={(event) => setForm((previous) => ({ ...previous, medicalNotes: event.target.value }))} placeholder="Allergies, medications, health notes..." />
-          </Field>
-        ) : null}
 
         {showYoungMen ? (
           <div style={{ marginTop: "20px", borderTop: `1px solid ${T.border}`, paddingTop: "20px" }}>
@@ -1875,10 +1741,6 @@ export default function CampDesignApp({ initialData, profile }) {
     inviteType: null,
     phone: "",
     wardId: "",
-    quorumId: "",
-    medicalNotes: "",
-    shirtSizeCode: "",
-    age: null,
     roleLabels: [],
     isLeader: false,
     isStakeAdmin: false,
@@ -1891,11 +1753,7 @@ export default function CampDesignApp({ initialData, profile }) {
   const [onboardingForm, setOnboardingForm] = useState(() => ({
     displayName: profile?.displayName ?? defaultProfile.displayName,
     phone: profile?.phone ?? "",
-    age: profile?.age ? String(profile.age) : "",
     wardId: profile?.wardId ?? "",
-    quorumId: profile?.quorumId ?? "",
-    shirtSizeCode: profile?.shirtSizeCode ?? "",
-    medicalNotes: profile?.medicalNotes ?? "",
     password: "",
   }));
 
@@ -1994,24 +1852,16 @@ export default function CampDesignApp({ initialData, profile }) {
     if (completingOnboarding) return;
 
     const invType = profileData.inviteType || (profileData.isCamper ? "youth" : null);
-    const isYouth = invType === "youth";
     const isParent = invType === "parent";
-    const showQuorum = isYouth;
-    const showAge = isYouth;
-    const showShirtSize = isYouth;
 
-    const parsedAge = showAge ? Number(onboardingForm.age) : null;
     const password = onboardingForm.password.trim();
     const hasRequiredValues =
       onboardingForm.displayName.trim() &&
       password.length >= 8 &&
       !!profileData.avatarUrl &&
-      onboardingForm.wardId &&
-      (!showAge || onboardingForm.age.trim()) &&
-      (!showQuorum || onboardingForm.quorumId) &&
-      (!showShirtSize || onboardingForm.shirtSizeCode);
+      onboardingForm.wardId;
 
-    if (!hasRequiredValues || (showAge && Number.isNaN(parsedAge))) {
+    if (!hasRequiredValues) {
       window.alert("Please fill out all required fields, including a profile photo. Password must be at least 8 characters.");
       return;
     }
@@ -2030,10 +1880,6 @@ export default function CampDesignApp({ initialData, profile }) {
         avatarUrl: profileData.avatarUrl ?? "",
         phone: onboardingForm.phone,
         wardId: onboardingForm.wardId,
-        quorumId: showQuorum ? onboardingForm.quorumId : null,
-        medicalNotes: isYouth ? onboardingForm.medicalNotes : "",
-        shirtSizeCode: showShirtSize ? onboardingForm.shirtSizeCode : null,
-        age: parsedAge,
         markOnboardingComplete: true,
         youngMen: isParent && extraData?.youngMen ? extraData.youngMen : undefined,
         signatureName: isParent && extraData?.signatureName ? extraData.signatureName : undefined,

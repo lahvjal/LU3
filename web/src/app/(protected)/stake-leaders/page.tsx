@@ -19,28 +19,18 @@ type LeaderInvitationRole =
   | "camp_committee"
   | "young_men_captain";
 
-type LeaderInvitationStatus = "pending" | "active" | "revoked";
-
 type RelationName = { name: string } | { name: string }[] | null;
 
-type LeaderInvitationRow = {
-  id: string;
-  email: string;
-  user_id: string | null;
-  role: string;
-  ward_id: string | null;
-  status: LeaderInvitationStatus;
-  invited_at: string;
-  accepted_at: string | null;
-  calling: RelationName;
-  ward: RelationName;
-};
-
-type UserProfileRow = {
+type LeaderProfileRow = {
   user_id: string;
   user_email: string | null;
   display_name: string | null;
+  role: string;
+  ward_id: string | null;
   onboarding_completed_at: string | null;
+  invited_at: string | null;
+  calling: RelationName;
+  ward: RelationName;
 };
 
 const LEADER_ROLE_LABELS: Record<LeaderInvitationRole, string> = {
@@ -75,14 +65,6 @@ function normalizeLeaderRole(value: string): LeaderInvitationRole {
   return "ward_leader";
 }
 
-function normalizeLeaderStatus(value: string): LeaderInvitationStatus {
-  if (value === "active" || value === "revoked") {
-    return value;
-  }
-
-  return "pending";
-}
-
 function fallbackDisplayName(email: string): string {
   const base = email.split("@")[0]?.trim();
   return base || "Pending User";
@@ -94,104 +76,49 @@ export default async function StakeLeadersRoutePage() {
     createSupabaseServerClient(),
   ]);
 
-  const [{ data: wardRows }, { data: callingRows }, { data: invitationRows }] =
+  const [{ data: wardRows }, { data: callingRows }, { data: leaderRows }] =
     await Promise.all([
       supabase.from("wards").select("id, name").order("name"),
       supabase.from("leader_callings").select("id, name").order("name"),
       supabase
-        .from("leaders")
+        .from("user_profiles")
         .select(
-          "id, email, user_id, role, ward_id, status, invited_at, accepted_at, calling:leader_callings(name), ward:wards(name)",
+          "user_id, user_email, display_name, role, ward_id, onboarding_completed_at, invited_at, calling:leader_callings(name), ward:wards(name)",
         )
+        .not("role", "is", null)
+        .not("role", "in", "(parent,young_man)")
         .order("invited_at", { ascending: false }),
     ]);
 
   const wards = (wardRows ?? []) as WardRow[];
   const callingCatalog = (callingRows ?? []) as LeaderCallingRow[];
-  const invitations = (invitationRows ?? []) as LeaderInvitationRow[];
+  const leaderProfiles = (leaderRows ?? []) as LeaderProfileRow[];
 
   const wardNameById = new Map<string, string>(wards.map((ward) => [ward.id, ward.name]));
 
-  const invitedUserIds = [
-    ...new Set(
-      invitations
-        .map((invitation) => invitation.user_id)
-        .filter((value): value is string => typeof value === "string" && value.length > 0),
-    ),
-  ];
-  const invitationEmails = [
-    ...new Set(
-      invitations
-        .map((invitation) => invitation.email.trim().toLowerCase())
-        .filter(Boolean),
-    ),
-  ];
-
-  const [profileRowsByUserId, profileRowsByEmail] = await Promise.all([
-    invitedUserIds.length
-      ? (
-          (
-            await supabase
-              .from("user_profiles")
-              .select("user_id, user_email, display_name, onboarding_completed_at")
-              .in("user_id", invitedUserIds)
-          ).data ?? []
-        ) as UserProfileRow[]
-      : [],
-    invitationEmails.length
-      ? (
-          (
-            await supabase
-              .from("user_profiles")
-              .select("user_id, user_email, display_name, onboarding_completed_at")
-              .in("user_email", invitationEmails)
-          ).data ?? []
-        ) as UserProfileRow[]
-      : [],
-  ]);
-  const profileRows = [...profileRowsByUserId, ...profileRowsByEmail];
-
-  const userProfileById = new Map<string, UserProfileRow>(
-    profileRows.map((profile) => [profile.user_id, profile]),
-  );
-  const userProfileByEmail = new Map<string, UserProfileRow>(
-    profileRows
-      .filter((profile): profile is UserProfileRow & { user_email: string } => Boolean(profile.user_email))
-      .map((profile) => [profile.user_email.trim().toLowerCase(), profile]),
-  );
-
-  const initialInvitations = invitations.map((invitation) => {
-    const role = normalizeLeaderRole(invitation.role);
-    const storedStatus = normalizeLeaderStatus(invitation.status);
-    const profileById = invitation.user_id
-      ? userProfileById.get(invitation.user_id) ?? null
-      : null;
-    const inviteEmail = (invitation.email || profileById?.user_email || "").trim().toLowerCase();
-    const profileByEmail = userProfileByEmail.get(inviteEmail) ?? null;
-    const profile = profileById ?? profileByEmail;
-    const onboardingCompleted = Boolean(profile?.onboarding_completed_at);
-    const effectiveStatus =
-      onboardingCompleted && storedStatus === "pending" ? "active" : storedStatus;
-    const email = inviteEmail;
+  const initialInvitations = leaderProfiles.map((profile) => {
+    const role = normalizeLeaderRole(profile.role);
+    const onboardingCompleted = Boolean(profile.onboarding_completed_at);
+    const effectiveStatus: "active" | "pending" = onboardingCompleted ? "active" : "pending";
+    const email = (profile.user_email || "").trim().toLowerCase();
     const wardName =
-      resolveRelationName(invitation.ward) ||
-      (invitation.ward_id ? (wardNameById.get(invitation.ward_id) ?? "") : "");
-    const callingName = resolveRelationName(invitation.calling) || "Leader";
+      resolveRelationName(profile.ward) ||
+      (profile.ward_id ? (wardNameById.get(profile.ward_id) ?? "") : "");
+    const callingName = resolveRelationName(profile.calling) || "Leader";
 
     return {
-      invitationId: invitation.id,
+      invitationId: profile.user_id,
       email,
-      displayName: profile?.display_name?.trim() || fallbackDisplayName(email),
+      displayName: profile.display_name?.trim() || fallbackDisplayName(email),
       role,
       roleLabel: LEADER_ROLE_LABELS[role],
-      wardId: invitation.ward_id,
+      wardId: profile.ward_id,
       wardName,
       calling: callingName,
       status: effectiveStatus,
-      invitedAt: invitation.invited_at,
+      invitedAt: profile.invited_at,
       acceptedAt:
-        invitation.accepted_at ??
-        (effectiveStatus === "active" ? (profile?.onboarding_completed_at ?? null) : null),
+        effectiveStatus === "active" ? (profile.onboarding_completed_at ?? null) : null,
       onboardingCompleted,
     };
   });
