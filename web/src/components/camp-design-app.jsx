@@ -1430,29 +1430,104 @@ const TERMS_OF_SERVICE_TEXT = `By completing this registration, I acknowledge an
 
 This agreement is binding for all young men registered under my account for the duration of the camp event (June 15-19, 2026).`;
 
-const YoungManFormEntry = ({ entry, index, onUpdate, onRemove, shirtSizes }) => (
-  <div style={{ background: T.bgInput, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "14px", marginBottom: "10px" }}>
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
-      <span style={{ fontSize: "13px", fontWeight: 700, color: T.accent }}>Young Man #{index + 1}</span>
-      <button onClick={onRemove} style={{ background: "none", border: "none", cursor: "pointer", padding: "2px" }}><Icon name="x" size={16} color={T.red} /></button>
-    </div>
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-      <Field label="First Name"><input style={css.input} value={entry.firstName} onChange={e => onUpdate({ ...entry, firstName: e.target.value })} placeholder="First name" /></Field>
-      <Field label="Last Name"><input style={css.input} value={entry.lastName} onChange={e => onUpdate({ ...entry, lastName: e.target.value })} placeholder="Last name" /></Field>
-      <Field label="Age"><input style={css.input} type="number" min={8} max={18} value={entry.age} onChange={e => onUpdate({ ...entry, age: e.target.value })} placeholder="14" /></Field>
-      <Field label="Shirt Size">
-        <select style={css.select} value={entry.shirtSizeCode} onChange={e => onUpdate({ ...entry, shirtSizeCode: e.target.value })}>
-          <option value="">Select size</option>
-          {shirtSizes.map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
-        </select>
-      </Field>
-    </div>
-    <Field label="Allergies"><input style={css.input} value={entry.allergies} onChange={e => onUpdate({ ...entry, allergies: e.target.value })} placeholder="None" /></Field>
-    <Field label="Medical Information"><textarea style={{ ...css.input, minHeight: "50px", resize: "vertical" }} value={entry.medicalNotes} onChange={e => onUpdate({ ...entry, medicalNotes: e.target.value })} placeholder="Medications, health conditions..." /></Field>
-  </div>
-);
+const YoungManFormEntry = ({
+  entry,
+  index,
+  onUpdate,
+  onRemove,
+  shirtSizes,
+  uploadingPhoto,
+  onPhotoFile,
+}) => {
+  const photoInputRef = useRef(null);
+  const [dragPhoto, setDragPhoto] = useState(false);
+  const displayName = `${entry.firstName || "Young"} ${entry.lastName || "Man"}`.trim() || "Young man";
 
-const emptyYoungMan = () => ({ firstName: "", lastName: "", age: "", shirtSizeCode: "", allergies: "", medicalNotes: "", _key: Math.random().toString(36).slice(2) });
+  return (
+    <div style={{ background: T.bgInput, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "14px", marginBottom: "10px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+        <span style={{ fontSize: "13px", fontWeight: 700, color: T.accent }}>Young Man #{index + 1}</span>
+        <button type="button" onClick={onRemove} style={{ background: "none", border: "none", cursor: "pointer", padding: "2px" }}><Icon name="x" size={16} color={T.red} /></button>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "flex-start", gap: "12px", marginBottom: "12px" }}>
+        <Avatar name={displayName} src={entry.photoUrl || null} size={56} fontSize={18} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <Field label="Camper photo *">
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => { if (!uploadingPhoto) photoInputRef.current?.click(); }}
+              onKeyDown={(event) => {
+                if ((event.key === "Enter" || event.key === " ") && !uploadingPhoto) {
+                  event.preventDefault();
+                  photoInputRef.current?.click();
+                }
+              }}
+              onDragEnter={(event) => { event.preventDefault(); if (!uploadingPhoto) setDragPhoto(true); }}
+              onDragOver={(event) => { event.preventDefault(); if (!uploadingPhoto) setDragPhoto(true); }}
+              onDragLeave={(event) => { event.preventDefault(); if (event.currentTarget === event.target) setDragPhoto(false); }}
+              onDrop={(event) => {
+                event.preventDefault();
+                setDragPhoto(false);
+                if (!uploadingPhoto) void onPhotoFile(event.dataTransfer.files?.[0]);
+              }}
+              style={{
+                border: `1px dashed ${entry.photoUrl ? T.accent : dragPhoto ? T.accent : T.borderLight}`,
+                borderRadius: T.radiusSm,
+                padding: "10px 12px",
+                textAlign: "center",
+                background: dragPhoto ? `${T.accent}1A` : T.bg,
+                cursor: uploadingPhoto ? "not-allowed" : "pointer",
+                opacity: uploadingPhoto ? 0.65 : 1,
+              }}
+            >
+              <input
+                ref={photoInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                style={{ display: "none" }}
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) void onPhotoFile(file);
+                  event.target.value = "";
+                }}
+              />
+              <p style={{ color: T.text, fontSize: "12px", margin: 0 }}>
+                {uploadingPhoto ? "Uploading…" : entry.photoUrl ? "Change photo" : "Drop image here or click to upload"}
+              </p>
+            </div>
+          </Field>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+        <Field label="First Name"><input style={css.input} value={entry.firstName} onChange={e => onUpdate({ ...entry, firstName: e.target.value })} placeholder="First name" /></Field>
+        <Field label="Last Name"><input style={css.input} value={entry.lastName} onChange={e => onUpdate({ ...entry, lastName: e.target.value })} placeholder="Last name" /></Field>
+        <Field label="Age"><input style={css.input} type="number" min={8} max={18} value={entry.age} onChange={e => onUpdate({ ...entry, age: e.target.value })} placeholder="14" /></Field>
+        <Field label="Shirt Size">
+          <select style={css.select} value={entry.shirtSizeCode} onChange={e => onUpdate({ ...entry, shirtSizeCode: e.target.value })}>
+            <option value="">Select size</option>
+            {shirtSizes.map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
+          </select>
+        </Field>
+      </div>
+      <Field label="Allergies"><input style={css.input} value={entry.allergies} onChange={e => onUpdate({ ...entry, allergies: e.target.value })} placeholder="None" /></Field>
+      <Field label="Medical Information"><textarea style={{ ...css.input, minHeight: "50px", resize: "vertical" }} value={entry.medicalNotes} onChange={e => onUpdate({ ...entry, medicalNotes: e.target.value })} placeholder="Medications, health conditions..." /></Field>
+    </div>
+  );
+};
+
+const emptyYoungMan = () => ({
+  firstName: "",
+  lastName: "",
+  age: "",
+  shirtSizeCode: "",
+  photoUrl: "",
+  allergies: "",
+  medicalNotes: "",
+  _key: Math.random().toString(36).slice(2),
+});
 
 const OnboardingOverlay = ({
   form,
@@ -1465,6 +1540,7 @@ const OnboardingOverlay = ({
   uploadingAvatar,
   onComplete,
   completing,
+  parentUserId,
 }) => {
   const effectiveType = inviteType || (isCamper ? "youth" : "default");
   const copy = ONBOARDING_COPY[effectiveType] || ONBOARDING_COPY.default;
@@ -1476,6 +1552,7 @@ const OnboardingOverlay = ({
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef(null);
   const [youngMen, setYoungMen] = useState([emptyYoungMan()]);
+  const [uploadingYoungManKey, setUploadingYoungManKey] = useState(null);
   const [termsRead, setTermsRead] = useState(false);
   const [signatureName, setSignatureName] = useState("");
 
@@ -1504,8 +1581,67 @@ const OnboardingOverlay = ({
   const removeYoungMan = (idx) => setYoungMen(prev => prev.filter((_, i) => i !== idx));
   const updateYoungMan = (idx, updated) => setYoungMen(prev => prev.map((ym, i) => i === idx ? updated : ym));
 
+  const handleYoungManPhotoUpload = async (index, file) => {
+    if (!parentUserId) {
+      window.alert("Unable to identify your account. Please sign in again.");
+      return;
+    }
+    if (!file?.type?.startsWith("image/")) {
+      window.alert("Please select a valid image file.");
+      return;
+    }
+    if (file.size > MAX_AVATAR_FILE_BYTES) {
+      window.alert("Please upload an image smaller than 40MB.");
+      return;
+    }
+    const entry = youngMen[index];
+    if (!entry) return;
+
+    setUploadingYoungManKey(entry._key);
+    const previousPhotoUrl = entry.photoUrl || "";
+    try {
+      const compressedImage = await compressAvatarImage(file);
+      const supabase = createSupabaseBrowserClient();
+      const objectPath = `${parentUserId}/young-men/${entry._key}-${Date.now()}.webp`;
+      const { error: uploadError } = await supabase.storage
+        .from(PROFILE_AVATAR_BUCKET)
+        .upload(objectPath, compressedImage, {
+          contentType: "image/webp",
+          cacheControl: "3600",
+          upsert: false,
+        });
+      if (uploadError) {
+        throw new Error(uploadError.message);
+      }
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from(PROFILE_AVATAR_BUCKET).getPublicUrl(objectPath);
+
+      setYoungMen((prev) => {
+        const cur = prev[index];
+        if (!cur) return prev;
+        return prev.map((ym, i) => (i === index ? { ...cur, photoUrl: publicUrl } : ym));
+      });
+
+      const previousPath = parseAvatarObjectPath(previousPhotoUrl);
+      if (
+        previousPath &&
+        previousPath !== objectPath &&
+        previousPath.startsWith(`${parentUserId}/young-men/`)
+      ) {
+        await supabase.storage.from(PROFILE_AVATAR_BUCKET).remove([previousPath]);
+      }
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Unable to upload photo.");
+    } finally {
+      setUploadingYoungManKey(null);
+    }
+  };
+
   const youngMenValid = showYoungMen
-    ? youngMen.length > 0 && youngMen.every(ym => ym.firstName.trim() && ym.lastName.trim() && ym.age)
+    ? youngMen.length > 0 && youngMen.every((ym) => (
+      ym.firstName.trim() && ym.lastName.trim() && ym.age && ym.photoUrl?.trim()
+    ))
     : true;
   const termsValid = showTerms ? termsRead && signatureName.trim().length >= 2 : true;
 
@@ -1585,7 +1721,7 @@ const OnboardingOverlay = ({
               <button onClick={addYoungMan} style={css.btn("ghost")}><Icon name="plus" size={14} color={T.accent} /> Add Another</button>
             </div>
             <p style={{ color: T.textMuted, fontSize: "13px", marginBottom: "14px", lineHeight: 1.5 }}>
-              Add each young man you are registering for camp. Provide their name, age, shirt size, and any allergy or medical information.
+              Add each young man you are registering for camp. Include a photo, name, age, shirt size, and any allergy or medical information.
             </p>
             {youngMen.map((ym, i) => (
               <YoungManFormEntry
@@ -1595,6 +1731,8 @@ const OnboardingOverlay = ({
                 onUpdate={(updated) => updateYoungMan(i, updated)}
                 onRemove={() => youngMen.length > 1 && removeYoungMan(i)}
                 shirtSizes={profileOptions?.shirtSizes ?? []}
+                uploadingPhoto={uploadingYoungManKey === ym._key}
+                onPhotoFile={(file) => handleYoungManPhotoUpload(i, file)}
               />
             ))}
           </div>
@@ -1616,7 +1754,7 @@ const OnboardingOverlay = ({
           </div>
         ) : null}
 
-        <button onClick={wrappedComplete} disabled={!hasRequiredFields || completing || uploadingAvatar} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "14px", marginTop: "16px", fontSize: "15px", opacity: !hasRequiredFields || completing || uploadingAvatar ? 0.55 : 1 }}>
+        <button type="button" onClick={wrappedComplete} disabled={!hasRequiredFields || completing || uploadingAvatar || uploadingYoungManKey !== null} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "14px", marginTop: "16px", fontSize: "15px", opacity: !hasRequiredFields || completing || uploadingAvatar || uploadingYoungManKey !== null ? 0.55 : 1 }}>
           {completing ? "Completing Registration..." : isParent ? "Complete Registration" : "Complete Setup"}
         </button>
       </div>
@@ -1909,6 +2047,7 @@ export default function CampDesignApp({ initialData, profile }) {
               age: ym.age,
               shirtSizeCode: ym.shirtSizeCode,
               shirtSizeLabel: shirtSizeByCode.get(ym.shirtSizeCode) ?? "(no match in profileOptions — check code)",
+              photoUrl: ym.photoUrl,
               allergies: ym.allergies,
               medicalNotes: ym.medicalNotes,
             })),
@@ -1939,6 +2078,7 @@ export default function CampDesignApp({ initialData, profile }) {
           lastName: ym.lastName,
           age: ym.age,
           shirtSizeCode: ym.shirtSizeCode,
+          photoUrl: ym.photoUrl,
           allergies: ym.allergies,
           medicalNotes: ym.medicalNotes,
         }));
@@ -2103,6 +2243,7 @@ export default function CampDesignApp({ initialData, profile }) {
           uploadingAvatar={uploadingAvatar}
           onComplete={handleCompleteOnboarding}
           completing={completingOnboarding}
+          parentUserId={profileData.userId ?? ""}
         />
       ) : null}
     </>

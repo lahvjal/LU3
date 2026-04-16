@@ -99,6 +99,7 @@ type YoungManInput = {
   shirtSizeCode: string;
   allergies: string;
   medicalNotes: string;
+  photoUrl?: string;
 };
 
 type ProfileUpdateInput = {

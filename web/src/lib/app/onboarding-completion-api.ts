@@ -91,6 +91,8 @@ export type YoungManPayload = {
   shirtSizeCode: string;
   allergies: string;
   medicalNotes: string;
+  /** Public https URL from profile-avatars bucket after client upload */
+  photoUrl?: string;
 };
 
 /**
@@ -237,33 +239,59 @@ export async function insertParentYoungMenInDb(
     (sizeRows ?? []).map((r: { code: string }) => r.code),
   );
 
+  const youngMenPayload: Array<{
+    parent_id: string;
+    first_name: string;
+    last_name: string;
+    age: number;
+    photo_url: string;
+    shirt_size_code: string | null;
+    allergies: string | null;
+    medical_notes: string | null;
+  }> = [];
+
   for (const ym of rows) {
+    const nameRef = `${ym.firstName.trim()} ${ym.lastName.trim()}`;
     const code = ym.shirtSizeCode?.trim() ?? "";
     if (code && !validShirtCodes.has(code)) {
       return {
         ok: false,
-        error: `Invalid shirt size "${code}" for ${ym.firstName.trim()} ${ym.lastName.trim()}. Please pick a size from the list.`,
+        error: `Invalid shirt size "${code}" for ${nameRef}. Please pick a size from the list.`,
       };
     }
-  }
+    const photoRaw = ym.photoUrl ?? "";
+    const photoNorm = normalizeAvatarUrl(photoRaw);
+    if (photoRaw.trim() && !photoNorm) {
+      return {
+        ok: false,
+        error: `Photo for ${nameRef} must be a valid http:// or https:// URL.`,
+      };
+    }
+    if (!photoNorm) {
+      return {
+        ok: false,
+        error: `Add a profile photo for ${nameRef}.`,
+      };
+    }
 
-  const youngMenPayload = rows.map((ym) => {
     const raw = Number(ym.age);
     const age =
       Number.isFinite(raw) && raw > 0
         ? Math.min(18, Math.max(8, Math.round(raw)))
         : 12;
     const shirt = ym.shirtSizeCode?.trim() || null;
-    return {
+
+    youngMenPayload.push({
       parent_id: userId,
       first_name: ym.firstName.trim(),
       last_name: ym.lastName.trim(),
       age,
+      photo_url: photoNorm,
       shirt_size_code: shirt,
       allergies: ym.allergies?.trim() || null,
       medical_notes: ym.medicalNotes?.trim() || null,
-    };
-  });
+    });
+  }
 
   const { error: ymError } = await supabase.from("young_men").insert(youngMenPayload);
   if (ymError) {
