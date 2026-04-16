@@ -331,8 +331,11 @@ async function syncLeaderInvitationsForUser(
 ) {
   const normalizedEmail = normalizeEmail(userEmail);
   if (!normalizedEmail) {
+    console.log("[syncLeader] no normalized email, skipping");
     return;
   }
+
+  console.log("[syncLeader] syncing for", normalizedEmail, "userId:", userId);
 
   const admin = createSupabaseAdminClient() as any;
   const adminClient = admin as unknown as SupabaseActionClient;
@@ -340,15 +343,17 @@ async function syncLeaderInvitationsForUser(
   const [leaderByEmailResult, leaderByUserResult] = await Promise.all([
     admin
       .from("leaders")
-      .select("id, role, ward_id, status, accepted_at, user_id")
-      .ilike("email", normalizedEmail)
-      .in("status", ["pending", "active"]),
+      .select("id, email, role, ward_id, status, accepted_at, user_id")
+      .ilike("email", normalizedEmail),
     admin
       .from("leaders")
-      .select("id, role, ward_id, status, accepted_at, user_id")
-      .eq("user_id", userId)
-      .in("status", ["pending", "active"]),
+      .select("id, email, role, ward_id, status, accepted_at, user_id")
+      .eq("user_id", userId),
   ]);
+
+  console.log("[syncLeader] by email:", JSON.stringify(leaderByEmailResult.data));
+  console.log("[syncLeader] by email error:", leaderByEmailResult.error?.message ?? "none");
+  console.log("[syncLeader] by user_id:", JSON.stringify(leaderByUserResult.data));
 
   const leaderInvitations = new Map<string, LeaderInvitationClaimRow>();
   [...(leaderByEmailResult.data ?? []), ...(leaderByUserResult.data ?? [])].forEach((row) => {
@@ -356,8 +361,11 @@ async function syncLeaderInvitationsForUser(
     leaderInvitations.set(casted.id, casted);
   });
 
+  console.log("[syncLeader] matched invitations:", leaderInvitations.size);
+
   for (const invitation of leaderInvitations.values()) {
     if (!isLeadershipRole(invitation.role)) {
+      console.log("[syncLeader] skipping non-leadership role:", invitation.role);
       continue;
     }
 
@@ -375,8 +383,10 @@ async function syncLeaderInvitationsForUser(
         invitation.user_id !== userId ||
         invitation.accepted_at === null;
 
+      console.log("[syncLeader] invitation", invitation.id, "needsUpdate:", needsUpdate, "status:", invitation.status, "user_id:", invitation.user_id);
+
       if (needsUpdate) {
-        await admin
+        const { error: updateError } = await admin
           .from("leaders")
           .update({
             user_id: userId,
@@ -384,6 +394,7 @@ async function syncLeaderInvitationsForUser(
             accepted_at: nextAcceptedAt,
           })
           .eq("id", invitation.id);
+        console.log("[syncLeader] updated user_id, error:", updateError?.message ?? "none");
       }
 
       if (!invitation.ward_id && selectedWardId) {
@@ -393,7 +404,7 @@ async function syncLeaderInvitationsForUser(
           .eq("id", invitation.id);
       }
     } catch (err) {
-      console.error(`Failed to sync leader invitation ${invitation.id}:`, err);
+      console.error(`[syncLeader] Failed to sync leader invitation ${invitation.id}:`, err);
     }
   }
 }
@@ -630,7 +641,7 @@ export async function updateMyProfileAction(
   }
   console.log("[updateMyProfileAction] user_profiles upserted:", JSON.stringify(upsertedRows));
 
-  if (shouldCompleteOnboarding && onboardingCompletedAt && context.user.email) {
+  if (context.user.email && onboardingCompletedAt) {
     try {
       await syncLeaderInvitationsForUser(
         context.user.id,
@@ -641,6 +652,9 @@ export async function updateMyProfileAction(
     } catch (syncError) {
       console.error("Failed to sync leader invitations:", syncError);
     }
+  }
+
+  if (shouldCompleteOnboarding && onboardingCompletedAt && context.user.email) {
 
     if (input.youngMen && input.youngMen.length > 0 && wardId) {
       try {
@@ -1179,12 +1193,6 @@ export async function inviteLeaderAction(
   }
 
   let wardId = input.wardId?.trim() || null;
-  if (WARD_SCOPED_LEADERSHIP_ROLES.has(input.role) && !wardId) {
-    return fail("Please select a ward for ward-level callings.");
-  }
-  if (!WARD_SCOPED_LEADERSHIP_ROLES.has(input.role)) {
-    wardId = null;
-  }
 
   const callingName = input.calling.trim();
   if (!callingName) {

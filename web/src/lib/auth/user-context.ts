@@ -149,18 +149,22 @@ export async function getUserContext(
     }
   }
 
-  if (onboardingCompletedAt && roles.length === 0 && user.email) {
+  if (onboardingCompletedAt && user.email) {
     try {
       const admin = createSupabaseAdminClient() as any;
       const normalizedEmail = user.email.trim().toLowerCase();
-      const { data: pendingInvites } = await admin
+      const { data: unlinkedInvites } = await admin
         .from("leaders")
-        .select("id, role, ward_id")
+        .select("id, role, ward_id, user_id")
         .ilike("email", normalizedEmail)
-        .eq("status", "pending");
+        .in("status", ["pending", "active"]);
 
-      if (pendingInvites && pendingInvites.length > 0) {
-        for (const inv of pendingInvites as Array<{ id: string; role: string; ward_id: string | null }>) {
+      const invitesNeedingSync = (unlinkedInvites ?? []).filter(
+        (inv: { user_id: string | null }) => inv.user_id !== user.id,
+      );
+
+      if (invitesNeedingSync.length > 0) {
+        for (const inv of invitesNeedingSync as Array<{ id: string; role: string; ward_id: string | null; user_id: string | null }>) {
           const roleValue = inv.role as AppRole;
           if (roleValue === "young_man") continue;
 
