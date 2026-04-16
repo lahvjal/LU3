@@ -741,23 +741,27 @@ export async function updateMyProfileAction(
     }
   }
 
-  // Final verification: check the leaders table state for this user
-  const adminVerify = createSupabaseAdminClient() as any;
-  const { data: leaderRows } = await adminVerify
-    .from("leaders")
-    .select("id, email, user_id, role, ward_id, status")
-    .or(`user_id.eq.${context.user.id},email.ilike.${context.user.email?.toLowerCase()}`);
-  console.log("[onboarding] === FINAL leaders table state for this user ===");
-  console.log(JSON.stringify(leaderRows, null, 2));
+  if (shouldCompleteOnboarding) {
+    try {
+      const adminVerify = createSupabaseAdminClient() as any;
+      const { data: leaderRows } = await adminVerify
+        .from("leaders")
+        .select("id, email, user_id, role, ward_id, status")
+        .eq("user_id", context.user.id);
+      console.log("[onboarding] === FINAL leaders table state for this user ===");
+      console.log(JSON.stringify(leaderRows, null, 2));
 
-  const { data: roleRows } = await adminVerify
-    .from("user_roles")
-    .select("id, user_id, role, ward_id")
-    .eq("user_id", context.user.id);
-  console.log("[onboarding] === FINAL user_roles state for this user ===");
-  console.log(JSON.stringify(roleRows, null, 2));
-
-  console.log("[onboarding] === updateMyProfileAction END ===");
+      const { data: roleRows } = await adminVerify
+        .from("user_roles")
+        .select("id, user_id, role, ward_id")
+        .eq("user_id", context.user.id);
+      console.log("[onboarding] === FINAL user_roles state for this user ===");
+      console.log(JSON.stringify(roleRows, null, 2));
+    } catch (verifyErr) {
+      console.error("[onboarding] verification query failed:", verifyErr);
+    }
+    console.log("[onboarding] === updateMyProfileAction END ===");
+  }
 
   return success({
     email: context.user.email ?? "",
