@@ -130,8 +130,13 @@ function fail(error: string): ActionResult {
 }
 
 async function success(profile?: ProfilePayload): Promise<ActionResult> {
-  const data = await getCampDesignInitialData();
-  return { ok: true, data, profile };
+  try {
+    const data = await getCampDesignInitialData();
+    return { ok: true, data, profile };
+  } catch (err) {
+    console.error("[camp-design-actions] success() failed to load data:", err);
+    return fail("Action succeeded but failed to refresh data. Please reload.");
+  }
 }
 
 function toAgendaDate(dateStr: string) {
@@ -238,12 +243,13 @@ function userRolesWardIdForRole(
 }
 
 async function ensureUserRoleRow(
-  supabase: SupabaseActionClient,
   userId: string,
   role: AppRole,
   wardIdForRow: string | null,
 ) {
-  let existingRoleQuery = supabase
+  const admin = createSupabaseAdminClient();
+
+  let existingRoleQuery = admin
     .from("user_roles")
     .select("id")
     .eq("user_id", userId)
@@ -258,7 +264,7 @@ async function ensureUserRoleRow(
     return;
   }
 
-  const { error } = await supabase.from("user_roles").insert({
+  const { error } = await admin.from("user_roles").insert({
     user_id: userId,
     role,
     ward_id: wardIdForRow,
@@ -271,12 +277,13 @@ async function ensureUserRoleRow(
 }
 
 async function removeUserRoleRow(
-  supabase: SupabaseActionClient,
   userId: string,
   role: AppRole,
   wardIdForRow: string | null,
 ) {
-  let deleteQuery = supabase
+  const admin = createSupabaseAdminClient();
+
+  let deleteQuery = admin
     .from("user_roles")
     .delete()
     .eq("user_id", userId)
@@ -292,16 +299,15 @@ async function removeUserRoleRow(
   }
 }
 
-async function resolveCallingId(
-  supabase: SupabaseActionClient,
-  callingName: string,
-) {
+async function resolveCallingId(callingName: string) {
   const normalized = callingName.trim();
   if (!normalized) {
     return null;
   }
 
-  const { data: existingCalling } = await supabase
+  const admin = createSupabaseAdminClient();
+
+  const { data: existingCalling } = await admin
     .from("leader_callings")
     .select("id, name")
     .ilike("name", normalized)
@@ -312,7 +318,7 @@ async function resolveCallingId(
     return existingCalling.id;
   }
 
-  const { data: insertedCalling, error: insertCallingError } = await supabase
+  const { data: insertedCalling, error: insertCallingError } = await admin
     .from("leader_callings")
     .insert({ name: normalized })
     .select("id")
@@ -1209,7 +1215,7 @@ export async function inviteLeaderAction(
 
   let callingId: string | null = null;
   try {
-    callingId = await resolveCallingId(supabase, callingName);
+    callingId = await resolveCallingId(callingName);
   } catch (error) {
     return fail(error instanceof Error ? error.message : "Unable to save calling.");
   }
@@ -1262,7 +1268,6 @@ export async function inviteLeaderAction(
   // Sync user_roles
   try {
     await ensureUserRoleRow(
-      supabase,
       authUserId,
       input.role,
       userRolesWardIdForRole(input.role, wardId),
@@ -1322,7 +1327,6 @@ export async function updateLeaderAction(
     if (prevRole && (isCampStaffRole(prevRole) || prevRole === "young_men_captain")) {
       try {
         await removeUserRoleRow(
-          supabase,
           leaderUserId,
           prevRole,
           userRolesWardIdForRole(prevRole, existing.ward_id),
@@ -1341,7 +1345,6 @@ export async function updateLeaderAction(
       ) {
         try {
           await removeUserRoleRow(
-            supabase,
             leaderUserId,
             existing.role as AppRole,
             userRolesWardIdForRole(existing.role as AppRole, existing.ward_id),
@@ -1359,14 +1362,12 @@ export async function updateLeaderAction(
 
   if (isCampStaffRole(finalRole)) {
     await ensureUserRoleRow(
-      supabase,
       leaderUserId,
       finalRole,
       userRolesWardIdForRole(finalRole, finalWardId),
     );
   } else if (finalRole === "young_men_captain") {
     await ensureUserRoleRow(
-      supabase,
       leaderUserId,
       "young_men_captain",
       userRolesWardIdForRole("young_men_captain", finalWardId),
@@ -1374,15 +1375,12 @@ export async function updateLeaderAction(
   }
 
   if (input.calling?.trim()) {
-    const callingName = input.calling.trim();
-    const { data: callingRow } = await supabase
-      .from("leader_callings")
-      .upsert({ name: callingName }, { onConflict: "name" })
-      .select("id")
-      .single();
-    if (callingRow?.id) {
-      updates.calling_id = callingRow.id;
-    }
+    try {
+      const callingId = await resolveCallingId(input.calling);
+      if (callingId) {
+        updates.calling_id = callingId;
+      }
+    } catch {}
   }
 
   if (input.displayName?.trim()) {

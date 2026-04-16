@@ -73,82 +73,87 @@ function fallbackDisplayName(email: string): string {
 }
 
 export default async function StakeLeadersRoutePage() {
-  const [userContext, supabase] = await Promise.all([
-    getUserContext(),
-    createSupabaseServerClient(),
-  ]);
-
-  if (!userContext.isLeader) {
-    redirect("/");
-  }
-
-  const [{ data: wardRows }, { data: callingRows }, { data: leaderRows }] =
-    await Promise.all([
-      supabase.from("wards").select("id, name").order("name"),
-      supabase.from("leader_callings").select("id, name").order("name"),
-      supabase
-        .from("user_profiles")
-        .select(
-          "user_id, user_email, display_name, avatar_url, role, ward_id, onboarding_completed_at, invited_at, calling:leader_callings(name), ward:wards(name)",
-        )
-        .not("role", "is", null)
-        .not("role", "in", "(parent,young_man)")
-        .order("invited_at", { ascending: false }),
+  try {
+    const [userContext, supabase] = await Promise.all([
+      getUserContext(),
+      createSupabaseServerClient(),
     ]);
 
-  const wards = (wardRows ?? []) as WardRow[];
-  const callingCatalog = (callingRows ?? []) as LeaderCallingRow[];
-  const leaderProfiles = (leaderRows ?? []) as LeaderProfileRow[];
+    if (!userContext.isLeader) {
+      redirect("/");
+    }
 
-  const wardNameById = new Map<string, string>(wards.map((ward) => [ward.id, ward.name]));
+    const [{ data: wardRows }, { data: callingRows }, { data: leaderRows }] =
+      await Promise.all([
+        supabase.from("wards").select("id, name").order("name"),
+        supabase.from("leader_callings").select("id, name").order("name"),
+        supabase
+          .from("user_profiles")
+          .select(
+            "user_id, user_email, display_name, avatar_url, role, ward_id, onboarding_completed_at, invited_at, calling:leader_callings(name), ward:wards(name)",
+          )
+          .not("role", "is", null)
+          .not("role", "in", "(parent,young_man)")
+          .order("invited_at", { ascending: false }),
+      ]);
 
-  const initialInvitations = leaderProfiles.map((profile) => {
-    const role = normalizeLeaderRole(profile.role);
-    const onboardingCompleted = Boolean(profile.onboarding_completed_at);
-    const effectiveStatus: "active" | "pending" = onboardingCompleted ? "active" : "pending";
-    const email = (profile.user_email || "").trim().toLowerCase();
-    const wardName =
-      resolveRelationName(profile.ward) ||
-      (profile.ward_id ? (wardNameById.get(profile.ward_id) ?? "") : "");
-    const callingName = resolveRelationName(profile.calling) || "Leader";
+    const wards = (wardRows ?? []) as WardRow[];
+    const callingCatalog = (callingRows ?? []) as LeaderCallingRow[];
+    const leaderProfiles = (leaderRows ?? []) as LeaderProfileRow[];
 
-    return {
-      invitationId: profile.user_id,
-      email,
-      displayName: profile.display_name?.trim() || fallbackDisplayName(email),
-      avatarUrl: profile.avatar_url ?? null,
-      role,
-      roleLabel: LEADER_ROLE_LABELS[role],
-      wardId: profile.ward_id,
-      wardName,
-      calling: callingName,
-      status: effectiveStatus,
-      invitedAt: profile.invited_at,
-      acceptedAt:
-        effectiveStatus === "active" ? (profile.onboarding_completed_at ?? null) : null,
-      onboardingCompleted,
-    };
-  });
+    const wardNameById = new Map<string, string>(wards.map((ward) => [ward.id, ward.name]));
 
-  const initialCallingOptions = Array.from(
-    new Set(
-      [...callingCatalog.map((calling) => calling.name), ...initialInvitations.map((row) => row.calling)]
-        .map((value) => value.trim())
-        .filter(Boolean),
-    ),
-  ).sort((left, right) => left.localeCompare(right));
+    const initialInvitations = leaderProfiles.map((profile) => {
+      const role = normalizeLeaderRole(profile.role);
+      const onboardingCompleted = Boolean(profile.onboarding_completed_at);
+      const effectiveStatus: "active" | "pending" = onboardingCompleted ? "active" : "pending";
+      const email = (profile.user_email || "").trim().toLowerCase();
+      const wardName =
+        resolveRelationName(profile.ward) ||
+        (profile.ward_id ? (wardNameById.get(profile.ward_id) ?? "") : "");
+      const callingName = resolveRelationName(profile.calling) || "Leader";
 
-  return (
-    <StakeLeadersDesignPage
-      initialInvitations={initialInvitations}
-      initialWards={wards}
-      initialCallingOptions={initialCallingOptions}
-      canManageLeaders={userContext.isStakeAdmin}
-      initialProfile={{
-        displayName: userContext.displayName,
-        email: userContext.user.email ?? "",
-        avatarUrl: userContext.avatarUrl,
-      }}
-    />
-  );
+      return {
+        invitationId: profile.user_id,
+        email,
+        displayName: profile.display_name?.trim() || fallbackDisplayName(email),
+        avatarUrl: profile.avatar_url ?? null,
+        role,
+        roleLabel: LEADER_ROLE_LABELS[role],
+        wardId: profile.ward_id,
+        wardName,
+        calling: callingName,
+        status: effectiveStatus,
+        invitedAt: profile.invited_at,
+        acceptedAt:
+          effectiveStatus === "active" ? (profile.onboarding_completed_at ?? null) : null,
+        onboardingCompleted,
+      };
+    });
+
+    const initialCallingOptions = Array.from(
+      new Set(
+        [...callingCatalog.map((calling) => calling.name), ...initialInvitations.map((row) => row.calling)]
+          .map((value) => value.trim())
+          .filter(Boolean),
+      ),
+    ).sort((left, right) => left.localeCompare(right));
+
+    return (
+      <StakeLeadersDesignPage
+        initialInvitations={initialInvitations}
+        initialWards={wards}
+        initialCallingOptions={initialCallingOptions}
+        canManageLeaders={userContext.isStakeAdmin}
+        initialProfile={{
+          displayName: userContext.displayName,
+          email: userContext.user.email ?? "",
+          avatarUrl: userContext.avatarUrl,
+        }}
+      />
+    );
+  } catch (err) {
+    console.error("[stake-leaders/page] Server component error:", err);
+    return null;
+  }
 }
