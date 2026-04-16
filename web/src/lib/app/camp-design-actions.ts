@@ -247,7 +247,7 @@ async function ensureUserRoleRow(
   role: AppRole,
   wardIdForRow: string | null,
 ) {
-  const admin = createSupabaseAdminClient();
+  const admin = createSupabaseAdminClient() as any;
 
   let existingRoleQuery = admin
     .from("user_roles")
@@ -281,7 +281,7 @@ async function removeUserRoleRow(
   role: AppRole,
   wardIdForRow: string | null,
 ) {
-  const admin = createSupabaseAdminClient();
+  const admin = createSupabaseAdminClient() as any;
 
   let deleteQuery = admin
     .from("user_roles")
@@ -305,7 +305,7 @@ async function resolveCallingId(callingName: string) {
     return null;
   }
 
-  const admin = createSupabaseAdminClient();
+  const admin = createSupabaseAdminClient() as any;
 
   const { data: existingCalling } = await admin
     .from("leader_callings")
