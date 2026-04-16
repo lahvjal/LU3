@@ -266,6 +266,8 @@ async function ensureLeadershipUserRole(
   role: LeadershipRole,
   wardId: string | null,
 ) {
+  console.log("[onboarding] ensureLeadershipUserRole: userId=", userId, "role=", role, "wardId=", wardId);
+
   let existingRoleQuery = supabase
     .from("user_roles")
     .select("id")
@@ -278,19 +280,25 @@ async function ensureLeadershipUserRole(
 
   const { data: existingRole } = await existingRoleQuery.limit(1).maybeSingle();
   if (existingRole?.id) {
+    console.log("[onboarding] user_roles row already exists:", existingRole.id);
     return;
   }
 
-  const { error } = await supabase.from("user_roles").insert({
+  const insertPayload = {
     user_id: userId,
     role,
     ward_id: wardId,
     participant_id: null,
-  });
+  };
+  console.log("[onboarding] inserting into user_roles:", JSON.stringify(insertPayload));
+
+  const { error } = await supabase.from("user_roles").insert(insertPayload);
 
   if (error) {
+    console.error("[onboarding] user_roles insert FAILED:", error.message, error.code, error.details);
     throw new Error(error.message);
   }
+  console.log("[onboarding] user_roles insert SUCCESS");
 }
 
 async function ensureYoungManUserRole(
@@ -369,42 +377,55 @@ async function syncLeaderInvitationsForUser(
       continue;
     }
 
+    const nextAcceptedAt = invitation.accepted_at ?? onboardingCompletedAt;
+    const needsLeaderUpdate =
+      invitation.status !== "active" ||
+      invitation.user_id !== userId ||
+      invitation.accepted_at === null;
+
+    console.log("[syncLeader] invitation", invitation.id, "role:", invitation.role, "needsUpdate:", needsLeaderUpdate, "status:", invitation.status, "existing user_id:", invitation.user_id);
+
+    // Always update the leaders row first — this must not depend on user_roles succeeding
+    if (needsLeaderUpdate) {
+      const { error: updateError } = await admin
+        .from("leaders")
+        .update({
+          user_id: userId,
+          status: "active",
+          accepted_at: nextAcceptedAt,
+        })
+        .eq("id", invitation.id);
+
+      if (updateError) {
+        console.error("[syncLeader] FAILED to update leaders.user_id for", invitation.id, ":", updateError.message, updateError.code);
+      } else {
+        console.log("[syncLeader] updated leaders.user_id for", invitation.id);
+      }
+    }
+
+    if (!invitation.ward_id && selectedWardId) {
+      const { error: wardError } = await admin
+        .from("leaders")
+        .update({ ward_id: selectedWardId })
+        .eq("id", invitation.id);
+      if (wardError) {
+        console.error("[syncLeader] FAILED to update leaders.ward_id for", invitation.id, ":", wardError.message);
+      }
+    }
+
+    // Assign user_roles separately — failures here should not block the leader link
     try {
+      const roleWardId = WARD_SCOPED_LEADERSHIP_ROLES.has(invitation.role as LeadershipRole)
+        ? invitation.ward_id
+        : null;
       await ensureLeadershipUserRole(
         adminClient,
         userId,
         invitation.role,
-        invitation.ward_id,
+        roleWardId,
       );
-
-      const nextAcceptedAt = invitation.accepted_at ?? onboardingCompletedAt;
-      const needsUpdate =
-        invitation.status !== "active" ||
-        invitation.user_id !== userId ||
-        invitation.accepted_at === null;
-
-      console.log("[syncLeader] invitation", invitation.id, "needsUpdate:", needsUpdate, "status:", invitation.status, "user_id:", invitation.user_id);
-
-      if (needsUpdate) {
-        const { error: updateError } = await admin
-          .from("leaders")
-          .update({
-            user_id: userId,
-            status: "active",
-            accepted_at: nextAcceptedAt,
-          })
-          .eq("id", invitation.id);
-        console.log("[syncLeader] updated user_id, error:", updateError?.message ?? "none");
-      }
-
-      if (!invitation.ward_id && selectedWardId) {
-        await admin
-          .from("leaders")
-          .update({ ward_id: selectedWardId })
-          .eq("id", invitation.id);
-      }
     } catch (err) {
-      console.error(`[syncLeader] Failed to sync leader invitation ${invitation.id}:`, err);
+      console.error(`[syncLeader] Failed to assign user_role for ${invitation.id}:`, err instanceof Error ? err.message : err);
     }
   }
 }
@@ -504,6 +525,12 @@ export async function updateMyProfileAction(
 ): Promise<ActionResult> {
   const context = await getUserContext();
   const shouldCompleteOnboarding = input.markOnboardingComplete === true;
+  console.log("[onboarding] === updateMyProfileAction START ===");
+  console.log("[onboarding] user.id:", context.user.id);
+  console.log("[onboarding] user.email:", context.user.email);
+  console.log("[onboarding] shouldCompleteOnboarding:", shouldCompleteOnboarding);
+  console.log("[onboarding] existing onboardingCompletedAt:", context.onboardingCompletedAt);
+  console.log("[onboarding] existing roles:", context.roles.length, JSON.stringify(context.roles));
   const displayName =
     (typeof input.displayName === "string" ? input.displayName : context.displayName).trim();
   if (!displayName) {
@@ -630,18 +657,22 @@ export async function updateMyProfileAction(
     profilePayload.onboarding_completed_at = onboardingCompletedAt;
   }
 
+  console.log("[onboarding] upserting user_profiles with:", JSON.stringify(profilePayload));
+
   const { error, data: upsertedRows } = await supabase
     .from("user_profiles")
     .upsert(profilePayload, { onConflict: "user_id" })
-    .select("user_id, display_name");
+    .select("user_id, display_name, onboarding_completed_at");
 
   if (error) {
-    console.error("[updateMyProfileAction] user_profiles upsert failed:", error.message, error.code, error.details);
+    console.error("[onboarding] user_profiles upsert FAILED:", error.message, error.code, error.details);
     return fail(error.message);
   }
-  console.log("[updateMyProfileAction] user_profiles upserted:", JSON.stringify(upsertedRows));
+  console.log("[onboarding] user_profiles upsert SUCCESS:", JSON.stringify(upsertedRows));
 
+  console.log("[onboarding] checking sync conditions: email=", context.user.email, "onboardingCompletedAt=", onboardingCompletedAt);
   if (context.user.email && onboardingCompletedAt) {
+    console.log("[onboarding] calling syncLeaderInvitationsForUser...");
     try {
       await syncLeaderInvitationsForUser(
         context.user.id,
@@ -649,9 +680,12 @@ export async function updateMyProfileAction(
         onboardingCompletedAt,
         wardId,
       );
+      console.log("[onboarding] syncLeaderInvitationsForUser completed");
     } catch (syncError) {
-      console.error("Failed to sync leader invitations:", syncError);
+      console.error("[onboarding] syncLeaderInvitationsForUser THREW:", syncError);
     }
+  } else {
+    console.log("[onboarding] SKIPPED syncLeaderInvitationsForUser — conditions not met");
   }
 
   if (shouldCompleteOnboarding && onboardingCompletedAt && context.user.email) {
@@ -706,6 +740,24 @@ export async function updateMyProfileAction(
       }
     }
   }
+
+  // Final verification: check the leaders table state for this user
+  const adminVerify = createSupabaseAdminClient() as any;
+  const { data: leaderRows } = await adminVerify
+    .from("leaders")
+    .select("id, email, user_id, role, ward_id, status")
+    .or(`user_id.eq.${context.user.id},email.ilike.${context.user.email?.toLowerCase()}`);
+  console.log("[onboarding] === FINAL leaders table state for this user ===");
+  console.log(JSON.stringify(leaderRows, null, 2));
+
+  const { data: roleRows } = await adminVerify
+    .from("user_roles")
+    .select("id, user_id, role, ward_id")
+    .eq("user_id", context.user.id);
+  console.log("[onboarding] === FINAL user_roles state for this user ===");
+  console.log(JSON.stringify(roleRows, null, 2));
+
+  console.log("[onboarding] === updateMyProfileAction END ===");
 
   return success({
     email: context.user.email ?? "",

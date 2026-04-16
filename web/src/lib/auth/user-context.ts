@@ -164,20 +164,13 @@ export async function getUserContext(
       );
 
       if (invitesNeedingSync.length > 0) {
+        const WARD_ROLES = new Set(["ward_leader", "young_men_captain"]);
+
         for (const inv of invitesNeedingSync as Array<{ id: string; role: string; ward_id: string | null; user_id: string | null }>) {
           const roleValue = inv.role as AppRole;
           if (roleValue === "young_man") continue;
 
-          await admin.from("user_roles").upsert(
-            {
-              user_id: user.id,
-              role: roleValue,
-              ward_id: inv.ward_id ?? null,
-              participant_id: null,
-            },
-            { onConflict: "user_id,role,ward_id" },
-          );
-
+          // Always link the leaders row first
           await admin
             .from("leaders")
             .update({
@@ -186,6 +179,22 @@ export async function getUserContext(
               accepted_at: onboardingCompletedAt,
             })
             .eq("id", inv.id);
+
+          // Assign user_roles separately — only pass ward_id for ward-scoped roles
+          try {
+            const roleWardId = WARD_ROLES.has(roleValue) ? (inv.ward_id ?? null) : null;
+            await admin.from("user_roles").upsert(
+              {
+                user_id: user.id,
+                role: roleValue,
+                ward_id: roleWardId,
+                participant_id: null,
+              },
+              { onConflict: "user_id,role,ward_id" },
+            );
+          } catch (roleErr) {
+            console.error("Failed to upsert user_role for leader", inv.id, roleErr);
+          }
         }
 
         const { data: refreshedRoles } = await supabase
