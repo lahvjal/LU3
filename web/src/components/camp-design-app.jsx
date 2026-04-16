@@ -1877,20 +1877,50 @@ export default function CampDesignApp({ initialData, profile }) {
         return;
       }
 
+      const completeProfileBody = {
+        displayName: onboardingForm.displayName,
+        avatarUrl: profileData.avatarUrl ?? "",
+        phone: onboardingForm.phone,
+        wardId: onboardingForm.wardId,
+        signatureName:
+          isParent && extraData?.signatureName
+            ? extraData.signatureName
+            : undefined,
+      };
+
+      if (isParent) {
+        const shirtSizeByCode = new Map(
+          (profileOptions?.shirtSizes ?? []).map((s) => [s.code, s.label]),
+        );
+        console.log("[parent onboarding] POST /api/onboarding/complete-profile body:", {
+          ...completeProfileBody,
+        });
+        console.log(
+          "[parent onboarding] shirt size dropdown options (verify codes match DB):",
+          (profileOptions?.shirtSizes ?? []).map((s) => ({ code: s.code, label: s.label })),
+        );
+        if (extraData?.youngMen?.length) {
+          console.log(
+            "[parent onboarding] young men raw form rows (before POST /api/onboarding/parent-young-men):",
+            extraData.youngMen.map((ym, i) => ({
+              index: i,
+              firstName: ym.firstName,
+              lastName: ym.lastName,
+              age: ym.age,
+              shirtSizeCode: ym.shirtSizeCode,
+              shirtSizeLabel: shirtSizeByCode.get(ym.shirtSizeCode) ?? "(no match in profileOptions — check code)",
+              allergies: ym.allergies,
+              medicalNotes: ym.medicalNotes,
+            })),
+          );
+        }
+      }
+
       const profileRes = await fetch("/api/onboarding/complete-profile", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({
-          displayName: onboardingForm.displayName,
-          avatarUrl: profileData.avatarUrl ?? "",
-          phone: onboardingForm.phone,
-          wardId: onboardingForm.wardId,
-          signatureName:
-            isParent && extraData?.signatureName
-              ? extraData.signatureName
-              : undefined,
-        }),
+        body: JSON.stringify(completeProfileBody),
       });
       const profileJson = await profileRes.json().catch(() => ({}));
       if (!profileRes.ok || !profileJson.ok) {
@@ -1912,6 +1942,10 @@ export default function CampDesignApp({ initialData, profile }) {
           allergies: ym.allergies,
           medicalNotes: ym.medicalNotes,
         }));
+        console.log(
+          "[parent onboarding] POST /api/onboarding/parent-young-men JSON body:",
+          JSON.stringify({ youngMen: youngMenPayload }, null, 2),
+        );
         const ymRes = await fetch("/api/onboarding/parent-young-men", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
