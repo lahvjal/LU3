@@ -1,5 +1,6 @@
 "use server";
 
+import { redirect } from "next/navigation";
 import { getUserContext } from "@/lib/auth/user-context";
 import type { AppRole } from "@/lib/auth/user-context";
 import { generateMagicLink } from "@/lib/email/magic-link";
@@ -14,7 +15,6 @@ import {
 
 type ActionResult =
   | { ok: true; data: CampDesignInitialData; profile?: ProfilePayload }
-  | { ok: true; data: null; profile?: ProfilePayload; skipDataRefresh: true }
   | { ok: false; error: string };
 
 type ProfilePayload = {
@@ -467,20 +467,18 @@ export async function updateMyProfileAction(
     }
   }
 
-  const profileResult: ProfilePayload = {
+  if (shouldCompleteOnboarding) {
+    redirect("/");
+  }
+
+  return success({
     email: context.user.email ?? "",
     displayName,
     avatarUrl,
     onboardingCompletedAt,
     phone,
     wardId,
-  };
-
-  if (shouldCompleteOnboarding) {
-    return { ok: true, data: null, profile: profileResult, skipDataRefresh: true };
-  }
-
-  return success(profileResult);
+  });
 }
 
 export async function createActivityAction(
