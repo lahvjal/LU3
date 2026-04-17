@@ -33,6 +33,11 @@ import {
   updateMyProfileAction,
 } from "@/lib/app/camp-design-actions";
 import { parseTimeLabel, timeLabelSortKey } from "@/lib/app/time-sort";
+import {
+  ageOnCampReference,
+  CAMP_AGE_REFERENCE_YMD,
+  parseYmd,
+} from "@/lib/camp-age";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 // ─── Design Tokens ───
@@ -48,16 +53,25 @@ const T = {
   font: "'DM Sans', sans-serif", fontDisplay: "'Playfair Display', serif",
 };
 
+/** Inline so nav `color` (active/inactive) applies via currentColor; <img src=… does not. */
+const MEAL_ICON_PATH =
+  "M0.444753 0.0491303C0.27104 0.129562 0.115289 0.29502 0.049256 0.469296C0.0153482 0.558685 -0.000503698 1.76225 1.21883e-05 4.19774C0.000950163 8.23291 -0.0041617 8.16195 0.333978 8.8478C0.665411 9.52019 1.36139 10.1201 2.07448 10.3481L2.25035 10.4043V14.7055C2.25035 18.3668 2.26076 19.0467 2.32033 19.2753C2.63595 20.4872 3.86198 21.2309 5.03886 20.9244C5.84777 20.7136 6.47082 20.0886 6.68266 19.2753C6.74222 19.0467 6.75263 18.3668 6.75263 14.7055V10.4043L6.9285 10.3481C7.64155 10.1201 8.33753 9.52023 8.66905 8.8478C9.01212 8.1521 9.007 8.22639 8.99289 4.11501C8.98046 0.507893 8.9791 0.459729 8.88361 0.331883C8.69986 0.0857582 8.54998 0.00898505 8.25339 0.00898505C7.9568 0.00898505 7.80691 0.0857582 7.62316 0.331836C7.52843 0.458744 7.52618 0.517086 7.51366 3.22497L7.50085 5.98857H6.37744H5.25403L5.24122 3.22497C5.2287 0.517086 5.22645 0.458744 5.13172 0.331836C4.94797 0.0857582 4.79808 0.00898505 4.50149 0.00898505C4.2049 0.00898505 4.05502 0.0857582 3.87127 0.331836C3.77653 0.458744 3.77428 0.517086 3.76176 3.22497L3.74895 5.98857H2.62554H1.50213L1.48933 3.22497C1.47681 0.517086 1.47455 0.458744 1.37982 0.331836C1.32664 0.260644 1.22796 0.161171 1.16057 0.110849C1.00515 -0.00517832 0.631644 -0.0373978 0.444753 0.0491303ZM16.5545 0.0160199C14.9666 0.206522 13.6096 0.861932 12.4958 1.97648C11.5373 2.93542 10.9317 4.04424 10.6364 5.3809C10.5284 5.86954 10.528 5.88422 10.528 9.44388C10.528 12.979 10.529 13.0178 10.6247 13.146C10.6779 13.2172 10.7796 13.319 10.8508 13.3722C10.9728 13.4634 11.0524 13.4697 12.2431 13.4828L13.506 13.4967V16.2517C13.506 18.5425 13.5178 19.052 13.576 19.2753C13.8908 20.4837 15.1179 21.2308 16.2875 20.9262C17.1209 20.7091 17.7901 20.019 17.9586 19.2029C17.9945 19.0289 18.0059 16.2274 17.9972 9.70872L17.9849 0.461417L17.8882 0.331883C17.6865 0.0617929 17.5654 0.00950101 17.1256 0.0026538C16.9017 -0.000816704 16.6447 0.00518632 16.5545 0.0160199ZM16.0855 1.62188C14.1111 2.07394 12.6185 3.58905 12.1129 5.65432C12.0479 5.92015 12.0342 6.401 12.0186 8.97621L12.0002 11.9873L13.2657 12.0012C14.4589 12.0143 14.5385 12.0206 14.6606 12.1118C14.7317 12.1649 14.8335 12.2667 14.8866 12.3379C14.9816 12.465 14.9838 12.5266 15.0068 15.7201C15.0299 18.9285 15.0316 18.9745 15.1284 19.1051C15.4696 19.5655 16.0448 19.5655 16.386 19.1051L16.4841 18.9727L16.4962 10.2529C16.5029 5.45707 16.4923 1.53502 16.4728 1.53727C16.4532 1.53952 16.2789 1.57761 16.0855 1.62188ZM1.51611 7.70009C1.57844 8.15478 1.93707 8.6421 2.35334 8.83776C2.47232 8.89371 2.73332 8.95975 2.93329 8.9846C3.31373 9.03183 3.45776 9.10443 3.63096 9.33644C3.72677 9.4647 3.7279 9.50991 3.75111 14.2193C3.77447 18.9507 3.77503 18.9733 3.87267 19.1051C4.03902 19.3295 4.25682 19.4485 4.50149 19.4485C4.74616 19.4485 4.96396 19.3295 5.13031 19.1051C5.22795 18.9733 5.22852 18.9507 5.25187 14.2193C5.27509 9.50991 5.27621 9.4647 5.37203 9.33644C5.54729 9.10171 5.69014 9.03009 6.06744 8.98779C6.82453 8.90286 7.37648 8.40409 7.4804 7.71102L7.51366 7.48933H4.50046H1.48722L1.51611 7.70009Z";
+
 const Icon = ({ name, size = 20, color }) => {
   if (name === "utensils") {
+    const c = color || T.textMuted;
     return (
-      <img
-        src="/meal-icon.svg"
-        alt=""
+      <svg
         width={size}
         height={size}
-        style={{ flexShrink: 0, display: "block", objectFit: "contain" }}
-      />
+        viewBox="0 0 18 21"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        style={{ flexShrink: 0, display: "block", color: c }}
+        aria-hidden
+      >
+        <path fillRule="evenodd" clipRule="evenodd" d={MEAL_ICON_PATH} fill="currentColor" />
+      </svg>
     );
   }
   const s = { width: size, height: size, color: color || T.textMuted, strokeWidth: 1.8, fill: "none", stroke: "currentColor", flexShrink: 0 };
@@ -102,6 +116,12 @@ function todayDateStr() {
 const CAT_COLORS = { Sport: { bg: "#2a3528", text: "#6b9e6b" }, Water: { bg: "#1e2a35", text: "#6b8eb0" }, Spiritual: { bg: "#35301e", text: "#c4a84e" }, Competition: { bg: "#352220", text: "#c46b5e" }, Adventure: { bg: "#2a2435", text: "#9a7eb8" }, Service: { bg: "#2a3030", text: "#6bb0a0" } };
 const STATUS_COLORS = { approved: { bg: T.greenBg, text: T.green }, pending: { bg: T.yellowBg, text: T.yellow }, waitlisted: { bg: T.purpleBg, text: T.purple }, active: { bg: T.greenBg, text: T.green }, completed: { bg: T.blueBg, text: T.blue }, upcoming: { bg: T.yellowBg, text: T.yellow }, revoked: { bg: T.redBg, text: T.red } };
 const MEAL_TYPE_LABELS = { breakfast: "Breakfast", lunch: "Lunch", dinner: "Dinner" };
+
+function ymdTodayLocal() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
 
 function MealWardLabel({ name, color }) {
   const fill = color && String(color).trim() ? color : T.textDim;
@@ -1813,7 +1833,9 @@ const RegistrationPage = ({ registrations, applyResult, isLeader }) => {
                           <span style={{ color: T.textMuted, fontSize: "12px", marginLeft: "8px" }}>Age {ym.age}</span>
                         </div>
                         {ym.shirtSize && <span style={{ color: T.textMuted, fontSize: "11px" }}>Shirt: {ym.shirtSize}</span>}
-                        {ym.allergies && <span style={{ color: T.yellow, fontSize: "11px" }}>Allergies: {ym.allergies}</span>}
+                        {ym.medicalSummary && ym.medicalSummary !== "—" ? (
+                          <span style={{ color: T.yellow, fontSize: "11px" }} title={ym.medicalSummary}>{ym.medicalSummary}</span>
+                        ) : null}
                       </div>
                     ))}
                   </div>
@@ -2541,7 +2563,7 @@ const TERMS_OF_SERVICE_TEXT = `By completing this registration, I acknowledge an
 
 2. MEDICAL AUTHORIZATION: In the event of a medical emergency, I authorize camp leaders to seek and consent to emergency medical treatment for my child/ward if I cannot be reached.
 
-3. MEDICAL INFORMATION: I have disclosed all known medical conditions, allergies, and medications for each registered young man. I understand it is my responsibility to keep this information current.
+3. MEDICAL INFORMATION: I have completed the medical questions for each registered young man as shown in this registration form. I understand it is my responsibility to keep this information current.
 
 4. CODE OF CONDUCT: My child/ward agrees to follow all camp rules, respect camp leaders, and treat fellow campers with kindness and respect.
 
@@ -2566,6 +2588,7 @@ const YoungManFormEntry = ({
   const photoInputRef = useRef(null);
   const [dragPhoto, setDragPhoto] = useState(false);
   const displayName = `${entry.firstName || "Young"} ${entry.lastName || "Man"}`.trim() || "Young man";
+  const campAge = entry.dateOfBirth && parseYmd(entry.dateOfBirth) ? ageOnCampReference(entry.dateOfBirth) : null;
 
   return (
     <div style={{ background: T.bgInput, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "14px", marginBottom: "10px" }}>
@@ -2633,8 +2656,8 @@ const YoungManFormEntry = ({
         <Field label="Last Name" required error={fieldErrors.lastName}>
           <input style={fieldStyle(css.input, fieldErrors.lastName)} value={entry.lastName} onChange={e => onUpdate({ ...entry, lastName: e.target.value })} placeholder="Last name" />
         </Field>
-        <Field label="Age" required error={fieldErrors.age}>
-          <input style={fieldStyle(css.input, fieldErrors.age)} type="number" min={8} max={18} value={entry.age} onChange={e => onUpdate({ ...entry, age: e.target.value })} placeholder="14" />
+        <Field label="Date of birth" required error={fieldErrors.dateOfBirth}>
+          <input style={fieldStyle(css.input, fieldErrors.dateOfBirth)} type="date" value={entry.dateOfBirth} onChange={e => onUpdate({ ...entry, dateOfBirth: e.target.value })} />
         </Field>
         <Field label="Shirt Size" required error={fieldErrors.shirtSizeCode}>
           <select style={fieldStyle(css.select, fieldErrors.shirtSizeCode)} value={entry.shirtSizeCode} onChange={e => onUpdate({ ...entry, shirtSizeCode: e.target.value })}>
@@ -2643,8 +2666,107 @@ const YoungManFormEntry = ({
           </select>
         </Field>
       </div>
-      <Field label="Allergies"><input style={css.input} value={entry.allergies} onChange={e => onUpdate({ ...entry, allergies: e.target.value })} placeholder="None" /></Field>
-      <Field label="Medical Information"><textarea style={{ ...css.input, minHeight: "50px", resize: "vertical" }} value={entry.medicalNotes} onChange={e => onUpdate({ ...entry, medicalNotes: e.target.value })} placeholder="Medications, health conditions..." /></Field>
+      {campAge !== null ? (
+        <p style={{ color: T.textMuted, fontSize: "12px", margin: "4px 0 10px", lineHeight: 1.5 }}>
+          Age on {CAMP_AGE_REFERENCE_YMD}: <strong style={{ color: T.text }}>{campAge}</strong>
+          {(campAge < 8 || campAge > 18) ? <span style={{ color: T.red }}> — must be 8–18 for this camp.</span> : null}
+        </p>
+      ) : null}
+
+      <p style={{ ...css.label, marginTop: "12px" }}>Medical Information</p>
+
+      <Field label="Does the participant require a special diet?" error={fieldErrors.specialDiet}>
+        <select
+          style={fieldStyle(css.select, fieldErrors.specialDiet)}
+          value={entry.specialDietRequired ? "yes" : "no"}
+          onChange={(e) => onUpdate({ ...entry, specialDietRequired: e.target.value === "yes" })}
+        >
+          <option value="no">No</option>
+          <option value="yes">Yes</option>
+        </select>
+      </Field>
+      {entry.specialDietRequired ? (
+        <Field label="If yes, please explain the dietary restrictions." required error={fieldErrors.specialDietExplanation}>
+          <textarea style={{ ...css.input, minHeight: "52px", resize: "vertical" }} value={entry.specialDietExplanation} onChange={e => onUpdate({ ...entry, specialDietExplanation: e.target.value })} placeholder="Describe restrictions" />
+        </Field>
+      ) : null}
+
+      <Field label="Does the participant have any allergies?" error={fieldErrors.hasAllergies}>
+        <select
+          style={fieldStyle(css.select, fieldErrors.hasAllergies)}
+          value={entry.hasAllergies ? "yes" : "no"}
+          onChange={(e) => onUpdate({ ...entry, hasAllergies: e.target.value === "yes" })}
+        >
+          <option value="no">No</option>
+          <option value="yes">Yes</option>
+        </select>
+      </Field>
+      {entry.hasAllergies ? (
+        <Field label="If yes, please list the allergies." required error={fieldErrors.allergiesDetail}>
+          <textarea style={{ ...css.input, minHeight: "52px", resize: "vertical" }} value={entry.allergiesDetail} onChange={e => onUpdate({ ...entry, allergiesDetail: e.target.value })} placeholder="List allergies" />
+        </Field>
+      ) : null}
+
+      <Field label="List all prescription or over-the-counter (OTC) medications the participant is taking. Leave blank if none.">
+        <textarea style={{ ...css.input, minHeight: "52px", resize: "vertical" }} value={entry.medications} onChange={e => onUpdate({ ...entry, medications: e.target.value })} placeholder="None" />
+      </Field>
+
+      <Field label="Can the participant self-administer his or her medication?" required error={fieldErrors.selfAdministerMedication}>
+        <select
+          style={fieldStyle(css.select, fieldErrors.selfAdministerMedication)}
+          value={entry.selfAdministerMedication === null ? "" : entry.selfAdministerMedication ? "yes" : "no"}
+          onChange={(e) => {
+            const v = e.target.value;
+            onUpdate({ ...entry, selfAdministerMedication: v === "" ? null : v === "yes" });
+          }}
+        >
+          <option value="">Select one</option>
+          <option value="yes">Yes</option>
+          <option value="no">No</option>
+        </select>
+      </Field>
+
+      <p style={{ ...css.label, marginTop: "14px" }}>Conditions That Limit Activity</p>
+
+      <Field label="Does the participant have a chronic or recurring illness?" error={fieldErrors.chronicIllness}>
+        <select
+          style={fieldStyle(css.select, fieldErrors.chronicIllness)}
+          value={entry.chronicIllness ? "yes" : "no"}
+          onChange={(e) => onUpdate({ ...entry, chronicIllness: e.target.value === "yes" })}
+        >
+          <option value="no">No</option>
+          <option value="yes">Yes</option>
+        </select>
+      </Field>
+      {entry.chronicIllness ? (
+        <Field label="If yes, please explain." required error={fieldErrors.chronicIllnessExplanation}>
+          <textarea style={{ ...css.input, minHeight: "52px", resize: "vertical" }} value={entry.chronicIllnessExplanation} onChange={e => onUpdate({ ...entry, chronicIllnessExplanation: e.target.value })} />
+        </Field>
+      ) : null}
+
+      <Field label="Has the participant had surgery or a serious illness in the past year?" error={fieldErrors.surgerySeriousIllnessPastYear}>
+        <select
+          style={fieldStyle(css.select, fieldErrors.surgerySeriousIllnessPastYear)}
+          value={entry.surgerySeriousIllnessPastYear ? "yes" : "no"}
+          onChange={(e) => onUpdate({ ...entry, surgerySeriousIllnessPastYear: e.target.value === "yes" })}
+        >
+          <option value="no">No</option>
+          <option value="yes">Yes</option>
+        </select>
+      </Field>
+      {entry.surgerySeriousIllnessPastYear ? (
+        <Field label="If yes, please explain." required error={fieldErrors.surgerySeriousIllnessExplanation}>
+          <textarea style={{ ...css.input, minHeight: "52px", resize: "vertical" }} value={entry.surgerySeriousIllnessExplanation} onChange={e => onUpdate({ ...entry, surgerySeriousIllnessExplanation: e.target.value })} />
+        </Field>
+      ) : null}
+
+      <Field label="Identify any other limits, restrictions, or disabilities that could prevent the participant from fully participating in the event or activity.">
+        <textarea style={{ ...css.input, minHeight: "52px", resize: "vertical" }} value={entry.activityLimitsRestrictions} onChange={e => onUpdate({ ...entry, activityLimitsRestrictions: e.target.value })} placeholder="None" />
+      </Field>
+
+      <Field label="Other Accommodations or Special Needs — identify any other needs or considerations the event planner should be aware of.">
+        <textarea style={{ ...css.input, minHeight: "52px", resize: "vertical" }} value={entry.otherAccommodations} onChange={e => onUpdate({ ...entry, otherAccommodations: e.target.value })} placeholder="None" />
+      </Field>
     </div>
   );
 };
@@ -2652,11 +2774,23 @@ const YoungManFormEntry = ({
 const emptyYoungMan = () => ({
   firstName: "",
   lastName: "",
-  age: "",
+  dateOfBirth: "",
   shirtSizeCode: "",
   photoUrl: "",
-  allergies: "",
-  medicalNotes: "",
+  specialDietRequired: false,
+  specialDietExplanation: "",
+  hasAllergies: false,
+  allergiesDetail: "",
+  medications: "",
+  selfAdministerMedication: null,
+  chronicIllness: false,
+  chronicIllnessExplanation: "",
+  surgerySeriousIllnessPastYear: false,
+  surgerySeriousIllnessExplanation: "",
+  activityLimitsRestrictions: "",
+  otherAccommodations: "",
+  participantSignatureName: "",
+  participantSignatureDate: ymdTodayLocal(),
   _key: Math.random().toString(36).slice(2),
 });
 
@@ -2686,6 +2820,7 @@ const OnboardingOverlay = ({
   const [uploadingYoungManKey, setUploadingYoungManKey] = useState(null);
   const [termsRead, setTermsRead] = useState(false);
   const [signatureName, setSignatureName] = useState("");
+  const [parentSignatureDate, setParentSignatureDate] = useState(() => ymdTodayLocal());
   const [attemptedComplete, setAttemptedComplete] = useState(false);
 
   const processUploadFile = async (file) => {
@@ -2771,11 +2906,28 @@ const OnboardingOverlay = ({
   };
 
   const youngMenValid = showYoungMen
-    ? youngMen.length > 0 && youngMen.every((ym) => (
-      ym.firstName.trim() && ym.lastName.trim() && ym.age && ym.photoUrl?.trim() && ym.shirtSizeCode
-    ))
+    ? youngMen.length > 0 && youngMen.every((ym) => {
+        if (!ym.firstName.trim() || !ym.lastName.trim() || !ym.photoUrl?.trim() || !ym.shirtSizeCode) return false;
+        if (!ym.dateOfBirth || !parseYmd(ym.dateOfBirth)) return false;
+        const a = ageOnCampReference(ym.dateOfBirth);
+        if (a === null || a < 8 || a > 18) return false;
+        if (ym.specialDietRequired && !ym.specialDietExplanation.trim()) return false;
+        if (ym.hasAllergies && !ym.allergiesDetail.trim()) return false;
+        if (ym.selfAdministerMedication !== true && ym.selfAdministerMedication !== false) return false;
+        if (ym.chronicIllness && !ym.chronicIllnessExplanation.trim()) return false;
+        if (ym.surgerySeriousIllnessPastYear && !ym.surgerySeriousIllnessExplanation.trim()) return false;
+        if (showTerms) {
+          if (ym.participantSignatureName.trim().length < 2) return false;
+          if (!parseYmd(ym.participantSignatureDate)) return false;
+        }
+        return true;
+      })
     : true;
-  const termsValid = showTerms ? termsRead && signatureName.trim().length >= 2 : true;
+  const termsValid = showTerms
+    ? termsRead &&
+      signatureName.trim().length >= 2 &&
+      Boolean(parseYmd(parentSignatureDate))
+    : true;
 
   const hasRequiredFields =
     form.displayName.trim() &&
@@ -2795,6 +2947,7 @@ const OnboardingOverlay = ({
         youngMen: youngMen.map(() => ({})),
         termsRead: undefined,
         signatureName: undefined,
+        parentSignatureDate: undefined,
       };
     }
     const top = {};
@@ -2808,24 +2961,77 @@ const OnboardingOverlay = ({
           if (!ym.photoUrl?.trim()) r.photoUrl = "Photo is required.";
           if (!ym.firstName.trim()) r.firstName = "First name is required.";
           if (!ym.lastName.trim()) r.lastName = "Last name is required.";
-          if (!ym.age) r.age = "Age is required.";
+          if (!ym.dateOfBirth || !parseYmd(ym.dateOfBirth)) r.dateOfBirth = "Enter date of birth.";
+          else {
+            const a = ageOnCampReference(ym.dateOfBirth);
+            if (a === null || a < 8 || a > 18) {
+              r.dateOfBirth = `Age on ${CAMP_AGE_REFERENCE_YMD} must be between 8 and 18.`;
+            }
+          }
           if (!ym.shirtSizeCode) r.shirtSizeCode = "Select a shirt size.";
+          if (ym.specialDietRequired && !ym.specialDietExplanation.trim()) {
+            r.specialDietExplanation = "Explain dietary restrictions or set special diet to No.";
+          }
+          if (ym.hasAllergies && !ym.allergiesDetail.trim()) {
+            r.allergiesDetail = "List allergies or set allergies to No.";
+          }
+          if (ym.selfAdministerMedication !== true && ym.selfAdministerMedication !== false) {
+            r.selfAdministerMedication = "Select Yes or No.";
+          }
+          if (ym.chronicIllness && !ym.chronicIllnessExplanation.trim()) {
+            r.chronicIllnessExplanation = "Explain or set chronic illness to No.";
+          }
+          if (ym.surgerySeriousIllnessPastYear && !ym.surgerySeriousIllnessExplanation.trim()) {
+            r.surgerySeriousIllnessExplanation = "Explain or set surgery/serious illness to No.";
+          }
+          if (showTerms) {
+            if (ym.participantSignatureName.trim().length < 2) {
+              r.participantSignatureName = "Type the participant\u2019s full name.";
+            }
+            if (!parseYmd(ym.participantSignatureDate)) {
+              r.participantSignatureDate = "Enter the signature date.";
+            }
+          }
           return r;
         })
       : youngMen.map(() => ({}));
     let termsReadErr;
     let signatureNameErr;
+    let parentSignatureDateErr;
     if (showTerms) {
       if (!termsRead) termsReadErr = "You must agree to the terms.";
       if (signatureName.trim().length < 2) signatureNameErr = "Type your full name as your signature.";
+      if (!parseYmd(parentSignatureDate)) parentSignatureDateErr = "Enter the parent/guardian signature date.";
     }
-    return { ...top, youngMen: ymErrs, termsRead: termsReadErr, signatureName: signatureNameErr };
-  }, [attemptedComplete, form.displayName, form.password, form.wardId, avatarUrl, showYoungMen, youngMen, showTerms, termsRead, signatureName]);
+    return {
+      ...top,
+      youngMen: ymErrs,
+      termsRead: termsReadErr,
+      signatureName: signatureNameErr,
+      parentSignatureDate: parentSignatureDateErr,
+    };
+  }, [
+    attemptedComplete,
+    form.displayName,
+    form.password,
+    form.wardId,
+    avatarUrl,
+    showYoungMen,
+    youngMen,
+    showTerms,
+    termsRead,
+    signatureName,
+    parentSignatureDate,
+  ]);
 
   const wrappedComplete = () => {
     setAttemptedComplete(true);
     if (!hasRequiredFields) return;
-    onComplete({ youngMen: showYoungMen ? youngMen : [], signatureName: showTerms ? signatureName : "" });
+    onComplete({
+      youngMen: showYoungMen ? youngMen : [],
+      signatureName: showTerms ? signatureName : "",
+      parentSignatureDate: showTerms ? parentSignatureDate : "",
+    });
   };
 
   return (
@@ -2893,7 +3099,7 @@ const OnboardingOverlay = ({
               <button onClick={addYoungMan} style={css.btn("ghost")}><Icon name="plus" size={14} color={T.accent} /> Add Another</button>
             </div>
             <p style={{ color: T.textMuted, fontSize: "13px", marginBottom: "14px", lineHeight: 1.5 }}>
-              Add each young man you are registering for camp. Include a photo, name, age, shirt size, and any allergy or medical information.
+              Add each young man: photo, name, date of birth, shirt size, and the medical questions below (same sections as the Church permission and medical release form).
             </p>
             {youngMen.map((ym, i) => (
               <YoungManFormEntry
@@ -2913,8 +3119,11 @@ const OnboardingOverlay = ({
 
         {showTerms ? (
           <div style={{ marginTop: "20px", borderTop: `1px solid ${T.border}`, paddingTop: "20px" }}>
-            <h3 style={{ fontFamily: T.fontDisplay, fontSize: "18px", color: T.text, margin: "0 0 12px" }}>Terms & Conditions</h3>
-            <div style={{ background: T.bgInput, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "16px", maxHeight: "200px", overflowY: "auto", marginBottom: "14px" }}>
+            <h3 style={{ fontFamily: T.fontDisplay, fontSize: "18px", color: T.text, margin: "0 0 8px" }}>Terms, permission &amp; release</h3>
+            <p style={{ color: T.textMuted, fontSize: "12px", margin: "0 0 12px", lineHeight: 1.5 }}>
+              <a href="/2017_parental_or_guardian_permission_medical_release.pdf" target="_blank" rel="noopener noreferrer" style={{ color: T.accent }}>Open official Permission and Medical Release form (PDF)</a>
+            </p>
+            <div style={{ background: T.bgInput, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "16px", maxHeight: "220px", overflowY: "auto", marginBottom: "14px" }}>
               <pre style={{ color: T.textMuted, fontSize: "12px", lineHeight: 1.7, whiteSpace: "pre-wrap", fontFamily: T.font, margin: 0 }}>{TERMS_OF_SERVICE_TEXT}</pre>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: overlayFieldErrors.termsRead ? "6px" : "14px" }}>
@@ -2924,9 +3133,66 @@ const OnboardingOverlay = ({
             {overlayFieldErrors.termsRead ? (
               <p role="alert" style={{ color: T.red, fontSize: "12px", margin: "0 0 14px" }}>{overlayFieldErrors.termsRead}</p>
             ) : null}
-            <Field label="Type your full name as your signature" required error={overlayFieldErrors.signatureName}>
-              <input style={{ ...fieldStyle(css.input, overlayFieldErrors.signatureName), fontFamily: "'Playfair Display', serif", fontSize: "18px", fontStyle: "italic" }} value={signatureName} onChange={e => setSignatureName(e.target.value)} placeholder="Your Full Name" />
-            </Field>
+
+            <h4 style={{ fontFamily: T.fontDisplay, fontSize: "15px", color: T.text, margin: "16px 0 10px" }}>Participant signatures</h4>
+            <p style={{ color: T.textMuted, fontSize: "12px", margin: "0 0 12px", lineHeight: 1.5 }}>
+              Each young man signs below (typed full name and date), as on the release form.
+            </p>
+            {youngMen.map((ym, i) => {
+              const labelName = `${ym.firstName || "…"} ${ym.lastName || ""}`.trim() || `Young man #${i + 1}`;
+              return (
+                <div
+                  key={ym._key}
+                  style={{
+                    marginBottom: "12px",
+                    padding: "12px",
+                    borderRadius: T.radiusSm,
+                    border: `1px solid ${T.border}`,
+                    background: T.bg,
+                  }}
+                >
+                  <p style={{ fontSize: "12px", fontWeight: 700, color: T.accent, margin: "0 0 10px" }}>{labelName}</p>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                    <Field label="Participant\u2019s signature (type full name)" required error={overlayFieldErrors.youngMen[i]?.participantSignatureName}>
+                      <input
+                        style={fieldStyle(css.input, overlayFieldErrors.youngMen[i]?.participantSignatureName)}
+                        value={ym.participantSignatureName}
+                        onChange={(e) => updateYoungMan(i, { ...ym, participantSignatureName: e.target.value })}
+                        placeholder="Full name"
+                      />
+                    </Field>
+                    <Field label="Date" required error={overlayFieldErrors.youngMen[i]?.participantSignatureDate}>
+                      <input
+                        style={fieldStyle(css.input, overlayFieldErrors.youngMen[i]?.participantSignatureDate)}
+                        type="date"
+                        value={ym.participantSignatureDate}
+                        onChange={(e) => updateYoungMan(i, { ...ym, participantSignatureDate: e.target.value })}
+                      />
+                    </Field>
+                  </div>
+                </div>
+              );
+            })}
+
+            <h4 style={{ fontFamily: T.fontDisplay, fontSize: "15px", color: T.text, margin: "18px 0 10px" }}>Parent / guardian</h4>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+              <Field label="Parent or guardian\u2019s signature (type full name)" required error={overlayFieldErrors.signatureName}>
+                <input
+                  style={{ ...fieldStyle(css.input, overlayFieldErrors.signatureName), fontFamily: "'Playfair Display', serif", fontSize: "18px", fontStyle: "italic" }}
+                  value={signatureName}
+                  onChange={(e) => setSignatureName(e.target.value)}
+                  placeholder="Your full name"
+                />
+              </Field>
+              <Field label="Date" required error={overlayFieldErrors.parentSignatureDate}>
+                <input
+                  style={fieldStyle(css.input, overlayFieldErrors.parentSignatureDate)}
+                  type="date"
+                  value={parentSignatureDate}
+                  onChange={(e) => setParentSignatureDate(e.target.value)}
+                />
+              </Field>
+            </div>
           </div>
         ) : null}
 
@@ -3217,6 +3483,10 @@ export default function CampDesignApp({ initialData, profile }) {
           isParent && extraData?.signatureName
             ? extraData.signatureName
             : undefined,
+        parentSignatureDate:
+          isParent && extraData?.parentSignatureDate
+            ? extraData.parentSignatureDate
+            : undefined,
       };
 
       if (isParent) {
@@ -3237,12 +3507,11 @@ export default function CampDesignApp({ initialData, profile }) {
               index: i,
               firstName: ym.firstName,
               lastName: ym.lastName,
-              age: ym.age,
+              dateOfBirth: ym.dateOfBirth,
               shirtSizeCode: ym.shirtSizeCode,
               shirtSizeLabel: shirtSizeByCode.get(ym.shirtSizeCode) ?? "(no match in profileOptions — check code)",
               photoUrl: ym.photoUrl,
-              allergies: ym.allergies,
-              medicalNotes: ym.medicalNotes,
+              participantSignatureDate: ym.participantSignatureDate,
             })),
           );
         }
@@ -3269,11 +3538,23 @@ export default function CampDesignApp({ initialData, profile }) {
         const youngMenPayload = extraData.youngMen.map((ym) => ({
           firstName: ym.firstName,
           lastName: ym.lastName,
-          age: ym.age,
+          dateOfBirth: ym.dateOfBirth,
           shirtSizeCode: ym.shirtSizeCode,
           photoUrl: ym.photoUrl,
-          allergies: ym.allergies,
-          medicalNotes: ym.medicalNotes,
+          specialDietRequired: ym.specialDietRequired,
+          specialDietExplanation: ym.specialDietExplanation,
+          hasAllergies: ym.hasAllergies,
+          allergiesDetail: ym.allergiesDetail,
+          medications: ym.medications,
+          selfAdministerMedication: ym.selfAdministerMedication,
+          chronicIllness: ym.chronicIllness,
+          chronicIllnessExplanation: ym.chronicIllnessExplanation,
+          surgerySeriousIllnessPastYear: ym.surgerySeriousIllnessPastYear,
+          surgerySeriousIllnessExplanation: ym.surgerySeriousIllnessExplanation,
+          activityLimitsRestrictions: ym.activityLimitsRestrictions,
+          otherAccommodations: ym.otherAccommodations,
+          participantSignatureName: ym.participantSignatureName,
+          participantSignatureDate: ym.participantSignatureDate,
         }));
         console.log(
           "[parent onboarding] POST /api/onboarding/parent-young-men JSON body:",

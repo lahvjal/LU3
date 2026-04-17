@@ -10,6 +10,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   completeOnboardingProfileInDb,
   insertParentYoungMenInDb,
+  type YoungManPayload,
 } from "@/lib/app/onboarding-completion-api";
 import {
   type CampDesignInitialData,
@@ -105,16 +106,6 @@ type InviteLeaderInput = {
   role: CampStaffRole;
   wardId: string | null;
   calling: string;
-};
-
-type YoungManInput = {
-  firstName: string;
-  lastName: string;
-  age: string;
-  shirtSizeCode: string;
-  allergies: string;
-  medicalNotes: string;
-  photoUrl?: string;
 };
 
 type ProfileUpdateInput = {
@@ -459,7 +450,7 @@ export async function updateMyProfileAction(
  * updateMyProfileAction so the onboarding completion payload matches leaders.
  */
 export async function saveParentYoungMenAction(input: {
-  youngMen: YoungManInput[];
+  youngMen: YoungManPayload[];
 }): Promise<ActionResult> {
   const context = await getUserContext();
   const supabase = await createSupabaseServerClient();

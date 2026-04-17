@@ -27,6 +27,10 @@ export async function POST(request: Request) {
       wardId: typeof body.wardId === "string" ? body.wardId : null,
       signatureName:
         typeof body.signatureName === "string" ? body.signatureName : undefined,
+      parentSignatureDate:
+        typeof body.parentSignatureDate === "string"
+          ? body.parentSignatureDate
+          : undefined,
     };
 
     const result = await completeOnboardingProfileInDb(

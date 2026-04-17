@@ -2,6 +2,11 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AppRole } from "@/lib/auth/user-context";
+import {
+  ageOnCampReference,
+  CAMP_AGE_REFERENCE_YMD,
+  parseYmd,
+} from "@/lib/camp-age";
 
 type CampStaffRole =
   | "stake_leader"
@@ -86,17 +91,33 @@ export type OnboardingProfileBody = {
   phone: string | null;
   wardId: string | null;
   signatureName?: string;
+  /** YYYY-MM-DD — date line next to parent/guardian signature on the release form */
+  parentSignatureDate?: string;
 };
 
 export type YoungManPayload = {
   firstName: string;
   lastName: string;
-  age: string;
+  /** YYYY-MM-DD */
+  dateOfBirth: string;
   shirtSizeCode: string;
-  allergies: string;
-  medicalNotes: string;
   /** Public https URL from profile-avatars bucket after client upload */
   photoUrl?: string;
+  specialDietRequired: boolean;
+  specialDietExplanation: string;
+  hasAllergies: boolean;
+  allergiesDetail: string;
+  medications: string;
+  selfAdministerMedication: boolean;
+  chronicIllness: boolean;
+  chronicIllnessExplanation: string;
+  surgerySeriousIllnessPastYear: boolean;
+  surgerySeriousIllnessExplanation: string;
+  activityLimitsRestrictions: string;
+  otherAccommodations: string;
+  participantSignatureName: string;
+  /** YYYY-MM-DD */
+  participantSignatureDate: string;
 };
 
 /**
@@ -148,10 +169,23 @@ export async function completeOnboardingProfileInDb(
   };
 
   if (input.signatureName !== undefined) {
-    profilePayload.terms_accepted_at = input.signatureName?.trim()
-      ? onboardingCompletedAt
-      : null;
-    profilePayload.signature_name = input.signatureName?.trim() || null;
+    const sig = input.signatureName.trim();
+    if (sig) {
+      const dateRaw = input.parentSignatureDate?.trim() ?? "";
+      if (!parseYmd(dateRaw)) {
+        return {
+          ok: false,
+          error: "Parent signature date is required and must be YYYY-MM-DD.",
+        };
+      }
+      profilePayload.terms_accepted_at = onboardingCompletedAt;
+      profilePayload.signature_name = sig;
+      profilePayload.parent_signature_date = dateRaw;
+    } else {
+      profilePayload.terms_accepted_at = null;
+      profilePayload.signature_name = null;
+      profilePayload.parent_signature_date = null;
+    }
   }
 
   const { error } = await supabase
@@ -256,16 +290,9 @@ export async function insertParentYoungMenInDb(
     (sizeRows ?? []).map((r: { code: string }) => r.code),
   );
 
-  const youngMenPayload: Array<{
-    parent_id: string;
-    first_name: string;
-    last_name: string;
-    age: number;
-    photo_url: string;
-    shirt_size_code: string | null;
-    allergies: string | null;
-    medical_notes: string | null;
-  }> = [];
+  const signedAt = new Date().toISOString();
+
+  const youngMenPayload: Array<Record<string, unknown>> = [];
 
   for (const ym of rows) {
     const nameRef = `${ym.firstName.trim()} ${ym.lastName.trim()}`;
@@ -291,11 +318,67 @@ export async function insertParentYoungMenInDb(
       };
     }
 
-    const raw = Number(ym.age);
-    const age =
-      Number.isFinite(raw) && raw > 0
-        ? Math.min(18, Math.max(8, Math.round(raw)))
-        : 12;
+    const dob = ym.dateOfBirth?.trim() ?? "";
+    if (!parseYmd(dob)) {
+      return {
+        ok: false,
+        error: `Enter a valid date of birth (YYYY-MM-DD) for ${nameRef}.`,
+      };
+    }
+    const age = ageOnCampReference(dob);
+    if (age === null || age < 8 || age > 18) {
+      return {
+        ok: false,
+        error: `${nameRef} must be between 8 and 18 years old as of camp week (${CAMP_AGE_REFERENCE_YMD}).`,
+      };
+    }
+
+    if (ym.specialDietRequired && !ym.specialDietExplanation?.trim()) {
+      return {
+        ok: false,
+        error: `Describe dietary restrictions for ${nameRef}, or mark “No” for special diet.`,
+      };
+    }
+    if (ym.hasAllergies && !ym.allergiesDetail?.trim()) {
+      return {
+        ok: false,
+        error: `List allergies for ${nameRef}, or mark “No” for allergies.`,
+      };
+    }
+    if (ym.chronicIllness && !ym.chronicIllnessExplanation?.trim()) {
+      return {
+        ok: false,
+        error: `Explain the chronic or recurring illness for ${nameRef}, or mark “No”.`,
+      };
+    }
+    if (ym.surgerySeriousIllnessPastYear && !ym.surgerySeriousIllnessExplanation?.trim()) {
+      return {
+        ok: false,
+        error: `Explain the surgery or serious illness for ${nameRef}, or mark “No”.`,
+      };
+    }
+    if (typeof ym.selfAdministerMedication !== "boolean") {
+      return {
+        ok: false,
+        error: `Indicate whether ${nameRef} can self-administer medication.`,
+      };
+    }
+
+    const psn = ym.participantSignatureName?.trim() ?? "";
+    if (psn.length < 2) {
+      return {
+        ok: false,
+        error: `Each young man needs a typed participant signature (full name) — missing for ${nameRef}.`,
+      };
+    }
+    const psd = ym.participantSignatureDate?.trim() ?? "";
+    if (!parseYmd(psd)) {
+      return {
+        ok: false,
+        error: `Enter a valid participant signature date for ${nameRef}.`,
+      };
+    }
+
     const shirt = ym.shirtSizeCode?.trim() || null;
 
     youngMenPayload.push({
@@ -303,10 +386,25 @@ export async function insertParentYoungMenInDb(
       first_name: ym.firstName.trim(),
       last_name: ym.lastName.trim(),
       age,
+      date_of_birth: dob,
       photo_url: photoNorm,
       shirt_size_code: shirt,
-      allergies: ym.allergies?.trim() || null,
-      medical_notes: ym.medicalNotes?.trim() || null,
+      special_diet_required: ym.specialDietRequired,
+      special_diet_explanation: ym.specialDietExplanation?.trim() || null,
+      has_allergies: ym.hasAllergies,
+      allergies_detail: ym.allergiesDetail?.trim() || null,
+      medications: ym.medications?.trim() || null,
+      self_administer_medication: ym.selfAdministerMedication,
+      chronic_illness: ym.chronicIllness,
+      chronic_illness_explanation: ym.chronicIllnessExplanation?.trim() || null,
+      surgery_serious_illness_past_year: ym.surgerySeriousIllnessPastYear,
+      surgery_serious_illness_explanation:
+        ym.surgerySeriousIllnessExplanation?.trim() || null,
+      activity_limits_restrictions: ym.activityLimitsRestrictions?.trim() || null,
+      other_accommodations: ym.otherAccommodations?.trim() || null,
+      participant_signature_name: psn,
+      participant_signature_date: psd,
+      participant_signed_at: signedAt,
     });
   }
 

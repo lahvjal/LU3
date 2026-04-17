@@ -68,10 +68,24 @@ type YoungManRow = {
   first_name: string;
   last_name: string;
   age: number;
+  date_of_birth: string | null;
   photo_url: string | null;
   shirt_size_code: string | null;
-  allergies: string | null;
-  medical_notes: string | null;
+  special_diet_required: boolean;
+  special_diet_explanation: string | null;
+  has_allergies: boolean;
+  allergies_detail: string | null;
+  medications: string | null;
+  self_administer_medication: boolean;
+  chronic_illness: boolean;
+  chronic_illness_explanation: string | null;
+  surgery_serious_illness_past_year: boolean;
+  surgery_serious_illness_explanation: string | null;
+  activity_limits_restrictions: string | null;
+  other_accommodations: string | null;
+  participant_signature_name: string | null;
+  participant_signature_date: string | null;
+  participant_signed_at: string | null;
 };
 
 type AgendaRow = {
@@ -183,8 +197,8 @@ type DesignRegistrationYoungMan = {
   age: number;
   photoUrl: string | null;
   shirtSize: string;
-  allergies: string;
-  medical: string;
+  /** Short line for leader roster (structured medical from release form). */
+  medicalSummary: string;
 };
 
 type DesignRegistration = {
@@ -486,7 +500,7 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
     supabase
       .from("young_men")
       .select(
-        "id, parent_id, first_name, last_name, age, photo_url, shirt_size_code, allergies, medical_notes",
+        "id, parent_id, first_name, last_name, age, date_of_birth, photo_url, shirt_size_code, special_diet_required, special_diet_explanation, has_allergies, allergies_detail, medications, self_administer_medication, chronic_illness, chronic_illness_explanation, surgery_serious_illness_past_year, surgery_serious_illness_explanation, activity_limits_restrictions, other_accommodations, participant_signature_name, participant_signature_date, participant_signed_at",
       )
       .order("created_at"),
   ]);
@@ -660,6 +674,36 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
     youngMenByParent.set(ym.parent_id, list);
   });
 
+  const formatYoungManMedicalSummary = (ym: YoungManRow): string => {
+    const parts: string[] = [];
+    if (ym.special_diet_required) {
+      parts.push(
+        ym.special_diet_explanation?.trim()
+          ? `Diet: ${ym.special_diet_explanation.trim()}`
+          : "Special diet",
+      );
+    }
+    if (ym.has_allergies) {
+      parts.push(
+        ym.allergies_detail?.trim()
+          ? `Allergies: ${ym.allergies_detail.trim()}`
+          : "Allergies (see records)",
+      );
+    }
+    if (ym.medications?.trim()) parts.push(`Meds: ${ym.medications.trim()}`);
+    if (ym.chronic_illness) parts.push("Chronic illness (see records)");
+    if (ym.surgery_serious_illness_past_year) {
+      parts.push("Recent surgery/illness (see records)");
+    }
+    if (ym.activity_limits_restrictions?.trim()) {
+      parts.push(`Limits: ${ym.activity_limits_restrictions.trim()}`);
+    }
+    if (ym.other_accommodations?.trim()) {
+      parts.push(`Other: ${ym.other_accommodations.trim()}`);
+    }
+    return parts.join(" · ") || "—";
+  };
+
   const registrations: DesignRegistration[] = parentProfiles.map((parent) => {
     const ymRows = youngMenByParent.get(parent.user_id) ?? [];
     const hasOnboarded = Boolean(parent.onboarding_completed_at);
@@ -703,8 +747,7 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
         age: ym.age,
         photoUrl: ym.photo_url ?? null,
         shirtSize: ym.shirt_size_code ? (SHIRT_CODE_TO_DISPLAY[ym.shirt_size_code] ?? ym.shirt_size_code) : "",
-        allergies: ym.allergies ?? "",
-        medical: ym.medical_notes ?? "",
+        medicalSummary: formatYoungManMedicalSummary(ym),
       })),
     };
   });
