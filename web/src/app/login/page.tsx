@@ -16,6 +16,8 @@ const T = {
   accentLight: "#e6a872",
   red: "#c45a5a",
   redBg: "#351e1e",
+  yellow: "#c4a84e",
+  yellowBg: "#35301e",
   green: "#6b9e6b",
   greenBg: "#2a3528",
   radius: "10px",
@@ -32,8 +34,11 @@ export default async function LoginPage({
   const resolvedSearchParams = searchParams ? await searchParams : {};
   const error = resolvedSearchParams.error;
   const info = resolvedSearchParams.info;
+  const reason = resolvedSearchParams.reason;
   const errorMessage = Array.isArray(error) ? error[0] : error;
   const infoMessage = Array.isArray(info) ? info[0] : info;
+  const reasonVal = Array.isArray(reason) ? reason[0] : reason;
+  const magicLinkExpired = reasonVal === "magic_link_expired";
 
   return (
     <main
@@ -93,6 +98,26 @@ export default async function LoginPage({
         </div>
 
         <div style={{ padding: "0 28px 32px" }}>
+          {magicLinkExpired && (
+            <div
+              style={{
+                padding: "12px 14px",
+                borderRadius: T.radiusSm,
+                background: T.yellowBg,
+                color: T.yellow,
+                fontSize: "13px",
+                marginBottom: "16px",
+                lineHeight: 1.55,
+                border: `1px solid ${T.yellow}44`,
+              }}
+            >
+              <strong style={{ display: "block", marginBottom: "6px", color: T.text }}>
+                This sign-in link has expired
+              </strong>
+              Ask your stake admin to resend the invite email, then use the new link from your inbox.
+            </div>
+          )}
+
           {infoMessage && (
             <div
               style={{
