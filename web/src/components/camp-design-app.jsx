@@ -9,11 +9,13 @@ import {
   createActivityAction,
   createAgendaItemAction,
   createCompetitionAction,
+  createDocumentationItemAction,
   completeCompetitionAction,
   createWardAction,
   createWardMealAction,
   deleteLeaderInvitationAction,
   deleteActivityAction,
+  deleteDocumentationItemAction,
   updateActivityAction,
   deleteAgendaItemAction,
   updateAgendaItemAction,
@@ -403,9 +405,11 @@ const Avatar = ({ name, src, size = 40, fontSize = 13 }) => {
 };
 
 const PROFILE_AVATAR_BUCKET = "profile-avatars";
+const DOCS_PDF_BUCKET = "documentation-pdfs";
 const MAX_AVATAR_FILE_BYTES = 40 * 1024 * 1024;
 const MAX_AVATAR_DIMENSION = 800;
 const MAX_AVATAR_OUTPUT_BYTES = 500 * 1024;
+const MAX_DOC_PDF_FILE_BYTES = 15 * 1024 * 1024;
 
 function parseAvatarObjectPath(avatarUrl) {
   if (!avatarUrl) {
@@ -424,6 +428,16 @@ function parseAvatarObjectPath(avatarUrl) {
   } catch {
     return null;
   }
+}
+
+function sanitizeStorageFileName(fileName) {
+  const normalized = (fileName || "document.pdf")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return normalized || "document.pdf";
 }
 
 async function compressAvatarImage(file) {
@@ -1968,15 +1982,10 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult, isLeader }) 
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [editForm, setEditForm] = useState({ displayName: "", role: "", wardId: "", calling: "", newCalling: "" });
   const [editAddingCalling, setEditAddingCalling] = useState(false);
-  const [addingCalling, setAddingCalling] = useState(false);
   const [resendingLeaderId, setResendingLeaderId] = useState(null);
   const [form, setForm] = useState({
     fullName: "",
     email: "",
-    role: "ward_leader",
-    wardId: "",
-    calling: "",
-    newCalling: "",
   });
 
   const inviteRoleOptions = [
@@ -2001,8 +2010,6 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult, isLeader }) 
     }
     return inviteRoleOptions;
   }, [editForm.role]);
-  const selectedRoleOption =
-    inviteRoleOptions.find((option) => option.value === form.role) ?? inviteRoleOptions[0];
 
   const [saving, setSaving] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
@@ -2010,13 +2017,10 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult, isLeader }) 
   const [editErrors, setEditErrors] = useState({});
 
   const submitInvite = async () => {
-    const callingValue = addingCalling ? form.newCalling : form.calling;
     if (saving) return;
     const e = {};
     if (!form.email.trim()) e.email = "Email is required.";
     else if (!isValidEmailLoose(form.email)) e.email = "Enter a valid email address.";
-    if (!callingValue.trim()) e.calling = addingCalling ? "Enter a calling." : "Select a calling.";
-    if (selectedRoleOption.wardRequired && !form.wardId) e.wardId = "Select a ward for this role.";
     if (Object.keys(e).length) {
       setInviteErrors(e);
       return;
@@ -2027,20 +2031,12 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult, isLeader }) 
       const result = await inviteLeaderAction({
         fullName: form.fullName.trim(),
         email: form.email.trim(),
-        role: form.role,
-        wardId: form.wardId || null,
-        calling: callingValue.trim(),
       });
       if (applyResult(result)) {
         setForm({
           fullName: "",
           email: "",
-          role: "ward_leader",
-          wardId: "",
-          calling: "",
-          newCalling: "",
         });
-        setAddingCalling(false);
         setModal(false);
       }
     } finally { setSaving(false); }
@@ -2101,7 +2097,7 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult, isLeader }) 
   const editRoleOption = editModal ? (editRoleOptions.find((o) => o.value === editForm.role) ?? editRoleOptions[0]) : null;
 
   const sendOrResendInvite = async (leader) => {
-    if (!leader?.email || !leader?.calling || leader.status === "active") {
+    if (!leader?.email || leader.status === "active") {
       return;
     }
     if (leader.role === "young_men_captain") {
@@ -2116,7 +2112,7 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult, isLeader }) 
       email: leader.email.trim(),
       role: leader.role,
       wardId: leader.ward_id ?? null,
-      calling: leader.calling.trim(),
+      calling: leader.calling?.trim() || undefined,
     });
     setResendingLeaderId(null);
     applyResult(result);
@@ -2131,41 +2127,15 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult, isLeader }) 
         action={isLeader ? <button type="button" onClick={() => { setInviteErrors({}); setModal(true); }} style={css.btn()}><Icon name="plus" size={16} color="#1a1612" /> Invite Leader</button> : null}
       />
       <Modal open={modal} onClose={() => { setInviteErrors({}); setModal(false); }} title="Invite Leader" width={560}>
-        <Field label="Full Name" hint="Optional — used in the invite email">
+        <Field label="Full Name" hint="Optional">
           <input style={css.input} value={form.fullName} onChange={e => setForm(p => ({ ...p, fullName: e.target.value }))} placeholder="John Doe" />
         </Field>
         <Field label="Email" required error={inviteErrors.email}>
           <input style={fieldStyle(css.input, inviteErrors.email)} type="email" autoComplete="email" value={form.email} onChange={e => { setForm(p => ({ ...p, email: e.target.value })); if (inviteErrors.email) setInviteErrors((prev) => { const n = { ...prev }; delete n.email; return n; }); }} placeholder="leader@email.com" />
         </Field>
-        <Field label="Leadership Role"><select style={css.select} value={form.role} onChange={e => { setForm(p => ({ ...p, role: e.target.value })); if (inviteErrors.wardId) setInviteErrors((prev) => { const n = { ...prev }; delete n.wardId; return n; }); }}>{inviteRoleOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
-        <Field label="Ward" required={selectedRoleOption.wardRequired} error={inviteErrors.wardId}>
-          <select style={fieldStyle(css.select, inviteErrors.wardId)} value={form.wardId} onChange={e => { setForm(p => ({ ...p, wardId: e.target.value })); if (inviteErrors.wardId) setInviteErrors((prev) => { const n = { ...prev }; delete n.wardId; return n; }); }}>
-            <option value="">{selectedRoleOption.wardRequired ? "Select ward" : "Stake-wide (no ward)"}</option>
-            {wards.map((ward) => (
-              <option key={ward.id} value={ward.id}>{ward.name}</option>
-            ))}
-          </select>
-        </Field>
-        {!addingCalling ? (
-          <Field label="Calling" required error={inviteErrors.calling}>
-            <div style={{ display: "flex", gap: "8px" }}>
-              <select style={{ ...fieldStyle(css.select, inviteErrors.calling), flex: 1 }} value={form.calling} onChange={e => { setForm(p => ({ ...p, calling: e.target.value })); if (inviteErrors.calling) setInviteErrors((prev) => { const n = { ...prev }; delete n.calling; return n; }); }}>
-                <option value="">Select a calling</option>
-                {callingOptions.map((calling) => (
-                  <option key={calling} value={calling}>{calling}</option>
-                ))}
-              </select>
-              <button type="button" onClick={() => { setAddingCalling(true); if (inviteErrors.calling) setInviteErrors((prev) => { const n = { ...prev }; delete n.calling; return n; }); }} style={css.btn("ghost")}>New</button>
-            </div>
-          </Field>
-        ) : (
-          <Field label="New Calling" required error={inviteErrors.calling}>
-            <div style={{ display: "flex", gap: "8px" }}>
-              <input style={{ ...fieldStyle(css.input, inviteErrors.calling), flex: 1 }} value={form.newCalling} onChange={e => { setForm(p => ({ ...p, newCalling: e.target.value })); if (inviteErrors.calling) setInviteErrors((prev) => { const n = { ...prev }; delete n.calling; return n; }); }} placeholder="Assistant Camp Director" />
-              <button type="button" onClick={() => setAddingCalling(false)} style={css.btn("ghost")}>Use List</button>
-            </div>
-          </Field>
-        )}
+        <p style={{ color: T.textDim, fontSize: "12px", margin: "-6px 0 16px" }}>
+          Only email is required.
+        </p>
         <button onClick={submitInvite} disabled={saving} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px", opacity: saving ? 0.7 : 1, cursor: saving ? "not-allowed" : "pointer" }}>{saving ? <><Spinner size={14} /> Sending…</> : "Send Invitation"}</button>
       </Modal>
 
@@ -2249,7 +2219,6 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult, isLeader }) 
                           resendingLeaderId === leader.id ||
                           leader.status === "active" ||
                           !leader.email ||
-                          !leader.calling ||
                           leader.role === "young_men_captain"
                         }
                       >
@@ -3226,24 +3195,319 @@ const PhotosPage = ({ photos }) => (
   </div>
 );
 
-const DocsPage = ({ docs }) => (
-  <div>
-    <PageHeader icon="book" title="Documentation" subtitle="Internal docs for leaders" />
-    {!docs.length ? (
-      <EmptyState icon="book" message="Documentation entries will appear here." />
-    ) : (
-      <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-        {docs.map((doc) => (
-          <div key={doc.id} style={css.card}>
-            <h4 style={{ color: T.text, margin: "0 0 10px", fontFamily: T.fontDisplay }}>{doc.title}</h4>
-            <p style={{ color: T.textMuted, margin: "0 0 12px", fontSize: "12px" }}>Updated {new Date(doc.updated_at).toLocaleString()}</p>
-            <p style={{ color: T.textMuted, lineHeight: 1.7, margin: 0, fontSize: "14px", whiteSpace: "pre-wrap" }}>{doc.content}</p>
-          </div>
-        ))}
-      </div>
-    )}
-  </div>
-);
+const DocsPage = ({ docs, applyResult, canManageContent }) => {
+  const fileInputRef = useRef(null);
+  const [modal, setModal] = useState(false);
+  const [mode, setMode] = useState("text");
+  const [form, setForm] = useState({ title: "", content: "" });
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [formErrors, setFormErrors] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+
+  const resetForm = () => {
+    setMode("text");
+    setForm({ title: "", content: "" });
+    setSelectedFile(null);
+    setFormErrors({});
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const openCreate = () => {
+    resetForm();
+    setModal(true);
+  };
+
+  const closeModal = () => {
+    if (saving) return;
+    setModal(false);
+    resetForm();
+  };
+
+  const clearError = (field) => {
+    setFormErrors((previous) => {
+      if (!previous[field]) {
+        return previous;
+      }
+      const next = { ...previous };
+      delete next[field];
+      return next;
+    });
+  };
+
+  const handleFileSelection = (file) => {
+    if (!file) {
+      setSelectedFile(null);
+      return;
+    }
+
+    if (!(file.type === "application/pdf" || /\.pdf$/i.test(file.name))) {
+      setSelectedFile(null);
+      setFormErrors((previous) => ({ ...previous, pdf: "Please choose a PDF file." }));
+      return;
+    }
+
+    if (file.size > MAX_DOC_PDF_FILE_BYTES) {
+      setSelectedFile(null);
+      setFormErrors((previous) => ({
+        ...previous,
+        pdf: "Please upload a PDF smaller than 15MB.",
+      }));
+      return;
+    }
+
+    setSelectedFile(file);
+    clearError("pdf");
+  };
+
+  const validate = () => {
+    const errors = {};
+    if (!form.title.trim()) {
+      errors.title = "Title is required.";
+    }
+    if (mode === "text") {
+      if (!form.content.trim()) {
+        errors.content = "Document content is required.";
+      }
+    } else if (!selectedFile) {
+      errors.pdf = "Please choose a PDF file.";
+    }
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const saveDoc = async () => {
+    if (saving || !validate()) return;
+
+    setSaving(true);
+    let uploadedObjectPath = null;
+    let supabase = null;
+
+    try {
+      if (mode === "pdf") {
+        supabase = createSupabaseBrowserClient();
+        uploadedObjectPath = `docs/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${sanitizeStorageFileName(selectedFile?.name)}`;
+        const { error: uploadError } = await supabase.storage
+          .from(DOCS_PDF_BUCKET)
+          .upload(uploadedObjectPath, selectedFile, {
+            contentType: "application/pdf",
+            cacheControl: "3600",
+            upsert: false,
+          });
+        if (uploadError) {
+          throw new Error(uploadError.message);
+        }
+
+        const {
+          data: { publicUrl },
+        } = supabase.storage.from(DOCS_PDF_BUCKET).getPublicUrl(uploadedObjectPath);
+
+        const result = await createDocumentationItemAction({
+          title: form.title,
+          pdfUrl: publicUrl,
+          pdfFilename: selectedFile?.name || null,
+          pdfStoragePath: uploadedObjectPath,
+        });
+        if (!applyResult(result)) {
+          await supabase.storage.from(DOCS_PDF_BUCKET).remove([uploadedObjectPath]);
+          uploadedObjectPath = null;
+          return;
+        }
+
+        setModal(false);
+        resetForm();
+        return;
+      }
+
+      const result = await createDocumentationItemAction({
+        title: form.title,
+        content: form.content,
+      });
+      if (applyResult(result)) {
+        setModal(false);
+        resetForm();
+      }
+    } catch (error) {
+      if (uploadedObjectPath && supabase) {
+        await supabase.storage.from(DOCS_PDF_BUCKET).remove([uploadedObjectPath]);
+      }
+      window.alert(error instanceof Error ? error.message : "Unable to save documentation.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteConfirm?.id) return;
+    const result = await deleteDocumentationItemAction(deleteConfirm.id);
+    if (applyResult(result)) {
+      setDeleteConfirm(null);
+    }
+  };
+
+  return (
+    <div>
+      <PageHeader
+        icon="book"
+        title="Documentation"
+        subtitle="Internal docs and downloadable PDFs for leaders"
+        action={canManageContent ? (
+          <button type="button" onClick={openCreate} style={css.btn()}>
+            <Icon name="plus" size={16} color="#1a1612" />
+            Add Doc
+          </button>
+        ) : null}
+      />
+      <Modal open={modal} onClose={closeModal} title="Add Documentation">
+        <div style={{ display: "flex", gap: "8px", marginBottom: "18px", flexWrap: "wrap" }}>
+          <button
+            type="button"
+            onClick={() => {
+              setMode("text");
+              clearError("content");
+              clearError("pdf");
+            }}
+            style={{ ...css.btn(mode === "text" ? "primary" : "ghost"), padding: "8px 14px" }}
+          >
+            Write In App
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMode("pdf");
+              clearError("content");
+              clearError("pdf");
+            }}
+            style={{ ...css.btn(mode === "pdf" ? "primary" : "ghost"), padding: "8px 14px" }}
+          >
+            Upload PDF
+          </button>
+        </div>
+        <Field label="Title" required error={formErrors.title}>
+          <input
+            style={fieldStyle(css.input, formErrors.title)}
+            value={form.title}
+            onChange={(event) => {
+              setForm((previous) => ({ ...previous, title: event.target.value }));
+              clearError("title");
+            }}
+            placeholder="Safety plan"
+          />
+        </Field>
+        {mode === "text" ? (
+          <Field label="Document" required error={formErrors.content} hint="This will appear directly inside the app.">
+            <textarea
+              style={{ ...fieldStyle(css.input, formErrors.content), minHeight: "220px", resize: "vertical", lineHeight: 1.7 }}
+              value={form.content}
+              onChange={(event) => {
+                setForm((previous) => ({ ...previous, content: event.target.value }));
+                clearError("content");
+              }}
+              placeholder="Write the documentation your leaders should see..."
+            />
+          </Field>
+        ) : (
+          <Field label="PDF File" required error={formErrors.pdf} hint="PDF only, up to 15MB.">
+            <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                style={css.btn("ghost")}
+              >
+                {selectedFile ? "Change PDF" : "Choose PDF"}
+              </button>
+              <span style={{ color: selectedFile ? T.text : T.textDim, fontSize: "13px" }}>
+                {selectedFile ? selectedFile.name : "No file selected"}
+              </span>
+            </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/pdf,.pdf"
+              style={{ display: "none" }}
+              onChange={(event) => handleFileSelection(event.target.files?.[0] || null)}
+            />
+          </Field>
+        )}
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
+          <button type="button" onClick={closeModal} disabled={saving} style={{ ...css.btn("ghost"), opacity: saving ? 0.5 : 1 }}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={saveDoc}
+            disabled={saving}
+            style={{ ...css.btn(), opacity: saving ? 0.7 : 1, cursor: saving ? "not-allowed" : "pointer" }}
+          >
+            {saving ? <><Spinner size={14} /> Saving…</> : "Save Doc"}
+          </button>
+        </div>
+      </Modal>
+      <ConfirmDeleteModal
+        open={!!deleteConfirm}
+        onClose={() => setDeleteConfirm(null)}
+        onConfirm={confirmDelete}
+        title="Delete documentation item?"
+        message={`This will permanently remove "${deleteConfirm?.title || "this document"}"${deleteConfirm?.pdf_url ? " and its uploaded PDF" : ""}.`}
+      />
+      {!docs.length ? (
+        <EmptyState icon="book" message="Documentation entries will appear here." />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+          {docs.map((doc) => (
+            <div key={doc.id} style={{ ...css.card, position: "relative" }}>
+              {canManageContent ? (
+                <button
+                  type="button"
+                  onClick={() => setDeleteConfirm(doc)}
+                  disabled={saving || !!deleteConfirm}
+                  style={{ position: "absolute", top: 14, right: 14, background: "none", border: "none", cursor: saving || !!deleteConfirm ? "not-allowed" : "pointer", opacity: 0.4 }}
+                >
+                  <Icon name="trash" size={14} color={T.red} />
+                </button>
+              ) : null}
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", marginBottom: "8px", paddingRight: canManageContent ? "30px" : 0 }}>
+                <h4 style={{ color: T.text, margin: 0, fontFamily: T.fontDisplay }}>{doc.title}</h4>
+                <Badge bg={doc.pdf_url ? `${T.blue}22` : `${T.accentDim}22`} text={doc.pdf_url ? T.blue : T.accent}>
+                  {doc.pdf_url ? "PDF" : "Text"}
+                </Badge>
+              </div>
+              <p style={{ color: T.textMuted, margin: "0 0 12px", fontSize: "12px" }}>
+                Updated {new Date(doc.updated_at).toLocaleString()}
+              </p>
+              {doc.content ? (
+                <p style={{ color: T.textMuted, lineHeight: 1.7, margin: 0, fontSize: "14px", whiteSpace: "pre-wrap" }}>
+                  {doc.content}
+                </p>
+              ) : null}
+              {doc.pdf_url ? (
+                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: doc.content ? "14px" : 0 }}>
+                  <a
+                    href={doc.pdf_url}
+                    download={doc.pdf_filename || `${doc.title}.pdf`}
+                    style={{ ...css.btn(), textDecoration: "none" }}
+                  >
+                    Download PDF
+                  </a>
+                  <a
+                    href={doc.pdf_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ ...css.btn("ghost"), textDecoration: "none" }}
+                  >
+                    Open PDF
+                  </a>
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 export const CampSidebar = ({ page, onNavigate, open, setOpen, onSignOut, signingOut, profile, isLeader }) => (
   <>
@@ -3674,7 +3938,7 @@ export default function CampDesignApp({ initialData, profile }) {
     inspiration: <InspirationPage inspiration={inspiration} />,
     meals: <MealsPage meals={meals} wards={wards} applyResult={applyResult} canManageContent={profileData.canManageContent} />,
     leaders: <LeadersPage leaders={leaders} wards={profileOptions.wards} callingOptions={leaderCallingOptions} applyResult={applyResult} isLeader={isLeader} />,
-    docs: <DocsPage docs={docs} />,
+    docs: <DocsPage docs={docs} applyResult={applyResult} canManageContent={profileData.canManageContent} />,
     profile: (
       <ProfilePage
         profile={profileData}

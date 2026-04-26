@@ -65,6 +65,7 @@ type MealInput = {
 };
 
 const MEAL_TYPES = new Set<string>(["breakfast", "lunch", "dinner"]);
+const DOCUMENTATION_PDF_BUCKET = "documentation-pdfs";
 
 type CompetitionInput = {
   name: string;
@@ -93,6 +94,14 @@ type ContactInput = {
   emergency: boolean;
 };
 
+type DocumentationItemInput = {
+  title: string;
+  content?: string;
+  pdfUrl?: string;
+  pdfFilename?: string;
+  pdfStoragePath?: string;
+};
+
 /** Roles that may be invited as camp staff (synced to `user_roles` for leader tools). */
 export type CampStaffRole =
   | "stake_leader"
@@ -103,9 +112,9 @@ export type CampStaffRole =
 type InviteLeaderInput = {
   email: string;
   fullName?: string;
-  role: CampStaffRole;
-  wardId: string | null;
-  calling: string;
+  role?: CampStaffRole;
+  wardId?: string | null;
+  calling?: string;
 };
 
 type ProfileUpdateInput = {
@@ -125,6 +134,8 @@ const CAMP_STAFF_ROLES = new Set<CampStaffRole>([
   "ward_leader",
   "camp_committee",
 ]);
+const DEFAULT_LEADER_INVITE_ROLE: CampStaffRole = "ward_leader";
+const DEFAULT_LEADER_INVITE_CALLING = "Leader";
 
 function fail(error: string): ActionResult {
   return { ok: false, error };
@@ -1273,6 +1284,100 @@ export async function saveCampRulesAction(
   return success();
 }
 
+export async function createDocumentationItemAction(
+  input: DocumentationItemInput,
+): Promise<ActionResult> {
+  const context = await requireContentManager();
+  if (!context) {
+    return fail("You do not have permission to add documentation.");
+  }
+
+  const title = input.title.trim();
+  const content = input.content?.trim() || null;
+  const pdfUrl = input.pdfUrl?.trim() || null;
+  const pdfFilename = input.pdfFilename?.trim() || null;
+  const pdfStoragePath = input.pdfStoragePath?.trim() || null;
+
+  if (!title) {
+    return fail("Title is required.");
+  }
+
+  if ((content ? 1 : 0) + (pdfUrl ? 1 : 0) !== 1) {
+    return fail("Add either in-app text or a PDF upload for each document.");
+  }
+
+  if (pdfUrl && !/^https?:\/\//i.test(pdfUrl)) {
+    return fail("PDF URL must start with http:// or https://.");
+  }
+
+  if (pdfUrl && !pdfStoragePath) {
+    return fail("Uploaded PDF is missing its storage path.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.from("documentation_pages").insert({
+    title,
+    content,
+    pdf_url: pdfUrl,
+    pdf_filename: pdfFilename,
+    pdf_storage_path: pdfStoragePath,
+    updated_by: context.user.id,
+  });
+
+  if (error) {
+    return fail(error.message);
+  }
+
+  return success();
+}
+
+export async function deleteDocumentationItemAction(
+  docId: string,
+): Promise<ActionResult> {
+  const context = await requireContentManager();
+  if (!context) {
+    return fail("You do not have permission to delete documentation.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { data: existingDoc, error: existingDocError } = await supabase
+    .from("documentation_pages")
+    .select("id, pdf_storage_path")
+    .eq("id", docId)
+    .maybeSingle();
+
+  if (existingDocError) {
+    return fail(existingDocError.message);
+  }
+
+  if (!existingDoc?.id) {
+    return fail("Documentation entry not found.");
+  }
+
+  const { error } = await supabase
+    .from("documentation_pages")
+    .delete()
+    .eq("id", docId);
+  if (error) {
+    return fail(error.message);
+  }
+
+  if (existingDoc.pdf_storage_path) {
+    const admin = createSupabaseAdminClient();
+    const { error: storageError } = await admin.storage
+      .from(DOCUMENTATION_PDF_BUCKET)
+      .remove([existingDoc.pdf_storage_path]);
+    if (storageError) {
+      console.error(
+        "[camp-design-actions] Failed to delete documentation PDF:",
+        storageError,
+      );
+    }
+  }
+
+  return success();
+}
+
 export async function inviteLeaderAction(
   input: InviteLeaderInput,
 ): Promise<ActionResult> {
@@ -1286,16 +1391,17 @@ export async function inviteLeaderAction(
     return fail("Please enter a valid email address.");
   }
 
-  if (!isCampStaffRole(input.role)) {
+  const role = input.role && isCampStaffRole(input.role)
+    ? input.role
+    : DEFAULT_LEADER_INVITE_ROLE;
+
+  if (!isCampStaffRole(role)) {
     return fail("Please select a valid leadership role.");
   }
 
-  let wardId = input.wardId?.trim() || null;
+  const wardId = input.wardId?.trim() || null;
 
-  const callingName = input.calling.trim();
-  if (!callingName) {
-    return fail("Please select or enter a calling.");
-  }
+  const callingName = input.calling?.trim() || DEFAULT_LEADER_INVITE_CALLING;
 
   const supabase = await createSupabaseServerClient();
 
@@ -1342,7 +1448,7 @@ export async function inviteLeaderAction(
   const onboardingCompleted = Boolean(existingProfile?.onboarding_completed_at);
 
   const updatePayload: Record<string, string | null> = {
-    role: input.role,
+    role,
     calling_id: callingId,
     ward_id: wardId,
     invited_by: context.user.id,
@@ -1366,8 +1472,8 @@ export async function inviteLeaderAction(
   try {
     await ensureUserRoleRow(
       authUserId,
-      input.role,
-      userRolesWardIdForRole(input.role, wardId),
+      role,
+      userRolesWardIdForRole(role, wardId),
     );
   } catch (error) {
     return fail(
@@ -1378,7 +1484,7 @@ export async function inviteLeaderAction(
   }
 
   if (actionLink) {
-    const template = leaderInviteEmail(fullName, input.role, callingName, actionLink);
+    const template = leaderInviteEmail(fullName, role, callingName, actionLink);
     await sendEmail({
       to: email,
       subject: template.subject,

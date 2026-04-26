@@ -132,7 +132,9 @@ type PhotoRow = {
 type DocumentationRow = {
   id: string;
   title: string;
-  content: string;
+  content: string | null;
+  pdf_url: string | null;
+  pdf_filename: string | null;
   updated_at: string;
 };
 
@@ -278,6 +280,8 @@ type DesignDoc = {
   id: string;
   title: string;
   content: string;
+  pdf_url: string | null;
+  pdf_filename: string | null;
   updated_at: string;
 };
 
@@ -570,7 +574,7 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
       .order("created_at", { ascending: false }),
     supabase
       .from("documentation_pages")
-      .select("id, title, content, updated_at")
+      .select("id, title, content, pdf_url, pdf_filename, updated_at")
       .order("updated_at", { ascending: false }),
   ]);
 
@@ -812,7 +816,9 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
   const docs: DesignDoc[] = docsRaw.map((doc) => ({
     id: doc.id,
     title: doc.title,
-    content: doc.content,
+    content: doc.content ?? "",
+    pdf_url: doc.pdf_url ?? null,
+    pdf_filename: doc.pdf_filename ?? null,
     updated_at: doc.updated_at,
   }));
 
