@@ -2,11 +2,31 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://lu3camp.com";
 const REDIRECT_TO = `${APP_URL}/auth/callback`;
+const CONFIRM_PATH = `${APP_URL}/auth/confirm`;
 
 export type MagicLinkResult = {
   actionLink: string | null;
   userId: string | null;
 };
+
+function buildConfirmLinkFromProperties(
+  properties: {
+    action_link?: string | null;
+    hashed_token?: string | null;
+    verification_type?: string | null;
+  } | null | undefined,
+) {
+  const tokenHash = properties?.hashed_token?.trim() || "";
+  const verificationType = properties?.verification_type?.trim() || "";
+  if (tokenHash && verificationType) {
+    const search = new URLSearchParams({
+      token_hash: tokenHash,
+      type: verificationType,
+    });
+    return `${CONFIRM_PATH}?${search.toString()}`;
+  }
+  return properties?.action_link ?? null;
+}
 
 /**
  * Generates a magic link for a given email. Creates the auth user if they
@@ -43,8 +63,9 @@ export async function generateMagicLink(
         return { actionLink: null, userId: magicData?.user?.id ?? null };
       }
 
+      const confirmLink = buildConfirmLinkFromProperties(magicData.properties);
       return {
-        actionLink: magicData.properties.action_link,
+        actionLink: confirmLink,
         userId: magicData.user?.id ?? null,
       };
     }
@@ -58,8 +79,9 @@ export async function generateMagicLink(
     return { actionLink: null, userId: data?.user?.id ?? null };
   }
 
+  const confirmLink = buildConfirmLinkFromProperties(data.properties);
   return {
-    actionLink: data.properties.action_link,
+    actionLink: confirmLink,
     userId: data.user?.id ?? null,
   };
 }
