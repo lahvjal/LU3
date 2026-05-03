@@ -2,7 +2,9 @@
 
 import { getUserContext } from "@/lib/auth/user-context";
 import type { AppRole } from "@/lib/auth/user-context";
+import { cookies } from "next/headers";
 import { generateMagicLink } from "@/lib/email/magic-link";
+import { YOUTH_SESSION_COOKIE } from "@/lib/auth/youth-session";
 import { sendEmail } from "@/lib/email/resend";
 import { leaderInviteEmail, parentInviteEmail } from "@/lib/email/templates";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -30,6 +32,7 @@ type ProfilePayload = {
   onboardingCompletedAt: string | null;
   phone: string | null;
   wardId: string | null;
+  parentOnboardingSnoozedAt?: string | null;
 };
 
 type ActivityInput = {
@@ -345,10 +348,12 @@ export async function signOutCampAction(): Promise<{
   error?: string;
 }> {
   const supabase = await createSupabaseServerClient();
+  const cookieStore = await cookies();
   const { error } = await supabase.auth.signOut();
   if (error) {
     return { ok: false, error: error.message };
   }
+  cookieStore.delete(YOUTH_SESSION_COOKIE);
 
   return { ok: true };
 }
@@ -452,6 +457,43 @@ export async function updateMyProfileAction(
     onboardingCompletedAt,
     phone,
     wardId,
+    parentOnboardingSnoozedAt: context.parentOnboardingSnoozedAt,
+  });
+}
+
+export async function setParentOnboardingSnoozeAction(input: {
+  snoozed: boolean;
+}): Promise<ActionResult> {
+  const context = await getUserContext();
+  if (!context.isLeader) {
+    return fail("Only leaders can update parent onboarding reminders.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const nextValue = input.snoozed ? new Date().toISOString() : null;
+  const { error } = await supabase
+    .from("user_profiles")
+    .upsert(
+      {
+        user_id: context.user.id,
+        user_email: context.user.email?.toLowerCase() ?? null,
+        parent_onboarding_snoozed_at: nextValue,
+      },
+      { onConflict: "user_id" },
+    );
+
+  if (error) {
+    return fail(error.message);
+  }
+
+  return success({
+    email: context.user.email ?? "",
+    displayName: context.displayName,
+    avatarUrl: context.avatarUrl,
+    onboardingCompletedAt: context.onboardingCompletedAt,
+    phone: context.phone,
+    wardId: context.wardId,
+    parentOnboardingSnoozedAt: nextValue,
   });
 }
 

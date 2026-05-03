@@ -44,7 +44,7 @@ export function youthInviteEmail(camperName: string, magicLinkUrl: string) {
       </p>
       ${button("Join Camp Tracker", magicLinkUrl)}
       <p style="color:#6b6054;font-size:11px;margin:16px 0 0;text-align:center;">
-        This link expires in 24 hours. After setup you'll sign in with your email and password.
+        If this link is no longer valid, request a new sign-in link from the login page.
       </p>
     `),
   };
@@ -68,7 +68,7 @@ export function parentInviteEmail(parentName: string, magicLinkUrl: string) {
       </p>
       ${button("Complete Registration", magicLinkUrl)}
       <p style="color:#6b6054;font-size:11px;margin:16px 0 0;text-align:center;">
-        This link expires in 24 hours. After setup you'll sign in with your email and password.
+        If this link is no longer valid, request a new sign-in link from the login page.
       </p>
     `),
   };
@@ -95,7 +95,7 @@ export function leaderInviteEmail(recipientName: string | null, role: string, ca
       </p>
       ${button("Join Camp Tracker", magicLinkUrl)}
       <p style="color:#6b6054;font-size:11px;margin:16px 0 0;text-align:center;">
-        This link expires in 24 hours. After setup you'll sign in with your email and password.
+        If this link is no longer valid, request a new sign-in link from the login page.
       </p>
     `),
   };

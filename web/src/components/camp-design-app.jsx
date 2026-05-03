@@ -31,6 +31,7 @@ import {
   updateLeaderAction,
   refreshCampDesignDataAction,
   sendParentInviteAction,
+  setParentOnboardingSnoozeAction,
   signOutCampAction,
   updateMyProfileAction,
 } from "@/lib/app/camp-design-actions";
@@ -243,6 +244,17 @@ const PAGE_TO_PATH = {
   docs: "/documentation",
   profile: "/profile",
 };
+
+const YOUTH_ALLOWED_PAGES = new Set([
+  "dashboard",
+  "activities",
+  "agenda",
+  "meals",
+  "photos",
+  "contacts",
+  "rules",
+  "inspiration",
+]);
 
 const LEADER_ONLY_PAGE_KEYS = new Set(["wards", "registration", "leaders", "inspiration", "meals"]);
 
@@ -2634,6 +2646,17 @@ const YoungManFormEntry = ({
             {shirtSizes.map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
           </select>
         </Field>
+        <Field label="Youth Passcode (4 digits)" required error={fieldErrors.youthPasscode}>
+          <input
+            style={fieldStyle(css.input, fieldErrors.youthPasscode)}
+            value={entry.youthPasscode}
+            onChange={e => onUpdate({ ...entry, youthPasscode: e.target.value.replace(/\D/g, "").slice(0, 4) })}
+            inputMode="numeric"
+            pattern="[0-9]*"
+            maxLength={4}
+            placeholder="1234"
+          />
+        </Field>
       </div>
       {campAge !== null ? (
         <p style={{ color: T.textMuted, fontSize: "12px", margin: "4px 0 10px", lineHeight: 1.5 }}>
@@ -2745,6 +2768,7 @@ const emptyYoungMan = () => ({
   lastName: "",
   dateOfBirth: "",
   shirtSizeCode: "",
+  youthPasscode: "",
   photoUrl: "",
   specialDietRequired: false,
   specialDietExplanation: "",
@@ -2775,10 +2799,14 @@ const OnboardingOverlay = ({
   onComplete,
   completing,
   parentUserId,
+  forceParentMode = false,
+  skipPasswordRequirement = false,
+  offerParentFollowupPrompt = false,
 }) => {
   const effectiveType = inviteType || (isCamper ? "youth" : "default");
   const copy = ONBOARDING_COPY[effectiveType] || ONBOARDING_COPY.default;
-  const isParent = effectiveType === "parent";
+  const isParent = forceParentMode || effectiveType === "parent";
+  const showPasswordField = !skipPasswordRequirement;
   const showWard = true;
   const showYoungMen = isParent;
   const showTerms = isParent;
@@ -2791,6 +2819,7 @@ const OnboardingOverlay = ({
   const [signatureName, setSignatureName] = useState("");
   const [parentSignatureDate, setParentSignatureDate] = useState(() => ymdTodayLocal());
   const [attemptedComplete, setAttemptedComplete] = useState(false);
+  const [showParentFollowupPrompt, setShowParentFollowupPrompt] = useState(false);
 
   const processUploadFile = async (file) => {
     if (!file) return;
@@ -2877,6 +2906,7 @@ const OnboardingOverlay = ({
   const youngMenValid = showYoungMen
     ? youngMen.length > 0 && youngMen.every((ym) => {
         if (!ym.firstName.trim() || !ym.lastName.trim() || !ym.photoUrl?.trim() || !ym.shirtSizeCode) return false;
+        if (!/^\d{4}$/.test(ym.youthPasscode || "")) return false;
         if (!ym.dateOfBirth || !parseYmd(ym.dateOfBirth)) return false;
         const a = ageOnCampReference(ym.dateOfBirth);
         if (a === null || a < 8 || a > 18) return false;
@@ -2900,7 +2930,7 @@ const OnboardingOverlay = ({
 
   const hasRequiredFields =
     form.displayName.trim() &&
-    form.password.length >= 8 &&
+    (skipPasswordRequirement || form.password.length >= 8) &&
     !!avatarUrl &&
     form.wardId &&
     youngMenValid &&
@@ -2921,7 +2951,9 @@ const OnboardingOverlay = ({
     }
     const top = {};
     if (!form.displayName.trim()) top.displayName = "Name is required.";
-    if (form.password.length < 8) top.password = "Password must be at least 8 characters.";
+    if (showPasswordField && form.password.length < 8) {
+      top.password = "Password must be at least 8 characters.";
+    }
     if (!avatarUrl) top.avatarUrl = "Profile photo is required.";
     if (!form.wardId) top.wardId = "Select your ward.";
     const ymErrs = showYoungMen
@@ -2938,6 +2970,7 @@ const OnboardingOverlay = ({
             }
           }
           if (!ym.shirtSizeCode) r.shirtSizeCode = "Select a shirt size.";
+          if (!/^\d{4}$/.test(ym.youthPasscode || "")) r.youthPasscode = "Enter exactly 4 digits.";
           if (ym.specialDietRequired && !ym.specialDietExplanation.trim()) {
             r.specialDietExplanation = "Explain dietary restrictions or set special diet to No.";
           }
@@ -2991,11 +3024,16 @@ const OnboardingOverlay = ({
     termsRead,
     signatureName,
     parentSignatureDate,
+    showPasswordField,
   ]);
 
   const wrappedComplete = () => {
     setAttemptedComplete(true);
     if (!hasRequiredFields) return;
+    if (offerParentFollowupPrompt && !showParentFollowupPrompt) {
+      setShowParentFollowupPrompt(true);
+      return;
+    }
     onComplete({
       youngMen: showYoungMen ? youngMen : [],
       signatureName: showTerms ? signatureName : "",
@@ -3043,9 +3081,13 @@ const OnboardingOverlay = ({
           <Field label="Name" required error={overlayFieldErrors.displayName}>
             <input style={fieldStyle(css.input, overlayFieldErrors.displayName)} value={form.displayName} onChange={(event) => setForm((previous) => ({ ...previous, displayName: event.target.value }))} placeholder={copy.namePlaceholder} />
           </Field>
-          <Field label="Set Password" required error={overlayFieldErrors.password}>
-            <input style={fieldStyle(css.input, overlayFieldErrors.password)} type="password" minLength={8} value={form.password} onChange={(event) => setForm((previous) => ({ ...previous, password: event.target.value }))} placeholder="At least 8 characters" />
-          </Field>
+          {showPasswordField ? (
+            <Field label="Set Password" required error={overlayFieldErrors.password}>
+              <input style={fieldStyle(css.input, overlayFieldErrors.password)} type="password" minLength={8} value={form.password} onChange={(event) => setForm((previous) => ({ ...previous, password: event.target.value }))} placeholder="At least 8 characters" />
+            </Field>
+          ) : (
+            <div />
+          )}
           <Field label="Phone Number">
             <input style={css.input} value={form.phone} onChange={(event) => setForm((previous) => ({ ...previous, phone: event.target.value }))} placeholder="(801) 555-0000" />
           </Field>
@@ -3165,7 +3207,59 @@ const OnboardingOverlay = ({
           </div>
         ) : null}
 
-        <button type="button" onClick={wrappedComplete} disabled={!hasRequiredFields || completing || uploadingAvatar || uploadingYoungManKey !== null} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "14px", marginTop: "16px", fontSize: "15px", opacity: !hasRequiredFields || completing || uploadingAvatar || uploadingYoungManKey !== null ? 0.55 : 1 }}>
+        {showParentFollowupPrompt ? (
+          <div
+            style={{
+              marginTop: "16px",
+              padding: "14px",
+              borderRadius: T.radiusSm,
+              border: `1px solid ${T.border}`,
+              background: T.bgInput,
+            }}
+          >
+            <p style={{ color: T.text, fontSize: "14px", margin: "0 0 10px", fontWeight: 600 }}>
+              Do you have young men attending camp?
+            </p>
+            <p style={{ color: T.textMuted, fontSize: "12px", margin: "0 0 12px" }}>
+              Choose Yes to continue into parent registration with your info already filled in.
+            </p>
+            <div style={{ display: "flex", gap: "8px" }}>
+              <button
+                type="button"
+                onClick={() => {
+                  onComplete({
+                    youngMen: [],
+                    signatureName: "",
+                    parentSignatureDate: "",
+                    startParentOnboarding: false,
+                    snoozeParentOnboarding: true,
+                  });
+                }}
+                style={{ ...css.btn("ghost"), flex: 1, justifyContent: "center" }}
+                disabled={completing}
+              >
+                No, Finish Setup
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onComplete({
+                    youngMen: [],
+                    signatureName: "",
+                    parentSignatureDate: "",
+                    startParentOnboarding: true,
+                  });
+                }}
+                style={{ ...css.btn(), flex: 1, justifyContent: "center" }}
+                disabled={completing}
+              >
+                Yes, Add Kids
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        <button type="button" onClick={wrappedComplete} disabled={!hasRequiredFields || completing || uploadingAvatar || uploadingYoungManKey !== null || showParentFollowupPrompt} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "14px", marginTop: "16px", fontSize: "15px", opacity: !hasRequiredFields || completing || uploadingAvatar || uploadingYoungManKey !== null || showParentFollowupPrompt ? 0.55 : 1 }}>
           {completing ? "Completing Registration..." : isParent ? "Complete Registration" : "Complete Setup"}
         </button>
       </div>
@@ -3559,6 +3653,7 @@ export default function CampDesignApp({ initialData, profile }) {
   const [signingOut, setSigningOut] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [completingOnboarding, setCompletingOnboarding] = useState(false);
+  const [parentFollowupMode, setParentFollowupMode] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [wards, setWards] = useState(() => initialData?.wards ?? EMPTY_ARRAY);
   const [activities, setActivities] = useState(() => initialData?.activities ?? EMPTY_ARRAY);
@@ -3597,6 +3692,10 @@ export default function CampDesignApp({ initialData, profile }) {
     canManageUnits: false,
     canManageRegistrations: false,
     canAwardCompetitionPoints: false,
+    parentOnboardingSnoozedAt: null,
+    actingAsYouth: false,
+    actingYouthName: null,
+    actingYouthId: null,
   };
   const [profileData, setProfileData] = useState(() => profile ?? defaultProfile);
   const [onboardingForm, setOnboardingForm] = useState(() => ({
@@ -3645,6 +3744,13 @@ export default function CampDesignApp({ initialData, profile }) {
 
   useEffect(() => {
     const routePage = resolvePageFromPathname(pathname);
+    if (profileData.actingAsYouth && !YOUTH_ALLOWED_PAGES.has(routePage)) {
+      router.replace("/");
+      if (page !== "dashboard") {
+        setPage("dashboard");
+      }
+      return;
+    }
     if (!profileData.isLeader && isLeaderOnlyPageKey(routePage)) {
       router.replace("/");
       if (page !== "dashboard") {
@@ -3655,10 +3761,13 @@ export default function CampDesignApp({ initialData, profile }) {
     if (routePage !== page) {
       setPage(routePage);
     }
-  }, [pathname, page, profileData.isLeader, router]);
+  }, [pathname, page, profileData.actingAsYouth, profileData.isLeader, router]);
 
 
   const goToPage = (nextPage) => {
+    if (profileData.actingAsYouth && !YOUTH_ALLOWED_PAGES.has(nextPage)) {
+      return;
+    }
     if (!profileData.isLeader && isLeaderOnlyPageKey(nextPage)) {
       return;
     }
@@ -3716,26 +3825,35 @@ export default function CampDesignApp({ initialData, profile }) {
 
     const invType = profileData.inviteType || (profileData.isCamper ? "youth" : null);
     const isParent = invType === "parent";
+    const effectiveParentMode = isParent || parentFollowupMode;
+    const startParentOnboarding = Boolean(extraData?.startParentOnboarding);
+    const snoozeParentOnboarding = Boolean(extraData?.snoozeParentOnboarding);
 
     const password = onboardingForm.password.trim();
     const hasRequiredValues =
       onboardingForm.displayName.trim() &&
-      password.length >= 8 &&
+      (parentFollowupMode || password.length >= 8) &&
       !!profileData.avatarUrl &&
       onboardingForm.wardId;
 
     if (!hasRequiredValues) {
-      window.alert("Please fill out all required fields, including a profile photo. Password must be at least 8 characters.");
+      window.alert(
+        parentFollowupMode
+          ? "Please fill out all required fields, including a profile photo."
+          : "Please fill out all required fields, including a profile photo. Password must be at least 8 characters.",
+      );
       return;
     }
 
     setCompletingOnboarding(true);
     try {
-      const supabase = createSupabaseBrowserClient();
-      const { error: passwordError } = await supabase.auth.updateUser({ password });
-      if (passwordError) {
-        window.alert(passwordError.message || "Unable to set password.");
-        return;
+      if (!parentFollowupMode) {
+        const supabase = createSupabaseBrowserClient();
+        const { error: passwordError } = await supabase.auth.updateUser({ password });
+        if (passwordError) {
+          window.alert(passwordError.message || "Unable to set password.");
+          return;
+        }
       }
 
       const completeProfileBody = {
@@ -3744,16 +3862,16 @@ export default function CampDesignApp({ initialData, profile }) {
         phone: onboardingForm.phone,
         wardId: onboardingForm.wardId,
         signatureName:
-          isParent && extraData?.signatureName
+          effectiveParentMode && extraData?.signatureName
             ? extraData.signatureName
             : undefined,
         parentSignatureDate:
-          isParent && extraData?.parentSignatureDate
+          effectiveParentMode && extraData?.parentSignatureDate
             ? extraData.parentSignatureDate
             : undefined,
       };
 
-      if (isParent) {
+      if (effectiveParentMode) {
         const shirtSizeByCode = new Map(
           (profileOptions?.shirtSizes ?? []).map((s) => [s.code, s.label]),
         );
@@ -3798,12 +3916,13 @@ export default function CampDesignApp({ initialData, profile }) {
         return;
       }
 
-      if (isParent && extraData?.youngMen?.length) {
+      if (effectiveParentMode && extraData?.youngMen?.length) {
         const youngMenPayload = extraData.youngMen.map((ym) => ({
           firstName: ym.firstName,
           lastName: ym.lastName,
           dateOfBirth: ym.dateOfBirth,
           shirtSizeCode: ym.shirtSizeCode,
+          youthPasscode: ym.youthPasscode,
           photoUrl: ym.photoUrl,
           specialDietRequired: ym.specialDietRequired,
           specialDietExplanation: ym.specialDietExplanation,
@@ -3837,6 +3956,29 @@ export default function CampDesignApp({ initialData, profile }) {
           );
           return;
         }
+      }
+
+      if (startParentOnboarding && !effectiveParentMode) {
+        const clearSnoozeResult = await setParentOnboardingSnoozeAction({
+          snoozed: false,
+        });
+        applyResult(clearSnoozeResult);
+        setParentFollowupMode(true);
+        return;
+      }
+
+      if (snoozeParentOnboarding && !effectiveParentMode) {
+        const snoozeResult = await setParentOnboardingSnoozeAction({
+          snoozed: true,
+        });
+        applyResult(snoozeResult);
+      }
+
+      if (effectiveParentMode) {
+        const clearSnoozeResult = await setParentOnboardingSnoozeAction({
+          snoozed: false,
+        });
+        applyResult(clearSnoozeResult);
       }
 
       window.location.href = "/";
@@ -3910,6 +4052,30 @@ export default function CampDesignApp({ initialData, profile }) {
   };
 
   const isLeader = profileData.isLeader;
+  const needsOnboarding = !profileData.onboardingCompletedAt;
+  const showParentReminder =
+    !needsOnboarding &&
+    profileData.isLeader &&
+    !profileData.isCamper &&
+    !parentFollowupMode &&
+    Boolean(profileData.parentOnboardingSnoozedAt);
+  const parentReminderVisibleOnPage =
+    showParentReminder && (page === "dashboard" || page === "profile");
+
+  const startParentOnboardingFromReminder = async () => {
+    const clearSnoozeResult = await setParentOnboardingSnoozeAction({
+      snoozed: false,
+    });
+    applyResult(clearSnoozeResult);
+    setParentFollowupMode(true);
+  };
+
+  const remindParentOnboardingLater = async () => {
+    const snoozeResult = await setParentOnboardingSnoozeAction({
+      snoozed: true,
+    });
+    applyResult(snoozeResult);
+  };
 
   const pages = {
     dashboard: <Dashboard goTo={goToPage} wards={wards} activities={activities} competitions={competitions} pointLog={pointLog} agenda={agenda} inspiration={inspiration} meals={meals} />,
@@ -3953,8 +4119,6 @@ export default function CampDesignApp({ initialData, profile }) {
       />
     ),
   };
-  const needsOnboarding = !profileData.onboardingCompletedAt;
-
   return (
     <>
       <style>{`
@@ -3980,10 +4144,45 @@ export default function CampDesignApp({ initialData, profile }) {
         <span style={{ fontFamily: T.fontDisplay, fontSize: "16px", color: T.text }}>LU3 Camp</span>
       </div>
       <main className="main-area" style={{ marginLeft: 0, padding: "24px", minHeight: "100vh" }}>
-        <div style={{ width: "100%", marginTop: "56px" }} className="main-inner">{pages[page]}</div>
+        <div style={{ width: "100%", marginTop: "56px" }} className="main-inner">
+          {parentReminderVisibleOnPage ? (
+            <div
+              style={{
+                ...css.card,
+                marginBottom: "16px",
+                border: `1px solid ${T.accent}55`,
+                background: `${T.accent}12`,
+              }}
+            >
+              <h3 style={{ color: T.text, fontFamily: T.fontDisplay, fontSize: "18px", margin: "0 0 6px" }}>
+                Finish Parent Registration
+              </h3>
+              <p style={{ color: T.textMuted, fontSize: "13px", margin: "0 0 12px", lineHeight: 1.55 }}>
+                You chose to finish this later. Add your young men now so they appear in registration and can use youth passcodes.
+              </p>
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={startParentOnboardingFromReminder}
+                  style={css.btn()}
+                >
+                  Start Parent Registration
+                </button>
+                <button
+                  type="button"
+                  onClick={remindParentOnboardingLater}
+                  style={css.btn("ghost")}
+                >
+                  Remind Me Later
+                </button>
+              </div>
+            </div>
+          ) : null}
+          {pages[page]}
+        </div>
         <style>{`@media (min-width: 900px) { .main-inner { margin-top: 0 !important; } }`}</style>
       </main>
-      {needsOnboarding ? (
+      {needsOnboarding || parentFollowupMode ? (
         <OnboardingOverlay
           form={onboardingForm}
           setForm={setOnboardingForm}
@@ -3996,6 +4195,11 @@ export default function CampDesignApp({ initialData, profile }) {
           onComplete={handleCompleteOnboarding}
           completing={completingOnboarding}
           parentUserId={profileData.userId ?? ""}
+          forceParentMode={parentFollowupMode}
+          skipPasswordRequirement={parentFollowupMode}
+          offerParentFollowupPrompt={
+            profileData.isLeader && !profileData.isCamper && !parentFollowupMode
+          }
         />
       ) : null}
     </>

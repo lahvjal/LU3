@@ -7,6 +7,10 @@ import {
   CAMP_AGE_REFERENCE_YMD,
   parseYmd,
 } from "@/lib/camp-age";
+import {
+  hashYouthPasscode,
+  isValidYouthPasscode,
+} from "@/lib/auth/youth-passcode";
 
 type CampStaffRole =
   | "stake_leader"
@@ -118,6 +122,7 @@ export type YoungManPayload = {
   participantSignatureName: string;
   /** YYYY-MM-DD */
   participantSignatureDate: string;
+  youthPasscode?: string;
 };
 
 /**
@@ -142,7 +147,7 @@ export async function completeOnboardingProfileInDb(
   }
 
   const phone = (input.phone ?? "").trim() || null;
-  let wardId =
+  const wardId =
     typeof input.wardId === "string" ? (input.wardId.trim() || null) : null;
 
   if (wardId) {
@@ -378,8 +383,16 @@ export async function insertParentYoungMenInDb(
         error: `Enter a valid participant signature date for ${nameRef}.`,
       };
     }
+    const youthPasscode = ym.youthPasscode?.trim() ?? "";
+    if (!isValidYouthPasscode(youthPasscode)) {
+      return {
+        ok: false,
+        error: `Set a 4-digit youth passcode for ${nameRef}.`,
+      };
+    }
 
     const shirt = ym.shirtSizeCode?.trim() || null;
+    const youthPasscodeHash = hashYouthPasscode(youthPasscode);
 
     youngMenPayload.push({
       parent_id: userId,
@@ -405,6 +418,8 @@ export async function insertParentYoungMenInDb(
       participant_signature_name: psn,
       participant_signature_date: psd,
       participant_signed_at: signedAt,
+      youth_passcode_hash: youthPasscodeHash,
+      youth_passcode_updated_at: signedAt,
     });
   }
 

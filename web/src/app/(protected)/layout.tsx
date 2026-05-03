@@ -25,6 +25,10 @@ export default async function ProtectedLayout() {
         canManageRegistrations: userContext.canManageRegistrations,
         canAwardCompetitionPoints: userContext.canAwardCompetitionPoints,
         isCamper: userContext.isCamper,
+        parentOnboardingSnoozedAt: userContext.parentOnboardingSnoozedAt,
+        actingAsYouth: userContext.actingAsYouth,
+        actingYouthName: userContext.actingYouthName,
+        actingYouthId: userContext.actingYouthId,
         inviteType: userContext.inviteType,
       }}
     />

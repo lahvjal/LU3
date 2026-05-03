@@ -1,6 +1,11 @@
 import type { User } from "@supabase/supabase-js";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  YOUTH_SESSION_COOKIE,
+  verifyYouthSessionToken,
+} from "@/lib/auth/youth-session";
 
 export type AppRole =
   | "stake_leader"
@@ -29,6 +34,7 @@ type UserProfileRow = {
   terms_accepted_at: string | null;
   signature_name: string | null;
   onboarding_completed_at: string | null;
+  parent_onboarding_snoozed_at: string | null;
 };
 
 const roleLabelMap: Record<AppRole, string> = {
@@ -74,6 +80,10 @@ export type UserContext = {
   canManageRegistrations: boolean;
   canAwardCompetitionPoints: boolean;
   isCamper: boolean;
+  parentOnboardingSnoozedAt: string | null;
+  actingAsYouth: boolean;
+  actingYouthName: string | null;
+  actingYouthId: string | null;
   inviteType: "leader" | "youth" | "parent" | null;
 };
 
@@ -114,7 +124,7 @@ export async function getUserContext(
       supabase
         .from("user_profiles")
         .select(
-          "display_name, avatar_url, onboarding_completed_at, phone, ward_id, role, calling_id, invited_by, invited_at, terms_accepted_at, signature_name",
+          "display_name, avatar_url, onboarding_completed_at, phone, ward_id, role, calling_id, invited_by, invited_at, terms_accepted_at, signature_name, parent_onboarding_snoozed_at",
         )
         .eq("user_id", user.id)
         .maybeSingle(),
@@ -133,6 +143,10 @@ export async function getUserContext(
   const wardIds: string[] = [...new Set(roles.map((role) => role.ward_id).filter(Boolean))] as string[];
   const profileRow = profileRowRaw as UserProfileRow | null;
   const isCompetitionStaff = (contactRows?.length ?? 0) > 0;
+  const cookieStore = await cookies();
+  const youthSession = verifyYouthSessionToken(
+    cookieStore.get(YOUTH_SESSION_COOKIE)?.value,
+  );
 
   let displayName =
     (user.user_metadata?.full_name as string | undefined)?.trim() ||
@@ -146,6 +160,7 @@ export async function getUserContext(
   let callingId: string | null = null;
   let termsAcceptedAt: string | null = null;
   let signatureName: string | null = null;
+  let parentOnboardingSnoozedAt: string | null = null;
 
   if (profileRow) {
     if (profileRow.display_name?.trim()) {
@@ -159,6 +174,7 @@ export async function getUserContext(
     callingId = profileRow.calling_id ?? null;
     termsAcceptedAt = profileRow.terms_accepted_at ?? null;
     signatureName = profileRow.signature_name ?? null;
+    parentOnboardingSnoozedAt = profileRow.parent_onboarding_snoozed_at ?? null;
   }
 
   const isStakeAdmin =
@@ -169,6 +185,9 @@ export async function getUserContext(
   const isLeader = roles.some((row) => CAMP_STAFF_ROLE_SET.has(row.role));
   const isCamper =
     roleSet.has("young_man") || roleSet.has("young_men_captain");
+  let actingAsYouth = false;
+  let actingYouthName: string | null = null;
+  let actingYouthId: string | null = null;
 
   const managedWardIds = isStakeAdmin
     ? wardIds
@@ -189,6 +208,37 @@ export async function getUserContext(
     }
   }
 
+  if (youthSession && youthSession.userId === user.id) {
+    const { data: youthRow } = await supabase
+      .from("young_men")
+      .select("id, first_name, last_name, parent_id")
+      .eq("id", youthSession.youngManId)
+      .eq("parent_id", user.id)
+      .maybeSingle();
+    if (youthRow?.id) {
+      actingAsYouth = true;
+      actingYouthId = youthRow.id;
+      actingYouthName =
+        `${youthRow.first_name ?? ""} ${youthRow.last_name ?? ""}`.trim() || "Youth";
+      displayName = actingYouthName;
+      // Youth mode hard-blocks leadership capabilities even on leader accounts.
+      inviteType = "youth";
+    }
+  }
+
+  const effectiveIsStakeAdmin = actingAsYouth ? false : isStakeAdmin;
+  const effectiveCanManageContent = actingAsYouth ? false : canManageContent;
+  const effectiveCanManageUnits = actingAsYouth ? false : canManageUnits;
+  const effectiveCanManageRegistrations = actingAsYouth
+    ? false
+    : canManageRegistrations;
+  const effectiveIsLeader = actingAsYouth ? false : isLeader;
+  const effectiveCanAwardCompetitionPoints = actingAsYouth ? false : isLeader;
+  const effectiveIsCamper = actingAsYouth ? true : isCamper;
+  const effectiveRoleLabels = actingAsYouth
+    ? ["Youth Session"]
+    : roles.map((role) => roleLabelMap[role.role] ?? role.role);
+
   return {
     user,
     displayName,
@@ -201,16 +251,20 @@ export async function getUserContext(
     termsAcceptedAt,
     signatureName,
     roles,
-    roleLabels: roles.map((role) => roleLabelMap[role.role] ?? role.role),
+    roleLabels: effectiveRoleLabels,
     wardIds,
     managedWardIds,
-    isLeader,
-    isStakeAdmin,
-    canManageContent,
-    canManageUnits,
-    canManageRegistrations,
-    canAwardCompetitionPoints: isLeader,
-    isCamper,
+    isLeader: effectiveIsLeader,
+    isStakeAdmin: effectiveIsStakeAdmin,
+    canManageContent: effectiveCanManageContent,
+    canManageUnits: effectiveCanManageUnits,
+    canManageRegistrations: effectiveCanManageRegistrations,
+    canAwardCompetitionPoints: effectiveCanAwardCompetitionPoints,
+    isCamper: effectiveIsCamper,
+    parentOnboardingSnoozedAt,
+    actingAsYouth,
+    actingYouthName,
+    actingYouthId,
     inviteType,
   };
 }
