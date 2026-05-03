@@ -2820,6 +2820,14 @@ const OnboardingOverlay = ({
   const [parentSignatureDate, setParentSignatureDate] = useState(() => ymdTodayLocal());
   const [attemptedComplete, setAttemptedComplete] = useState(false);
   const [showParentFollowupPrompt, setShowParentFollowupPrompt] = useState(false);
+  const shouldShowParentFollowupPrompt =
+    showParentFollowupPrompt && offerParentFollowupPrompt && !isParent;
+
+  useEffect(() => {
+    if (!offerParentFollowupPrompt || isParent) {
+      setShowParentFollowupPrompt(false);
+    }
+  }, [offerParentFollowupPrompt, isParent]);
 
   const processUploadFile = async (file) => {
     if (!file) return;
@@ -3030,7 +3038,7 @@ const OnboardingOverlay = ({
   const wrappedComplete = () => {
     setAttemptedComplete(true);
     if (!hasRequiredFields) return;
-    if (offerParentFollowupPrompt && !showParentFollowupPrompt) {
+    if (offerParentFollowupPrompt && !shouldShowParentFollowupPrompt) {
       setShowParentFollowupPrompt(true);
       return;
     }
@@ -3207,7 +3215,7 @@ const OnboardingOverlay = ({
           </div>
         ) : null}
 
-        {showParentFollowupPrompt ? (
+        {shouldShowParentFollowupPrompt ? (
           <div
             style={{
               marginTop: "16px",
@@ -3259,7 +3267,7 @@ const OnboardingOverlay = ({
           </div>
         ) : null}
 
-        <button type="button" onClick={wrappedComplete} disabled={!hasRequiredFields || completing || uploadingAvatar || uploadingYoungManKey !== null || showParentFollowupPrompt} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "14px", marginTop: "16px", fontSize: "15px", opacity: !hasRequiredFields || completing || uploadingAvatar || uploadingYoungManKey !== null || showParentFollowupPrompt ? 0.55 : 1 }}>
+        <button type="button" onClick={wrappedComplete} disabled={!hasRequiredFields || completing || uploadingAvatar || uploadingYoungManKey !== null || shouldShowParentFollowupPrompt} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "14px", marginTop: "16px", fontSize: "15px", opacity: !hasRequiredFields || completing || uploadingAvatar || uploadingYoungManKey !== null || shouldShowParentFollowupPrompt ? 0.55 : 1 }}>
           {completing ? "Completing Registration..." : isParent ? "Complete Registration" : "Complete Setup"}
         </button>
       </div>
