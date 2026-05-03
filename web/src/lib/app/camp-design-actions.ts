@@ -134,7 +134,7 @@ const CAMP_STAFF_ROLES = new Set<CampStaffRole>([
   "ward_leader",
   "camp_committee",
 ]);
-const DEFAULT_LEADER_INVITE_ROLE: CampStaffRole = "ward_leader";
+const DEFAULT_LEADER_INVITE_ROLE: CampStaffRole = "camp_committee";
 const DEFAULT_LEADER_INVITE_CALLING = "Leader";
 
 function fail(error: string): ActionResult {
@@ -1391,15 +1391,19 @@ export async function inviteLeaderAction(
     return fail("Please enter a valid email address.");
   }
 
-  const role = input.role && isCampStaffRole(input.role)
+  const requestedRole = input.role && isCampStaffRole(input.role)
     ? input.role
     : DEFAULT_LEADER_INVITE_ROLE;
 
-  if (!isCampStaffRole(role)) {
+  if (!isCampStaffRole(requestedRole)) {
     return fail("Please select a valid leadership role.");
   }
 
   const wardId = input.wardId?.trim() || null;
+  const role =
+    requestedRole === "ward_leader" && !wardId
+      ? DEFAULT_LEADER_INVITE_ROLE
+      : requestedRole;
 
   const callingName = input.calling?.trim() || DEFAULT_LEADER_INVITE_CALLING;
 
