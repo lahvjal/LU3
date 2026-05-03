@@ -114,6 +114,13 @@ export async function resendInviteLink(formData: FormData) {
 }
 
 export async function signInWithYouthPasscode(formData: FormData) {
+  type ParentProfileLookup = { user_id: string };
+  type YoungManLookup = {
+    id: string;
+    parent_id: string;
+    youth_passcode_hash: string | null;
+  };
+
   const parentEmail = String(formData.get("parent_email") ?? "")
     .trim()
     .toLowerCase();
@@ -131,23 +138,23 @@ export async function signInWithYouthPasscode(formData: FormData) {
   }
 
   const admin = createSupabaseAdminClient();
-  const { data: parentProfile } = await admin
+  const { data: parentProfile } = (await admin
     .from("user_profiles")
     .select("user_id")
     .ilike("user_email", parentEmail)
     .limit(1)
-    .maybeSingle();
+    .maybeSingle()) as { data: ParentProfileLookup | null };
 
   if (!parentProfile?.user_id) {
     redirect(buildErrorRedirect("Invalid youth login details."));
   }
 
-  const { data: youngMan } = await admin
+  const { data: youngMan } = (await admin
     .from("young_men")
     .select("id, parent_id, youth_passcode_hash")
     .eq("id", youngManId)
     .eq("parent_id", parentProfile.user_id)
-    .maybeSingle();
+    .maybeSingle()) as { data: YoungManLookup | null };
 
   if (!youngMan?.id) {
     redirect(buildErrorRedirect("Invalid youth login details."));

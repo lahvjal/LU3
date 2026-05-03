@@ -40,6 +40,8 @@ type YouthLoginOption = {
 async function getYouthOptionsByParentEmail(
   email: string | null,
 ): Promise<YouthLoginOption[]> {
+  type ParentProfileLookup = { user_id: string };
+
   const normalized = (email ?? "").trim().toLowerCase();
   if (!normalized || !normalized.includes("@")) {
     return [];
@@ -47,12 +49,12 @@ async function getYouthOptionsByParentEmail(
 
   try {
     const admin = createSupabaseAdminClient();
-    const { data: parentProfile } = await admin
+    const { data: parentProfile } = (await admin
       .from("user_profiles")
       .select("user_id")
       .ilike("user_email", normalized)
       .limit(1)
-      .maybeSingle();
+      .maybeSingle()) as { data: ParentProfileLookup | null };
 
     if (!parentProfile?.user_id) {
       return [];
