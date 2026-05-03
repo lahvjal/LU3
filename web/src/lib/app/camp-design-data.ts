@@ -597,7 +597,10 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
   const docsRaw = (docRows ?? []) as DocumentationRow[];
   const allProfiles = (userProfileRows ?? []) as UserProfileRow[];
 
-  const parentProfiles = allProfiles.filter((p) => p.role === "parent");
+  const parentIdsFromYoungMen = new Set(youngMenRaw.map((ym) => ym.parent_id));
+  const parentProfiles = allProfiles.filter(
+    (p) => p.role === "parent" || parentIdsFromYoungMen.has(p.user_id),
+  );
   const leaderProfiles = allProfiles.filter((p) => p.role && LEADERSHIP_ROLES.has(p.role));
 
   // Build parent ward map (parent user_id → ward_id) for camper assignment

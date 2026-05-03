@@ -245,8 +245,8 @@ export async function insertParentYoungMenInDb(
     .eq("user_id", userId)
     .maybeSingle();
 
-  if (profile?.role !== "parent") {
-    return { ok: false, error: "Only parent accounts can register young men here." };
+  if (!profile) {
+    return { ok: false, error: "Profile not found for this account." };
   }
   if (!profile.onboarding_completed_at) {
     return { ok: false, error: "Finish profile setup first, then try again." };
