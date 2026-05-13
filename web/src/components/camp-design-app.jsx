@@ -1902,7 +1902,7 @@ const MoveYoungManModal = ({ open, onClose, youngManId, youngManName, currentPar
   );
 };
 
-const RegistrationPage = ({ registrations, applyResult, isLeader, profileOptions }) => {
+const RegistrationPage = ({ registrations, applyResult, isLeader }) => {
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ parentName: "", parentEmail: "" });
   const [formErrors, setFormErrors] = useState({});
@@ -1910,7 +1910,6 @@ const RegistrationPage = ({ registrations, applyResult, isLeader, profileOptions
   const [sending, setSending] = useState({});
   const [saving, setSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
-  const [addYmModal, setAddYmModal] = useState(null); // { parentId, parentName }
   const [moveYmModal, setMoveYmModal] = useState(null); // { youngManId, youngManName, currentParentId }
 
   const validateInviteParent = () => {
@@ -1991,14 +1990,6 @@ const RegistrationPage = ({ registrations, applyResult, isLeader, profileOptions
         title={`Delete ${deleteConfirm?.name || "this parent"}?`}
         message="This will permanently delete this parent's account, their linked young men, and all related data. This action cannot be undone."
       />
-      <AddYoungManModal
-        open={!!addYmModal}
-        onClose={() => setAddYmModal(null)}
-        targetParentId={addYmModal?.parentId ?? ""}
-        parentName={addYmModal?.parentName ?? ""}
-        profileOptions={profileOptions}
-        applyResult={applyResult}
-      />
       <MoveYoungManModal
         open={!!moveYmModal}
         onClose={() => setMoveYmModal(null)}
@@ -2045,16 +2036,6 @@ const RegistrationPage = ({ registrations, applyResult, isLeader, profileOptions
                         style={{ ...css.btn(), fontSize: "11px", padding: "5px 12px", opacity: sending[reg.id] ? 0.5 : 1 }}
                       >
                         {sending[reg.id] ? <><Spinner size={12} /> Sending…</> : reg.inviteStatus === "sent" ? "Resend" : "Send Invite"}
-                      </button>
-                    )}
-                    {isLeader && (
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); setAddYmModal({ parentId: reg.id, parentName: reg.parentName }); }}
-                        style={{ ...css.btn("ghost"), fontSize: "11px", padding: "5px 12px" }}
-                        title="Add a young man to this parent's account"
-                      >
-                        <Icon name="plus" size={12} color={T.accent} /> Young Man
                       </button>
                     )}
                     {isLeader && (
@@ -2757,7 +2738,7 @@ const ProfilePage = ({
           </div>
         )}
       </div>
-      {ownYoungMen !== undefined && (
+      {ownYoungMen != null && (
         <div style={{ ...css.card, marginTop: "14px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
             <h3 style={{ color: T.text, fontSize: "16px", margin: 0, fontFamily: T.fontDisplay }}>My Young Men</h3>
@@ -4015,6 +3996,7 @@ export default function CampDesignApp({ initialData, profile }) {
   const [competitions, setCompetitions] = useState(() => initialData?.competitions ?? EMPTY_ARRAY);
   const [pointLog, setPointLog] = useState(() => initialData?.pointLog ?? EMPTY_ARRAY);
   const [registrations, setRegistrations] = useState(() => initialData?.registrations ?? EMPTY_ARRAY);
+  const [myYoungMen, setMyYoungMen] = useState(() => initialData?.myYoungMen ?? EMPTY_ARRAY);
   const [agenda, setAgenda] = useState(() => initialData?.agenda ?? EMPTY_OBJECT);
   const [meals, setMeals] = useState(() => initialData?.meals ?? EMPTY_ARRAY);
   const [contacts, setContacts] = useState(() => initialData?.contacts ?? EMPTY_ARRAY);
@@ -4066,6 +4048,7 @@ export default function CampDesignApp({ initialData, profile }) {
     setCompetitions(data.competitions ?? []);
     setPointLog(data.pointLog ?? []);
     setRegistrations(data.registrations ?? []);
+    setMyYoungMen(data.myYoungMen ?? []);
     setAgenda(data.agenda ?? {});
     setMeals(data.meals ?? []);
     setContacts(data.contacts ?? []);
@@ -4417,11 +4400,10 @@ export default function CampDesignApp({ initialData, profile }) {
   const parentReminderVisibleOnPage =
     showParentReminder && (page === "dashboard" || page === "profile");
 
-  // Parent's own registration entry — used for "My Young Men" and transfer acks.
-  const ownRegistration = !profileData.actingAsYouth
-    ? registrations.find(r => r.id === profileData.userId)
+  // Logged-in user's own young men — available for all roles (leader, parent).
+  const ownYoungMen = (!profileData.actingAsYouth && profileData.onboardingCompletedAt)
+    ? myYoungMen
     : null;
-  const ownYoungMen = ownRegistration?.youngMen ?? null;
   const pendingTransfers = ownYoungMen ? ownYoungMen.filter(ym => ym.transferredAt) : [];
   const showTransferAck = pendingTransfers.length > 0;
 
@@ -4460,7 +4442,7 @@ export default function CampDesignApp({ initialData, profile }) {
         }
       />
     ),
-    registration: <RegistrationPage registrations={registrations} applyResult={applyResult} isLeader={isLeader} profileOptions={profileOptions} />,
+    registration: <RegistrationPage registrations={registrations} applyResult={applyResult} isLeader={isLeader} />,
     photos: <PhotosPage photos={photos} />,
     contacts: <ContactsPage contacts={contacts} applyResult={applyResult} isLeader={isLeader} />,
     rules: <RulesPage rules={rules} applyResult={applyResult} isLeader={isLeader} />,

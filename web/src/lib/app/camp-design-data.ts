@@ -323,6 +323,8 @@ export type CampDesignInitialData = {
   competitions: DesignCompetition[];
   pointLog: DesignPoint[];
   registrations: DesignRegistration[];
+  /** The logged-in user's own young men regardless of their role. */
+  myYoungMen: DesignRegistrationYoungMan[];
   agenda: Record<string, DesignAgendaItem[]>;
   meals: DesignMeal[];
   contacts: DesignContact[];
@@ -478,6 +480,8 @@ function parseRules(content: string | null) {
 
 export async function getCampDesignInitialData(): Promise<CampDesignInitialData> {
   const supabase = await createSupabaseServerClient();
+  const { data: { user: currentUser } } = await supabase.auth.getUser();
+  const myUserId = currentUser?.id ?? null;
 
   const [
     { data: wardRows },
@@ -763,6 +767,22 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
     };
   });
 
+  const myYoungMen: DesignRegistrationYoungMan[] = myUserId
+    ? youngMenRaw
+        .filter((ym) => ym.parent_id === myUserId)
+        .map((ym) => ({
+          id: ym.id,
+          name: `${ym.first_name} ${ym.last_name}`,
+          age: ym.age,
+          photoUrl: ym.photo_url ?? null,
+          shirtSize: ym.shirt_size_code
+            ? (SHIRT_CODE_TO_DISPLAY[ym.shirt_size_code] ?? ym.shirt_size_code)
+            : "",
+          medicalSummary: formatYoungManMedicalSummary(ym),
+          transferredAt: ym.transferred_at ?? null,
+        }))
+    : [];
+
   const agenda: Record<string, DesignAgendaItem[]> = {};
   agendaRaw.forEach((item) => {
     const dateKey = toDateString(item.agenda_date);
@@ -914,6 +934,7 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
     competitions,
     pointLog,
     registrations,
+    myYoungMen,
     agenda,
     meals,
     contacts,
