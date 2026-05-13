@@ -2712,32 +2712,6 @@ const ProfilePage = ({
           </div>
         </div>
       </div>
-      <div style={{ ...css.card, marginTop: "14px" }}>
-        <h3 style={{ color: T.text, fontSize: "16px", margin: "0 0 12px", fontFamily: T.fontDisplay }}>User Avatars</h3>
-        {!userProfiles.length ? (
-          <p style={{ color: T.textDim, margin: 0, fontSize: "13px" }}>No user profiles found yet.</p>
-        ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: "10px" }}>
-            {userProfiles.map((userProfile) => (
-              <div key={userProfile.user_id} style={{ border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "10px", display: "flex", alignItems: "center", gap: "10px", background: T.bgInput }}>
-                <Avatar
-                  name={userProfile.display_name || userProfile.email}
-                  src={userProfile.avatar_url}
-                  size={36}
-                />
-                <div style={{ minWidth: 0 }}>
-                  <p style={{ color: T.text, margin: 0, fontSize: "13px", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {userProfile.display_name}
-                  </p>
-                  <p style={{ color: T.textDim, margin: "2px 0 0", fontSize: "11px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {userProfile.email || "No email"}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
       {ownYoungMen != null && (
         <div style={{ ...css.card, marginTop: "14px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
