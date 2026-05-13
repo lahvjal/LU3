@@ -34,6 +34,9 @@ import {
   setParentOnboardingSnoozeAction,
   signOutCampAction,
   updateMyProfileAction,
+  addYoungManToAccountAction,
+  moveYoungManAction,
+  acknowledgeYoungManTransferAction,
 } from "@/lib/app/camp-design-actions";
 import { parseTimeLabel, timeLabelSortKey } from "@/lib/app/time-sort";
 import {
@@ -1721,7 +1724,185 @@ const INVITE_STATUS_COLORS = {
   accepted: { bg: T.greenBg, text: T.green, label: "Accepted" },
 };
 
-const RegistrationPage = ({ registrations, applyResult, isLeader }) => {
+const AddYoungManModal = ({ open, onClose, targetParentId, parentName, profileOptions, applyResult }) => {
+  const [entry, setEntry] = useState(() => emptyYoungMan());
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [serverError, setServerError] = useState(null);
+
+  const resetAndClose = () => {
+    setEntry(emptyYoungMan());
+    setServerError(null);
+    onClose();
+  };
+
+  const handlePhotoFile = async (file) => {
+    if (!targetParentId) return;
+    if (!file?.type?.startsWith("image/")) { window.alert("Please select a valid image file."); return; }
+    if (file.size > MAX_AVATAR_FILE_BYTES) { window.alert("Please upload an image smaller than 40MB."); return; }
+    setUploadingPhoto(true);
+    try {
+      const compressed = await compressAvatarImage(file);
+      const supabase = createSupabaseBrowserClient();
+      const objectPath = `${targetParentId}/young-men/${entry._key}-${Date.now()}.webp`;
+      const { error: uploadError } = await supabase.storage
+        .from(PROFILE_AVATAR_BUCKET)
+        .upload(objectPath, compressed, { contentType: "image/webp", cacheControl: "3600", upsert: false });
+      if (uploadError) throw new Error(uploadError.message);
+      const { data: { publicUrl } } = supabase.storage.from(PROFILE_AVATAR_BUCKET).getPublicUrl(objectPath);
+      setEntry(prev => ({ ...prev, photoUrl: publicUrl }));
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Upload failed.");
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (saving || uploadingPhoto) return;
+    setSaving(true);
+    setServerError(null);
+    try {
+      const result = await addYoungManToAccountAction({ targetParentId, youngMan: entry });
+      if (result.ok) {
+        applyResult(result);
+        resetAndClose();
+      } else {
+        setServerError(result.error);
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const displayName = `${entry.firstName || ""} ${entry.lastName || ""}`.trim() || "Young Man";
+
+  return (
+    <Modal open={open} onClose={resetAndClose} title={`Add Young Man${parentName ? ` — ${parentName}` : ""}`} width={560}>
+      <div style={{ maxHeight: "65vh", overflowY: "auto", paddingRight: "4px" }}>
+        <YoungManFormEntry
+          entry={entry}
+          index={0}
+          onUpdate={setEntry}
+          onRemove={() => {}}
+          shirtSizes={profileOptions?.shirtSizes ?? []}
+          uploadingPhoto={uploadingPhoto}
+          onPhotoFile={handlePhotoFile}
+        />
+        <div style={{ marginTop: "14px", padding: "12px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.bg }}>
+          <p style={{ fontSize: "12px", fontWeight: 700, color: T.accent, margin: "0 0 10px" }}>
+            {displayName} — Participant Signature
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+            <Field label="Participant's signature (type full name)" required>
+              <input
+                style={css.input}
+                value={entry.participantSignatureName}
+                onChange={e => setEntry(prev => ({ ...prev, participantSignatureName: e.target.value }))}
+                placeholder="Full name"
+              />
+            </Field>
+            <Field label="Date" required>
+              <input
+                style={css.input}
+                type="date"
+                value={entry.participantSignatureDate}
+                onChange={e => setEntry(prev => ({ ...prev, participantSignatureDate: e.target.value }))}
+              />
+            </Field>
+          </div>
+        </div>
+        {serverError ? (
+          <p role="alert" style={{ color: T.red, fontSize: "13px", margin: "12px 0 0", lineHeight: 1.5 }}>{serverError}</p>
+        ) : null}
+      </div>
+      <button
+        type="button"
+        onClick={handleSubmit}
+        disabled={saving || uploadingPhoto}
+        style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px", marginTop: "14px", opacity: saving || uploadingPhoto ? 0.7 : 1, cursor: saving || uploadingPhoto ? "not-allowed" : "pointer" }}
+      >
+        {saving ? <><Spinner size={14} /> Adding…</> : uploadingPhoto ? "Uploading photo…" : "Add Young Man"}
+      </button>
+    </Modal>
+  );
+};
+
+const MoveYoungManModal = ({ open, onClose, youngManId, youngManName, currentParentId, registrations, applyResult }) => {
+  const [newParentId, setNewParentId] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [serverError, setServerError] = useState(null);
+
+  const resetAndClose = () => {
+    setNewParentId("");
+    setServerError(null);
+    onClose();
+  };
+
+  const eligibleParents = registrations.filter(r => r.id !== currentParentId && r.registrationStatus === "active");
+
+  const handleSubmit = async () => {
+    if (!newParentId || saving) return;
+    setSaving(true);
+    setServerError(null);
+    try {
+      const result = await moveYoungManAction({ youngManId, newParentId });
+      if (result.ok) {
+        applyResult(result);
+        resetAndClose();
+      } else {
+        setServerError(result.error);
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal open={open} onClose={resetAndClose} title={`Move ${youngManName}`} width={440}>
+      <p style={{ color: T.textMuted, fontSize: "13px", margin: "0 0 16px", lineHeight: 1.55 }}>
+        Select the parent account to move <strong style={{ color: T.text }}>{youngManName}</strong> to.
+        Their current passcode will be cleared — the new parent will be prompted to set a new one when they log in.
+      </p>
+      <Field label="New parent account" required>
+        <select
+          style={css.select}
+          value={newParentId}
+          onChange={e => setNewParentId(e.target.value)}
+        >
+          <option value="">Select a parent…</option>
+          {eligibleParents.map(p => (
+            <option key={p.id} value={p.id}>{p.parentName} ({p.email})</option>
+          ))}
+        </select>
+      </Field>
+      {!eligibleParents.length && (
+        <p style={{ color: T.textDim, fontSize: "12px", margin: "8px 0 0" }}>
+          No other active parent accounts available to move to.
+        </p>
+      )}
+      {serverError ? (
+        <p role="alert" style={{ color: T.red, fontSize: "13px", margin: "10px 0 0", lineHeight: 1.5 }}>{serverError}</p>
+      ) : null}
+      <p style={{ fontSize: "11px", color: T.textDim, margin: "14px 0 0", lineHeight: 1.5 }}>
+        The new parent will set the passcode when they next log in. Until then, the youth cannot use their passcode to sign in.
+      </p>
+      <div style={{ display: "flex", gap: "8px", marginTop: "14px" }}>
+        <button type="button" onClick={resetAndClose} style={{ ...css.btn("ghost"), flex: 1, justifyContent: "center" }}>Cancel</button>
+        <button
+          type="button"
+          onClick={handleSubmit}
+          disabled={saving || !newParentId}
+          style={{ ...css.btn(), flex: 1, justifyContent: "center", opacity: saving || !newParentId ? 0.7 : 1, cursor: saving || !newParentId ? "not-allowed" : "pointer" }}
+        >
+          {saving ? <><Spinner size={14} /> Moving…</> : "Move Young Man"}
+        </button>
+      </div>
+    </Modal>
+  );
+};
+
+const RegistrationPage = ({ registrations, applyResult, isLeader, profileOptions }) => {
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ parentName: "", parentEmail: "" });
   const [formErrors, setFormErrors] = useState({});
@@ -1729,6 +1910,8 @@ const RegistrationPage = ({ registrations, applyResult, isLeader }) => {
   const [sending, setSending] = useState({});
   const [saving, setSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [addYmModal, setAddYmModal] = useState(null); // { parentId, parentName }
+  const [moveYmModal, setMoveYmModal] = useState(null); // { youngManId, youngManName, currentParentId }
 
   const validateInviteParent = () => {
     const e = {};
@@ -1778,6 +1961,10 @@ const RegistrationPage = ({ registrations, applyResult, isLeader }) => {
     setExpanded(p => ({ ...p, [id]: !p[id] }));
   };
 
+  const STATUS_SORT = { active: 0, pending: 1, not_invited_yet: 2 };
+  const sortedRegistrations = [...registrations].sort(
+    (a, b) => (STATUS_SORT[a.registrationStatus] ?? 3) - (STATUS_SORT[b.registrationStatus] ?? 3),
+  );
   const totalYoungMen = registrations.reduce((s, r) => s + r.youngMen.length, 0);
 
   return (
@@ -1804,11 +1991,28 @@ const RegistrationPage = ({ registrations, applyResult, isLeader }) => {
         title={`Delete ${deleteConfirm?.name || "this parent"}?`}
         message="This will permanently delete this parent's account, their linked young men, and all related data. This action cannot be undone."
       />
+      <AddYoungManModal
+        open={!!addYmModal}
+        onClose={() => setAddYmModal(null)}
+        targetParentId={addYmModal?.parentId ?? ""}
+        parentName={addYmModal?.parentName ?? ""}
+        profileOptions={profileOptions}
+        applyResult={applyResult}
+      />
+      <MoveYoungManModal
+        open={!!moveYmModal}
+        onClose={() => setMoveYmModal(null)}
+        youngManId={moveYmModal?.youngManId ?? ""}
+        youngManName={moveYmModal?.youngManName ?? ""}
+        currentParentId={moveYmModal?.currentParentId ?? ""}
+        registrations={registrations}
+        applyResult={applyResult}
+      />
       {!registrations.length ? (
         <EmptyState icon="clipboard" message="No parents have been invited yet. Click 'Invite Parent' to get started." />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-          {registrations.map(reg => {
+          {sortedRegistrations.map(reg => {
             const isExpanded = expanded[reg.id];
             const regStatusColor = INVITE_STATUS_COLORS[reg.registrationStatus] || {};
             const invStatusColor = INVITE_STATUS_COLORS[reg.inviteStatus] || {};
@@ -1844,6 +2048,16 @@ const RegistrationPage = ({ registrations, applyResult, isLeader }) => {
                       </button>
                     )}
                     {isLeader && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setAddYmModal({ parentId: reg.id, parentName: reg.parentName }); }}
+                        style={{ ...css.btn("ghost"), fontSize: "11px", padding: "5px 12px" }}
+                        title="Add a young man to this parent's account"
+                      >
+                        <Icon name="plus" size={12} color={T.accent} /> Young Man
+                      </button>
+                    )}
+                    {isLeader && (
                       <button type="button" onClick={(e) => { e.stopPropagation(); del(reg.id, reg.parentName); }} style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.4, padding: "4px" }}><Icon name="trash" size={14} color={T.red} /></button>
                     )}
                     {reg.youngMen.length > 0 && <Icon name="chevRight" size={16} color={T.textDim} />}
@@ -1857,11 +2071,24 @@ const RegistrationPage = ({ registrations, applyResult, isLeader }) => {
                         <div style={{ flex: 1 }}>
                           <span style={{ color: T.text, fontSize: "13px", fontWeight: 600 }}>{ym.name}</span>
                           <span style={{ color: T.textMuted, fontSize: "12px", marginLeft: "8px" }}>Age {ym.age}</span>
+                          {ym.transferredAt ? (
+                            <span style={{ marginLeft: "8px", fontSize: "10px", color: T.yellow, background: `${T.yellow}20`, padding: "1px 6px", borderRadius: "8px" }}>Pending ack</span>
+                          ) : null}
                         </div>
                         {ym.shirtSize && <span style={{ color: T.textMuted, fontSize: "11px" }}>Shirt: {ym.shirtSize}</span>}
                         {ym.medicalSummary && ym.medicalSummary !== "—" ? (
                           <span style={{ color: T.yellow, fontSize: "11px" }} title={ym.medicalSummary}>{ym.medicalSummary}</span>
                         ) : null}
+                        {isLeader && (
+                          <button
+                            type="button"
+                            onClick={() => setMoveYmModal({ youngManId: ym.id, youngManName: ym.name, currentParentId: reg.id })}
+                            style={{ ...css.btn("ghost"), fontSize: "10px", padding: "3px 8px", flexShrink: 0 }}
+                            title="Move to another parent account"
+                          >
+                            Move
+                          </button>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -2277,12 +2504,15 @@ const ProfilePage = ({
   savingProfile,
   onSignOut,
   signingOut,
+  ownYoungMen,
+  applyResult,
 }) => {
   const [displayName, setDisplayName] = useState(profile.displayName || "");
   const [avatarUrl, setAvatarUrl] = useState(profile.avatarUrl || "");
   const [phone, setPhone] = useState(profile.phone || "");
   const [wardId, setWardId] = useState(profile.wardId || "");
   const [profileFieldErrors, setProfileFieldErrors] = useState({});
+  const [addYmOpen, setAddYmOpen] = useState(false);
 
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef(null);
@@ -2527,6 +2757,123 @@ const ProfilePage = ({
           </div>
         )}
       </div>
+      {ownYoungMen !== undefined && (
+        <div style={{ ...css.card, marginTop: "14px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+            <h3 style={{ color: T.text, fontSize: "16px", margin: 0, fontFamily: T.fontDisplay }}>My Young Men</h3>
+            <button
+              type="button"
+              onClick={() => setAddYmOpen(true)}
+              style={css.btn()}
+            >
+              <Icon name="plus" size={14} color="#1a1612" /> Add Young Man
+            </button>
+          </div>
+          {!ownYoungMen.length ? (
+            <p style={{ color: T.textDim, fontSize: "13px", margin: 0 }}>No young men added yet.</p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              {ownYoungMen.map(ym => (
+                <div key={ym.id} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px", background: T.bgInput, borderRadius: T.radiusSm, border: `1px solid ${T.border}` }}>
+                  <Avatar name={ym.name} src={ym.photoUrl || null} size={36} fontSize={13} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ color: T.text, fontWeight: 600, fontSize: "14px", margin: 0 }}>{ym.name}</p>
+                    <p style={{ color: T.textMuted, fontSize: "12px", margin: "2px 0 0" }}>
+                      Age {ym.age}{ym.shirtSize ? ` · Shirt: ${ym.shirtSize}` : ""}
+                    </p>
+                  </div>
+                  {ym.transferredAt ? (
+                    <span style={{ fontSize: "11px", color: T.yellow, background: `${T.yellow}20`, padding: "2px 8px", borderRadius: "10px", whiteSpace: "nowrap" }}>
+                      Needs passcode
+                    </span>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          )}
+          <AddYoungManModal
+            open={addYmOpen}
+            onClose={() => setAddYmOpen(false)}
+            targetParentId={profile.userId}
+            parentName={profile.displayName}
+            profileOptions={profileOptions}
+            applyResult={applyResult}
+          />
+        </div>
+      )}
+    </div>
+  );
+};
+
+const TransferAcknowledgmentBanner = ({ pendingYoungMen, applyResult }) => {
+  const [passcodes, setPasscodes] = useState(() =>
+    Object.fromEntries(pendingYoungMen.map(ym => [ym.id, ""]))
+  );
+  const [acknowledging, setAcknowledging] = useState({});
+  const [errors, setErrors] = useState({});
+
+  const handleAcknowledge = async (ym) => {
+    if (acknowledging[ym.id]) return;
+    const passcode = (passcodes[ym.id] ?? "").trim();
+    if (!/^\d{4}$/.test(passcode)) {
+      setErrors(prev => ({ ...prev, [ym.id]: "Enter a 4-digit passcode." }));
+      return;
+    }
+    setErrors(prev => ({ ...prev, [ym.id]: null }));
+    setAcknowledging(prev => ({ ...prev, [ym.id]: true }));
+    try {
+      const result = await acknowledgeYoungManTransferAction({ youngManId: ym.id, newPasscode: passcode });
+      applyResult(result);
+    } finally {
+      setAcknowledging(prev => ({ ...prev, [ym.id]: false }));
+    }
+  };
+
+  return (
+    <div style={{ marginBottom: "16px" }}>
+      {pendingYoungMen.map(ym => (
+        <div
+          key={ym.id}
+          style={{ ...css.card, border: `1px solid ${T.yellow}55`, background: `${T.yellow}0d`, marginBottom: "10px" }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "10px" }}>
+            <Avatar name={ym.name} src={ym.photoUrl || null} size={36} fontSize={13} />
+            <div>
+              <p style={{ color: T.text, fontWeight: 700, fontSize: "14px", margin: 0 }}>{ym.name}</p>
+              <p style={{ color: T.textMuted, fontSize: "12px", margin: "2px 0 0" }}>
+                This young man was moved to your account by a leader.
+              </p>
+            </div>
+          </div>
+          <p style={{ color: T.textMuted, fontSize: "13px", margin: "0 0 12px", lineHeight: 1.55 }}>
+            Set a 4-digit passcode for <strong style={{ color: T.text }}>{ym.name}</strong> so they can sign in.
+            By acknowledging, you confirm you are now responsible for their camp registration.
+          </p>
+          <div style={{ display: "flex", gap: "10px", alignItems: "flex-end", flexWrap: "wrap" }}>
+            <div style={{ flex: "0 0 140px" }}>
+              <Field label="New passcode (4 digits)" error={errors[ym.id]}>
+                <input
+                  style={fieldStyle(css.input, errors[ym.id])}
+                  value={passcodes[ym.id] ?? ""}
+                  onChange={e => setPasscodes(prev => ({ ...prev, [ym.id]: e.target.value.replace(/\D/g, "").slice(0, 4) }))}
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={4}
+                  placeholder="1234"
+                />
+              </Field>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleAcknowledge(ym)}
+              disabled={!!acknowledging[ym.id]}
+              style={{ ...css.btn(), padding: "10px 18px", opacity: acknowledging[ym.id] ? 0.7 : 1, cursor: acknowledging[ym.id] ? "not-allowed" : "pointer", marginBottom: errors[ym.id] ? "20px" : "0" }}
+            >
+              {acknowledging[ym.id] ? <><Spinner size={13} /> Saving…</> : "Set Passcode & Acknowledge"}
+            </button>
+          </div>
+        </div>
+      ))}
     </div>
   );
 };
@@ -4070,6 +4417,14 @@ export default function CampDesignApp({ initialData, profile }) {
   const parentReminderVisibleOnPage =
     showParentReminder && (page === "dashboard" || page === "profile");
 
+  // Parent's own registration entry — used for "My Young Men" and transfer acks.
+  const ownRegistration = !profileData.actingAsYouth
+    ? registrations.find(r => r.id === profileData.userId)
+    : null;
+  const ownYoungMen = ownRegistration?.youngMen ?? null;
+  const pendingTransfers = ownYoungMen ? ownYoungMen.filter(ym => ym.transferredAt) : [];
+  const showTransferAck = pendingTransfers.length > 0;
+
   const startParentOnboardingFromReminder = async () => {
     const clearSnoozeResult = await setParentOnboardingSnoozeAction({
       snoozed: false,
@@ -4105,7 +4460,7 @@ export default function CampDesignApp({ initialData, profile }) {
         }
       />
     ),
-    registration: <RegistrationPage registrations={registrations} applyResult={applyResult} isLeader={isLeader} />,
+    registration: <RegistrationPage registrations={registrations} applyResult={applyResult} isLeader={isLeader} profileOptions={profileOptions} />,
     photos: <PhotosPage photos={photos} />,
     contacts: <ContactsPage contacts={contacts} applyResult={applyResult} isLeader={isLeader} />,
     rules: <RulesPage rules={rules} applyResult={applyResult} isLeader={isLeader} />,
@@ -4124,6 +4479,8 @@ export default function CampDesignApp({ initialData, profile }) {
         savingProfile={savingProfile}
         onSignOut={handleSignOut}
         signingOut={signingOut}
+        ownYoungMen={ownYoungMen}
+        applyResult={applyResult}
       />
     ),
   };
@@ -4153,6 +4510,9 @@ export default function CampDesignApp({ initialData, profile }) {
       </div>
       <main className="main-area" style={{ marginLeft: 0, padding: "24px", minHeight: "100vh" }}>
         <div style={{ width: "100%", marginTop: "56px" }} className="main-inner">
+          {showTransferAck ? (
+            <TransferAcknowledgmentBanner pendingYoungMen={pendingTransfers} applyResult={applyResult} />
+          ) : null}
           {parentReminderVisibleOnPage ? (
             <div
               style={{

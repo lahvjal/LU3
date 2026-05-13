@@ -14,6 +14,7 @@ import {
   insertParentYoungMenInDb,
   type YoungManPayload,
 } from "@/lib/app/onboarding-completion-api";
+import { hashYouthPasscode, isValidYouthPasscode } from "@/lib/auth/youth-passcode";
 import {
   type CampDesignInitialData,
   getCampDesignInitialData,
@@ -1676,6 +1677,132 @@ export async function deleteLeaderInvitationAction(
   const { error: authError } = await admin.auth.admin.deleteUser(leaderUserId);
   if (authError) {
     return fail(authError.message);
+  }
+
+  return success();
+}
+
+/**
+ * Add a single young man to a parent's account after onboarding is complete.
+ * Parents may only add to their own account; leaders with registration rights
+ * may add to any parent they manage.
+ */
+export async function addYoungManToAccountAction(input: {
+  targetParentId: string;
+  youngMan: YoungManPayload;
+}): Promise<ActionResult> {
+  const context = await getUserContext();
+  const isSelf = input.targetParentId === context.user.id;
+  const canManage = context.canManageRegistrations;
+
+  if (!isSelf && !canManage) {
+    return fail("You do not have permission to add young men to this account.");
+  }
+
+  // Leaders use the admin client so RLS ward-scoping doesn't interfere;
+  // parents use their own session so the RLS auth.uid() = parent_id check passes.
+  const supabase = canManage && !isSelf
+    ? (createSupabaseAdminClient() as any)
+    : await createSupabaseServerClient();
+
+  const r = await insertParentYoungMenInDb(supabase, input.targetParentId, [input.youngMan]);
+  if (!r.ok) {
+    return fail(r.error);
+  }
+  return success();
+}
+
+/**
+ * Move a young man from one parent account to another.
+ * Clears the youth passcode so the new parent must set one via
+ * acknowledgeYoungManTransferAction before the youth can log in.
+ * Requires canManageRegistrations.
+ */
+export async function moveYoungManAction(input: {
+  youngManId: string;
+  newParentId: string;
+}): Promise<ActionResult> {
+  const context = await getUserContext();
+  if (!context.canManageRegistrations) {
+    return fail("You do not have permission to move young men between accounts.");
+  }
+
+  const admin = createSupabaseAdminClient() as any;
+
+  const { data: newParent, error: parentErr } = await admin
+    .from("user_profiles")
+    .select("user_id, onboarding_completed_at")
+    .eq("user_id", input.newParentId)
+    .maybeSingle();
+
+  if (parentErr || !newParent?.user_id) {
+    return fail(parentErr?.message ?? "New parent account not found.");
+  }
+  if (!newParent.onboarding_completed_at) {
+    return fail("The selected parent has not completed their profile setup yet.");
+  }
+
+  const { error: updateError } = await admin
+    .from("young_men")
+    .update({
+      parent_id: input.newParentId,
+      youth_passcode_hash: null,
+      transferred_at: new Date().toISOString(),
+    })
+    .eq("id", input.youngManId);
+
+  if (updateError) {
+    return fail(updateError.message);
+  }
+
+  return success();
+}
+
+/**
+ * Called by a parent to acknowledge that a young man was moved to their account
+ * and to set a new 4-digit youth passcode for that young man.
+ * Clears transferred_at so the acknowledgment banner disappears.
+ */
+export async function acknowledgeYoungManTransferAction(input: {
+  youngManId: string;
+  newPasscode: string;
+}): Promise<ActionResult> {
+  const context = await getUserContext();
+
+  const passcode = (input.newPasscode ?? "").trim();
+  if (!isValidYouthPasscode(passcode)) {
+    return fail("Passcode must be exactly 4 digits.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+
+  // Confirm the caller is the current parent of this young man
+  const { data: ym, error: ymErr } = await supabase
+    .from("young_men")
+    .select("id")
+    .eq("id", input.youngManId)
+    .eq("parent_id", context.user.id)
+    .maybeSingle();
+
+  if (ymErr || !ym) {
+    return fail("Young man not found on your account.");
+  }
+
+  const hash = hashYouthPasscode(passcode);
+  const now = new Date().toISOString();
+
+  const { error: updateError } = await supabase
+    .from("young_men")
+    .update({
+      transferred_at: null,
+      youth_passcode_hash: hash,
+      youth_passcode_updated_at: now,
+    })
+    .eq("id", input.youngManId)
+    .eq("parent_id", context.user.id);
+
+  if (updateError) {
+    return fail(updateError.message);
   }
 
   return success();

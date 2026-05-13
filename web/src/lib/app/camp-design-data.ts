@@ -86,6 +86,7 @@ type YoungManRow = {
   participant_signature_name: string | null;
   participant_signature_date: string | null;
   participant_signed_at: string | null;
+  transferred_at: string | null;
 };
 
 type AgendaRow = {
@@ -201,6 +202,8 @@ type DesignRegistrationYoungMan = {
   shirtSize: string;
   /** Short line for leader roster (structured medical from release form). */
   medicalSummary: string;
+  /** Non-null when the young man was moved here and the parent hasn't acknowledged yet. */
+  transferredAt: string | null;
 };
 
 type DesignRegistration = {
@@ -504,7 +507,7 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
     supabase
       .from("young_men")
       .select(
-        "id, parent_id, first_name, last_name, age, date_of_birth, photo_url, shirt_size_code, special_diet_required, special_diet_explanation, has_allergies, allergies_detail, medications, self_administer_medication, chronic_illness, chronic_illness_explanation, surgery_serious_illness_past_year, surgery_serious_illness_explanation, activity_limits_restrictions, other_accommodations, participant_signature_name, participant_signature_date, participant_signed_at",
+        "id, parent_id, first_name, last_name, age, date_of_birth, photo_url, shirt_size_code, special_diet_required, special_diet_explanation, has_allergies, allergies_detail, medications, self_administer_medication, chronic_illness, chronic_illness_explanation, surgery_serious_illness_past_year, surgery_serious_illness_explanation, activity_limits_restrictions, other_accommodations, participant_signature_name, participant_signature_date, participant_signed_at, transferred_at",
       )
       .order("created_at"),
   ]);
@@ -755,6 +758,7 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
         photoUrl: ym.photo_url ?? null,
         shirtSize: ym.shirt_size_code ? (SHIRT_CODE_TO_DISPLAY[ym.shirt_size_code] ?? ym.shirt_size_code) : "",
         medicalSummary: formatYoungManMedicalSummary(ym),
+        transferredAt: ym.transferred_at ?? null,
       })),
     };
   });
