@@ -1203,6 +1203,43 @@ export async function deleteParentAction(
   return success();
 }
 
+export async function updateParentWardAction(
+  parentUserId: string,
+  wardId: string | null,
+): Promise<ActionResult> {
+  const context = await getUserContext();
+  if (!context.canManageRegistrations) {
+    return fail("You do not have permission to update parent registrations.");
+  }
+
+  const admin = createSupabaseAdminClient() as any;
+
+  const { data: profile, error: fetchError } = await admin
+    .from("user_profiles")
+    .select("user_id, role")
+    .eq("user_id", parentUserId)
+    .maybeSingle();
+
+  if (fetchError || !profile?.user_id) {
+    return fail(fetchError?.message ?? "Parent not found.");
+  }
+
+  if (profile.role !== "parent") {
+    return fail("This account is not a parent registration.");
+  }
+
+  const { error } = await admin
+    .from("user_profiles")
+    .update({ ward_id: wardId || null })
+    .eq("user_id", parentUserId);
+
+  if (error) {
+    return fail(error.message);
+  }
+
+  return success();
+}
+
 export async function deleteYoungManAction(
   youngManId: string,
 ): Promise<ActionResult> {

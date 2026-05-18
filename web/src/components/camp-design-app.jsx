@@ -38,6 +38,7 @@ import {
   moveYoungManAction,
   acknowledgeYoungManTransferAction,
   deleteYoungManAction,
+  updateParentWardAction,
 } from "@/lib/app/camp-design-actions";
 import { parseTimeLabel, timeLabelSortKey } from "@/lib/app/time-sort";
 import {
@@ -1903,7 +1904,7 @@ const MoveYoungManModal = ({ open, onClose, youngManId, youngManName, currentPar
   );
 };
 
-const RegistrationPage = ({ registrations, applyResult, isLeader }) => {
+const RegistrationPage = ({ registrations, applyResult, isLeader, wards }) => {
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ parentName: "", parentEmail: "" });
   const [formErrors, setFormErrors] = useState({});
@@ -1913,6 +1914,8 @@ const RegistrationPage = ({ registrations, applyResult, isLeader }) => {
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [deleteYmConfirm, setDeleteYmConfirm] = useState(null); // { id, name }
   const [moveYmModal, setMoveYmModal] = useState(null); // { youngManId, youngManName, currentParentId }
+  const [editParentWard, setEditParentWard] = useState(null); // { id, name, wardId }
+  const [savingParentWard, setSavingParentWard] = useState(false);
 
   const validateInviteParent = () => {
     const e = {};
@@ -1965,6 +1968,19 @@ const RegistrationPage = ({ registrations, applyResult, isLeader }) => {
     setDeleteYmConfirm(null);
   };
 
+  const saveParentWard = async () => {
+    if (!editParentWard || savingParentWard) return;
+    setSavingParentWard(true);
+    try {
+      const result = await updateParentWardAction(editParentWard.id, editParentWard.wardId || null);
+      if (applyResult(result)) {
+        setEditParentWard(null);
+      }
+    } finally {
+      setSavingParentWard(false);
+    }
+  };
+
   const toggleExpand = (id) => {
     setExpanded(p => ({ ...p, [id]: !p[id] }));
   };
@@ -2015,6 +2031,25 @@ const RegistrationPage = ({ registrations, applyResult, isLeader }) => {
         registrations={registrations}
         applyResult={applyResult}
       />
+      <Modal open={!!editParentWard} onClose={() => setEditParentWard(null)} title={`Update Ward — ${editParentWard?.name || ""}`} width={400}>
+        <Field label="Ward">
+          <select
+            style={css.select}
+            value={editParentWard?.wardId || ""}
+            onChange={e => setEditParentWard(p => ({ ...p, wardId: e.target.value || null }))}
+          >
+            <option value="">No ward assigned</option>
+            {(wards ?? []).map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+          </select>
+        </Field>
+        <button
+          onClick={saveParentWard}
+          disabled={savingParentWard}
+          style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "12px", opacity: savingParentWard ? 0.7 : 1, cursor: savingParentWard ? "not-allowed" : "pointer" }}
+        >
+          {savingParentWard ? <><Spinner size={14} /> Saving…</> : "Save"}
+        </button>
+      </Modal>
       {!registrations.length ? (
         <EmptyState icon="clipboard" message="No parents have been invited yet. Click 'Invite Parent' to get started." />
       ) : (
@@ -2032,7 +2067,19 @@ const RegistrationPage = ({ registrations, applyResult, isLeader }) => {
                     <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                       <span style={{ fontWeight: 700, color: T.text, fontSize: "14px" }}>{reg.parentName}</span>
                       <span style={{ color: T.textDim, fontSize: "12px" }}>{reg.email}</span>
-                      {reg.wardName && <span style={{ color: T.textMuted, fontSize: "11px" }}>· {reg.wardName}</span>}
+                      {isLeader ? (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setEditParentWard({ id: reg.id, name: reg.parentName, wardId: reg.wardId }); }}
+                          style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "inline-flex", alignItems: "center", gap: "3px" }}
+                          title="Edit ward"
+                        >
+                          <span style={{ color: T.textMuted, fontSize: "11px" }}>· {reg.wardName || "Assign ward"}</span>
+                          <Icon name="edit" size={10} color={T.textDim} />
+                        </button>
+                      ) : reg.wardName ? (
+                        <span style={{ color: T.textMuted, fontSize: "11px" }}>· {reg.wardName}</span>
+                      ) : null}
                     </div>
                     {reg.youngMen.length > 0 && (
                       <div style={{ display: "flex", gap: "4px", marginTop: "4px", flexWrap: "wrap" }}>
@@ -2330,7 +2377,7 @@ const LeadersPage = ({ leaders, wards, callingOptions, applyResult, isLeader }) 
       const result = await updateLeaderAction(editLeader.invitation_id ?? editLeader.id, {
         displayName: editForm.displayName.trim() || undefined,
         role: editForm.role,
-        wardId: editRoleOption.wardRequired ? editForm.wardId || null : null,
+        wardId: editForm.wardId || null,
         calling: callingValue.trim() || undefined,
       });
       if (applyResult(result)) {
@@ -4442,7 +4489,7 @@ export default function CampDesignApp({ initialData, profile }) {
         }
       />
     ),
-    registration: <RegistrationPage registrations={registrations} applyResult={applyResult} isLeader={isLeader} />,
+    registration: <RegistrationPage registrations={registrations} applyResult={applyResult} isLeader={isLeader} wards={profileOptions.wards} />,
     photos: <PhotosPage photos={photos} />,
     contacts: <ContactsPage contacts={contacts} applyResult={applyResult} isLeader={isLeader} />,
     rules: <RulesPage rules={rules} applyResult={applyResult} isLeader={isLeader} />,
