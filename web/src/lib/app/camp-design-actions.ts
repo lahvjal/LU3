@@ -1203,6 +1203,34 @@ export async function deleteParentAction(
   return success();
 }
 
+export async function deleteYoungManAction(
+  youngManId: string,
+): Promise<ActionResult> {
+  const context = await getUserContext();
+  if (!context.canManageRegistrations) {
+    return fail("You do not have permission to delete young men.");
+  }
+
+  const admin = createSupabaseAdminClient() as any;
+
+  const { data: ym, error: fetchError } = await admin
+    .from("young_men")
+    .select("id")
+    .eq("id", youngManId)
+    .maybeSingle();
+
+  if (fetchError || !ym?.id) {
+    return fail(fetchError?.message ?? "Young man not found.");
+  }
+
+  const { error } = await admin.from("young_men").delete().eq("id", youngManId);
+  if (error) {
+    return fail(error.message);
+  }
+
+  return success();
+}
+
 export async function addContactAction(input: ContactInput): Promise<ActionResult> {
   const context = await requireContentManager();
   if (!context) {

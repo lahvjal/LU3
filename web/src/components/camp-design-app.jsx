@@ -37,6 +37,7 @@ import {
   addYoungManToAccountAction,
   moveYoungManAction,
   acknowledgeYoungManTransferAction,
+  deleteYoungManAction,
 } from "@/lib/app/camp-design-actions";
 import { parseTimeLabel, timeLabelSortKey } from "@/lib/app/time-sort";
 import {
@@ -1910,6 +1911,7 @@ const RegistrationPage = ({ registrations, applyResult, isLeader }) => {
   const [sending, setSending] = useState({});
   const [saving, setSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [deleteYmConfirm, setDeleteYmConfirm] = useState(null); // { id, name }
   const [moveYmModal, setMoveYmModal] = useState(null); // { youngManId, youngManName, currentParentId }
 
   const validateInviteParent = () => {
@@ -1956,6 +1958,13 @@ const RegistrationPage = ({ registrations, applyResult, isLeader }) => {
     setDeleteConfirm(null);
   };
 
+  const confirmDeleteYm = async () => {
+    if (!deleteYmConfirm) return;
+    const result = await deleteYoungManAction(deleteYmConfirm.id);
+    applyResult(result);
+    setDeleteYmConfirm(null);
+  };
+
   const toggleExpand = (id) => {
     setExpanded(p => ({ ...p, [id]: !p[id] }));
   };
@@ -1989,6 +1998,13 @@ const RegistrationPage = ({ registrations, applyResult, isLeader }) => {
         onConfirm={confirmDelete}
         title={`Delete ${deleteConfirm?.name || "this parent"}?`}
         message="This will permanently delete this parent's account, their linked young men, and all related data. This action cannot be undone."
+      />
+      <ConfirmDeleteModal
+        open={!!deleteYmConfirm}
+        onClose={() => setDeleteYmConfirm(null)}
+        onConfirm={confirmDeleteYm}
+        title={`Delete ${deleteYmConfirm?.name || "this young man"}?`}
+        message="This will permanently delete this young man's registration and all related data. This action cannot be undone."
       />
       <MoveYoungManModal
         open={!!moveYmModal}
@@ -2061,14 +2077,24 @@ const RegistrationPage = ({ registrations, applyResult, isLeader }) => {
                           <span style={{ color: T.yellow, fontSize: "11px" }} title={ym.medicalSummary}>{ym.medicalSummary}</span>
                         ) : null}
                         {isLeader && (
-                          <button
-                            type="button"
-                            onClick={() => setMoveYmModal({ youngManId: ym.id, youngManName: ym.name, currentParentId: reg.id })}
-                            style={{ ...css.btn("ghost"), fontSize: "10px", padding: "3px 8px", flexShrink: 0 }}
-                            title="Move to another parent account"
-                          >
-                            Move
-                          </button>
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
+                            <button
+                              type="button"
+                              onClick={() => setMoveYmModal({ youngManId: ym.id, youngManName: ym.name, currentParentId: reg.id })}
+                              style={{ ...css.btn("ghost"), fontSize: "10px", padding: "3px 8px" }}
+                              title="Move to another parent account"
+                            >
+                              Move
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDeleteYmConfirm({ id: ym.id, name: ym.name })}
+                              style={{ background: "none", border: "none", cursor: "pointer", opacity: 0.4, padding: "4px" }}
+                              title="Delete this young man"
+                            >
+                              <Icon name="trash" size={13} color={T.red} />
+                            </button>
+                          </div>
                         )}
                       </div>
                     ))}
