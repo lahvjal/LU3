@@ -373,6 +373,19 @@ export default async function LoginPage({
             </button>
           </form>
 
+          <div style={{ textAlign: "center", marginTop: "12px" }}>
+            <a
+              href="/forgot-password"
+              style={{
+                fontSize: "12px",
+                color: T.textDim,
+                textDecoration: "none",
+              }}
+            >
+              Forgot your password?
+            </a>
+          </div>
+
           <div
             style={{
               margin: "22px 0 14px",

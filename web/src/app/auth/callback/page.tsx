@@ -61,6 +61,10 @@ export default function AuthCallbackPage() {
     const supabase = createSupabaseBrowserClient();
 
     supabase.auth.onAuthStateChange((event) => {
+      if (event === "PASSWORD_RECOVERY") {
+        router.replace("/auth/reset-password");
+        return;
+      }
       if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
         router.replace("/");
       }
