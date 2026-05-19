@@ -54,6 +54,8 @@ function AuthConfirmContent() {
     return { tokenHash, type: rawType };
   }, [searchParams]);
 
+  const isRecovery = payload?.type === "recovery";
+
   const continueSignIn = async () => {
     if (!payload || submitting) return;
     setSubmitting(true);
@@ -72,7 +74,7 @@ function AuthConfirmContent() {
         setError(verifyError.message || "Unable to verify sign-in link.");
         return;
       }
-      router.replace("/");
+      router.replace(isRecovery ? "/auth/reset-password" : "/");
     } finally {
       setSubmitting(false);
     }
@@ -113,11 +115,13 @@ function AuthConfirmContent() {
               margin: 0,
             }}
           >
-            Confirm Sign-In
+            {isRecovery ? "Reset Password" : "Confirm Sign-In"}
           </h1>
         </div>
         <p style={{ fontSize: "14px", color: T.textMuted, margin: "0 0 18px", lineHeight: 1.5 }}>
-          Click below to complete sign-in. This extra step helps prevent email scanners from consuming your link.
+          {isRecovery
+            ? "Click below to verify your identity and continue to set a new password."
+            : "Click below to complete sign-in. This extra step helps prevent email scanners from consuming your link."}
         </p>
 
         {!payload ? (
@@ -157,7 +161,7 @@ function AuthConfirmContent() {
               letterSpacing: "0.02em",
             }}
           >
-            {submitting ? "Verifying..." : "Continue to Camp"}
+            {submitting ? "Verifying…" : isRecovery ? "Continue to Reset Password" : "Continue to Camp"}
           </button>
         )}
 

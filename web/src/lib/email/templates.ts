@@ -74,6 +74,26 @@ export function parentInviteEmail(parentName: string, magicLinkUrl: string) {
   };
 }
 
+export function passwordResetEmail(displayName: string, resetUrl: string) {
+  return {
+    subject: `Reset your Camp Tracker password`,
+    html: layout(`
+      <h2 style="color:#e8e0d4;font-size:20px;margin:0 0 12px;">Reset Your Password</h2>
+      <p style="color:#9a8e7f;font-size:14px;line-height:1.6;margin:0 0 16px;">
+        Hi <strong style="color:#e8e0d4;">${displayName}</strong>,
+      </p>
+      <p style="color:#9a8e7f;font-size:14px;line-height:1.6;margin:0 0 16px;">
+        We received a request to reset your password for the LU3 Camp Tracker.
+        Click below to choose a new password. This link expires in 1 hour.
+      </p>
+      ${button("Reset Password", resetUrl)}
+      <p style="color:#6b6054;font-size:11px;margin:16px 0 0;text-align:center;">
+        If you didn't request this, you can safely ignore it — your password won't change.
+      </p>
+    `),
+  };
+}
+
 export function signInLinkEmail(displayName: string, magicLinkUrl: string) {
   return {
     subject: `Your Camp Tracker sign-in link`,

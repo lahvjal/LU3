@@ -29,6 +29,26 @@ function buildConfirmLinkFromProperties(
 }
 
 /**
+ * Generates a password recovery link for a given email using the admin API.
+ * Does not send any email — the caller is responsible for sending via Resend.
+ */
+export async function generateRecoveryLink(
+  email: string,
+): Promise<string | null> {
+  const admin = createSupabaseAdminClient() as any;
+  const { data, error } = await admin.auth.admin.generateLink({
+    type: "recovery",
+    email,
+    options: { redirectTo: REDIRECT_TO },
+  });
+  if (error || !data?.properties?.action_link) {
+    console.error("[magic-link] recovery link failed:", error);
+    return null;
+  }
+  return buildConfirmLinkFromProperties(data.properties);
+}
+
+/**
  * Generates a magic link for a given email. Creates the auth user silently
  * if they don't exist yet (no Supabase auto-email), then generates a
  * magiclink OTP for sign-in.
