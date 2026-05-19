@@ -74,6 +74,26 @@ export function parentInviteEmail(parentName: string, magicLinkUrl: string) {
   };
 }
 
+export function signInLinkEmail(displayName: string, magicLinkUrl: string) {
+  return {
+    subject: `Your Camp Tracker sign-in link`,
+    html: layout(`
+      <h2 style="color:#e8e0d4;font-size:20px;margin:0 0 12px;">Sign In</h2>
+      <p style="color:#9a8e7f;font-size:14px;line-height:1.6;margin:0 0 16px;">
+        Hi <strong style="color:#e8e0d4;">${displayName}</strong>,
+      </p>
+      <p style="color:#9a8e7f;font-size:14px;line-height:1.6;margin:0 0 16px;">
+        Here's your one-click sign-in link for the LU3 Camp Tracker.
+        This link expires shortly, so use it soon.
+      </p>
+      ${button("Sign In to Camp Tracker", magicLinkUrl)}
+      <p style="color:#6b6054;font-size:11px;margin:16px 0 0;text-align:center;">
+        If you didn't request this, you can safely ignore it.
+      </p>
+    `),
+  };
+}
+
 export function leaderInviteEmail(recipientName: string | null, role: string, calling: string, magicLinkUrl: string) {
   const greeting = recipientName
     ? `Hi <strong style="color:#e8e0d4;">${recipientName}</strong>,`

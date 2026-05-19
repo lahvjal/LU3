@@ -10,6 +10,9 @@ import {
 } from "@/lib/auth/youth-session";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { generateMagicLink } from "@/lib/email/magic-link";
+import { sendEmail } from "@/lib/email/resend";
+import { parentInviteEmail, signInLinkEmail } from "@/lib/email/templates";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://lu3camp.com";
 const REDIRECT_TO = `${APP_URL}/auth/callback`;
@@ -86,31 +89,32 @@ export async function resendInviteLink(formData: FormData) {
     redirect(buildErrorRedirect("Enter a valid email to receive a new sign-in link."));
   }
 
-  const supabase = await createSupabaseServerClient();
-  const { error } = await supabase.auth.signInWithOtp({
-    email,
-    options: {
-      emailRedirectTo: REDIRECT_TO,
-      shouldCreateUser: false,
-    },
-  });
+  const admin = createSupabaseAdminClient() as any;
 
-  if (error) {
-    if (error.message?.toLowerCase().includes("rate limit")) {
-      redirect(buildErrorRedirect("Too many attempts. Please wait a minute and try again."));
-    }
-    redirect(
-      buildInfoRedirect(
-        "If that email is on an invited account, we sent a fresh sign-in link.",
-      ),
-    );
+  // Look up the user so we can send the right custom email.
+  const { data: profile } = await admin
+    .from("user_profiles")
+    .select("user_id, display_name, role")
+    .ilike("user_email", email)
+    .maybeSingle();
+
+  // Always show the same neutral message — don't reveal whether the email exists.
+  if (!profile?.user_id) {
+    redirect(buildInfoRedirect("If that email is on an invited account, we sent a fresh sign-in link."));
   }
 
-  redirect(
-    buildInfoRedirect(
-      "If that email is on an invited account, we sent a fresh sign-in link.",
-    ),
-  );
+  const { actionLink } = await generateMagicLink(email);
+
+  if (actionLink) {
+    const name = profile.display_name?.trim() || email.split("@")[0] || "Friend";
+    const template =
+      profile.role === "parent"
+        ? parentInviteEmail(name, actionLink)
+        : signInLinkEmail(name, actionLink);
+    await sendEmail({ to: email, subject: template.subject, html: template.html });
+  }
+
+  redirect(buildInfoRedirect("If that email is on an invited account, we sent a fresh sign-in link."));
 }
 
 export async function signInWithYouthPasscode(formData: FormData) {
