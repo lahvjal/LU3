@@ -29,59 +29,49 @@ function buildConfirmLinkFromProperties(
 }
 
 /**
- * Generates a magic link for a given email. Creates the auth user if they
- * don't already exist (type: 'invite'), or generates a login link if they
- * do (type: 'magiclink').
+ * Generates a magic link for a given email. Creates the auth user silently
+ * if they don't exist yet (no Supabase auto-email), then generates a
+ * magiclink OTP for sign-in.
  *
  * Returns the action link URL and the auth user ID (if available).
  */
 export async function generateMagicLink(
   email: string,
 ): Promise<MagicLinkResult> {
-  const admin = createSupabaseAdminClient();
+  const admin = createSupabaseAdminClient() as any;
 
-  const { data, error } = await admin.auth.admin.generateLink({
-    type: "invite",
+  // Create the user if they don't exist yet. email_confirm: true skips
+  // Supabase's built-in confirmation email entirely — we send our own.
+  // Silently swallow "already exists" errors for existing users.
+  let createdUserId: string | null = null;
+  const { data: createData } = await admin.auth.admin.createUser({
     email,
-    options: { redirectTo: REDIRECT_TO },
+    email_confirm: true,
   });
-
-  if (error) {
-    if (
-      error.message?.includes("already been registered") ||
-      error.message?.includes("already exists")
-    ) {
-      const { data: magicData, error: magicError } =
-        await admin.auth.admin.generateLink({
-          type: "magiclink",
-          email,
-          options: { redirectTo: REDIRECT_TO },
-        });
-
-      if (magicError || !magicData?.properties?.action_link) {
-        console.error("[magic-link] magiclink fallback failed:", magicError);
-        return { actionLink: null, userId: magicData?.user?.id ?? null };
-      }
-
-      const confirmLink = buildConfirmLinkFromProperties(magicData.properties);
-      return {
-        actionLink: confirmLink,
-        userId: magicData.user?.id ?? null,
-      };
-    }
-
-    console.error("[magic-link] invite link failed:", error);
-    return { actionLink: null, userId: null };
+  if (createData?.user?.id) {
+    createdUserId = createData.user.id;
   }
 
-  if (!data?.properties?.action_link) {
-    console.error("[magic-link] No action_link in response");
-    return { actionLink: null, userId: data?.user?.id ?? null };
+  // Generate a magiclink for both new and existing users. This does not
+  // send any email — it just returns the link for us to embed in our email.
+  const { data: magicData, error: magicError } =
+    await admin.auth.admin.generateLink({
+      type: "magiclink",
+      email,
+      options: { redirectTo: REDIRECT_TO },
+    });
+
+  if (magicError || !magicData?.properties?.action_link) {
+    console.error("[magic-link] generateLink failed:", magicError);
+    return {
+      actionLink: null,
+      userId: createdUserId ?? magicData?.user?.id ?? null,
+    };
   }
 
-  const confirmLink = buildConfirmLinkFromProperties(data.properties);
+  const confirmLink = buildConfirmLinkFromProperties(magicData.properties);
   return {
     actionLink: confirmLink,
-    userId: data.user?.id ?? null,
+    userId: createdUserId ?? magicData.user?.id ?? null,
   };
 }
