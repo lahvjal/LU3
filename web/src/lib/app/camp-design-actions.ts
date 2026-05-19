@@ -1489,8 +1489,8 @@ export async function deleteDocumentationItemAction(
 export async function inviteLeaderAction(
   input: InviteLeaderInput,
 ): Promise<ActionResult> {
-  const context = await requireStakeAdmin();
-  if (!context) {
+  const context = await getUserContext();
+  if (!context.canManageContent) {
     return fail("You do not have permission to invite leaders.");
   }
 
@@ -1616,9 +1616,9 @@ export async function updateLeaderAction(
     calling?: string;
   },
 ): Promise<ActionResult> {
-  const context = await requireStakeAdmin();
-  if (!context) {
-    return fail("Only stake admins can edit leaders.");
+  const context = await getUserContext();
+  if (!context.canManageContent) {
+    return fail("You do not have permission to edit leaders.");
   }
 
   const supabase = await createSupabaseServerClient();
@@ -1719,8 +1719,8 @@ export async function updateLeaderAction(
 export async function deleteLeaderInvitationAction(
   leaderUserId: string,
 ): Promise<ActionResult> {
-  const context = await requireStakeAdmin();
-  if (!context) {
+  const context = await getUserContext();
+  if (!context.canManageContent) {
     return fail("You do not have permission to delete invitations.");
   }
 
