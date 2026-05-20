@@ -10,7 +10,7 @@ function layout(content: string) {
     <div style="text-align:center;margin-bottom:32px;">
       <span style="font-size:28px;">⛺</span>
       <h1 style="font-size:22px;font-weight:700;color:#e8e0d4;margin:8px 0 0;">LU3 Young Men Camp</h1>
-      <p style="color:#9a8e7f;font-size:13px;margin:4px 0 0;">Lehi Utah 3rd Stake &mdash; June 15&ndash;19, 2026</p>
+      <p style="color:#9a8e7f;font-size:13px;margin:4px 0 0;">Lehi Utah 3rd Stake &mdash; June 29&ndash;July 2, 2026</p>
     </div>
     <div style="background:#231f1a;border:1px solid #3a332b;border-radius:10px;padding:28px 24px;">
       ${content}
@@ -39,7 +39,7 @@ export function youthInviteEmail(camperName: string, magicLinkUrl: string) {
         Hi <strong style="color:#e8e0d4;">${camperName}</strong>,
       </p>
       <p style="color:#9a8e7f;font-size:14px;line-height:1.6;margin:0 0 16px;">
-        You've been invited to join the Lehi Utah 3rd Stake Young Men Camp (June 15&ndash;19, 2026).
+        You've been invited to join the Lehi Utah 3rd Stake Young Men Camp (June 29&ndash;July 2, 2026).
         Click below to set up your profile and get ready for an awesome week!
       </p>
       ${button("Join Camp Tracker", magicLinkUrl)}
@@ -60,7 +60,7 @@ export function parentInviteEmail(parentName: string, magicLinkUrl: string) {
       </p>
       <p style="color:#9a8e7f;font-size:14px;line-height:1.6;margin:0 0 16px;">
         You've been invited to register your young men for the
-        Lehi Utah 3rd Stake Young Men Camp (June 15&ndash;19, 2026).
+        Lehi Utah 3rd Stake Young Men Camp (June 29&ndash;July 2, 2026).
       </p>
       <p style="color:#9a8e7f;font-size:14px;line-height:1.6;margin:0 0 16px;">
         Click below to create your account, add your young men's information,
@@ -128,7 +128,7 @@ export function leaderInviteEmail(recipientName: string | null, role: string, ca
       </p>
       <p style="color:#9a8e7f;font-size:14px;line-height:1.6;margin:0 0 16px;">
         You've been invited to serve as <strong style="color:#d4915e;">${calling}</strong>
-        for the Lehi Utah 3rd Stake Young Men Camp (June 15&ndash;19, 2026).
+        for the Lehi Utah 3rd Stake Young Men Camp (June 29&ndash;July 2, 2026).
       </p>
       <p style="color:#9a8e7f;font-size:14px;line-height:1.6;margin:0 0 16px;">
         Click below to access the camp dashboard and get set up.
