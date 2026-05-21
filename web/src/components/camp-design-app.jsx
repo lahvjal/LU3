@@ -3021,7 +3021,7 @@ const YoungManFormEntry = ({
             {shirtSizes.map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
           </select>
         </Field>
-        <Field label="Youth Passcode (4 digits)" required error={fieldErrors.youthPasscode}>
+        <Field label="Youth Passcode (4 digits)" required error={fieldErrors.youthPasscode} hint="Create a 4-digit code your son will use to sign in at camp. Share it with him before camp starts.">
           <input
             style={fieldStyle(css.input, fieldErrors.youthPasscode)}
             value={entry.youthPasscode}
