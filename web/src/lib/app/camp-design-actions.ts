@@ -1,7 +1,7 @@
 "use server";
 
 import { getUserContext } from "@/lib/auth/user-context";
-import type { AppRole } from "@/lib/auth/user-context";
+import type { AppRole, UserContext } from "@/lib/auth/user-context";
 import { cookies } from "next/headers";
 import { generateMagicLink } from "@/lib/email/magic-link";
 import { YOUTH_SESSION_COOKIE } from "@/lib/auth/youth-session";
@@ -70,6 +70,7 @@ type MealInput = {
 
 const MEAL_TYPES = new Set<string>(["breakfast", "lunch", "dinner"]);
 const DOCUMENTATION_PDF_BUCKET = "documentation-pdfs";
+const CAMP_PHOTOS_BUCKET = "camp-photos";
 
 type CompetitionInput = {
   name: string;
@@ -105,6 +106,15 @@ type DocumentationItemInput = {
   pdfFilename?: string;
   pdfStoragePath?: string;
 };
+
+type CampPhotoInput = {
+  imageUrl: string;
+  storagePath: string;
+};
+
+function todayCapturedOnDate() {
+  return new Date().toISOString().slice(0, 10);
+}
 
 /** Roles that may be invited as camp staff (synced to `user_roles` for leader tools). */
 export type CampStaffRole =
@@ -336,6 +346,22 @@ async function requireStakeAdmin() {
     return null;
   }
   return context;
+}
+
+async function requirePhotoUploader() {
+  const context = await getUserContext();
+  if (context.isLeader || context.isCamper || context.actingAsYouth) {
+    return context;
+  }
+  return null;
+}
+
+async function requirePhotoModerator() {
+  const context = await getUserContext();
+  if (context.isLeader) {
+    return context;
+  }
+  return null;
 }
 
 
@@ -1489,8 +1515,8 @@ export async function deleteDocumentationItemAction(
 export async function inviteLeaderAction(
   input: InviteLeaderInput,
 ): Promise<ActionResult> {
-  const context = await getUserContext();
-  if (!context.canManageContent) {
+  const context = await requireStakeAdmin();
+  if (!context) {
     return fail("You do not have permission to invite leaders.");
   }
 
@@ -1616,9 +1642,9 @@ export async function updateLeaderAction(
     calling?: string;
   },
 ): Promise<ActionResult> {
-  const context = await getUserContext();
-  if (!context.canManageContent) {
-    return fail("You do not have permission to edit leaders.");
+  const context = await requireStakeAdmin();
+  if (!context) {
+    return fail("Only stake admins can edit leaders.");
   }
 
   const supabase = await createSupabaseServerClient();
@@ -1719,8 +1745,8 @@ export async function updateLeaderAction(
 export async function deleteLeaderInvitationAction(
   leaderUserId: string,
 ): Promise<ActionResult> {
-  const context = await getUserContext();
-  if (!context.canManageContent) {
+  const context = await requireStakeAdmin();
+  if (!context) {
     return fail("You do not have permission to delete invitations.");
   }
 
@@ -1868,6 +1894,204 @@ export async function acknowledgeYoungManTransferAction(input: {
 
   if (updateError) {
     return fail(updateError.message);
+  }
+
+  return success();
+}
+
+function buildCampPhotoRows(
+  context: UserContext,
+  inputs: Array<{ imageUrl: string; storagePath: string }>,
+) {
+  const isYouthUpload =
+    context.actingAsYouth || (context.isCamper && !context.isLeader);
+  const status = isYouthUpload ? "pending" : "approved";
+  const reviewedAt = isYouthUpload ? null : new Date().toISOString();
+  const capturedOn = todayCapturedOnDate();
+
+  let youngManId: string | null = null;
+  if (context.actingAsYouth && context.actingYouthId) {
+    youngManId = context.actingYouthId;
+  } else if (context.isCamper) {
+    const youngManRole = context.roles.find((row) => row.role === "young_man");
+    youngManId = youngManRole?.participant_id ?? null;
+  }
+
+  return inputs.map((input) => ({
+    image_url: normalizeAvatarUrl(input.imageUrl)!,
+    storage_path: input.storagePath.trim(),
+    caption: null,
+    captured_on: capturedOn,
+    status,
+    uploaded_by: context.user.id,
+    young_man_id: youngManId,
+    reviewed_by: isYouthUpload ? null : context.user.id,
+    reviewed_at: reviewedAt,
+  }));
+}
+
+export async function createCampPhotosAction(
+  inputs: CampPhotoInput[],
+): Promise<ActionResult> {
+  const context = await requirePhotoUploader();
+  if (!context) {
+    return fail("You do not have permission to upload photos.");
+  }
+
+  if (!inputs?.length) {
+    return fail("Choose at least one photo.");
+  }
+
+  const rows = [];
+  for (const input of inputs) {
+    const imageUrl = normalizeAvatarUrl(input.imageUrl);
+    const storagePath = input.storagePath?.trim() || null;
+    if (!imageUrl || !storagePath) {
+      return fail("One or more uploaded photos are missing.");
+    }
+    rows.push({ imageUrl, storagePath });
+  }
+
+  const supabase = context.actingAsYouth
+    ? createSupabaseAdminClient()
+    : await createSupabaseServerClient();
+  const { error } = await supabase
+    .from("photos")
+    .insert(buildCampPhotoRows(context, rows));
+  if (error) {
+    return fail(error.message);
+  }
+
+  return success();
+}
+
+export async function createCampPhotoAction(
+  input: CampPhotoInput,
+): Promise<ActionResult> {
+  return createCampPhotosAction([input]);
+}
+
+export async function approveCampPhotoAction(
+  photoId: string,
+): Promise<ActionResult> {
+  const context = await requirePhotoModerator();
+  if (!context) {
+    return fail("You do not have permission to approve photos.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase
+    .from("photos")
+    .update({
+      status: "approved",
+      reviewed_by: context.user.id,
+      reviewed_at: new Date().toISOString(),
+    })
+    .eq("id", photoId)
+    .eq("status", "pending");
+
+  if (error) {
+    return fail(error.message);
+  }
+
+  return success();
+}
+
+export async function rejectCampPhotoAction(
+  photoId: string,
+): Promise<ActionResult> {
+  const context = await requirePhotoModerator();
+  if (!context) {
+    return fail("You do not have permission to reject photos.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { data: photo, error: fetchError } = await supabase
+    .from("photos")
+    .select("id, storage_path")
+    .eq("id", photoId)
+    .eq("status", "pending")
+    .maybeSingle();
+
+  if (fetchError) {
+    return fail(fetchError.message);
+  }
+  if (!photo?.id) {
+    return fail("Photo not found or already reviewed.");
+  }
+
+  const { error } = await supabase
+    .from("photos")
+    .update({
+      status: "rejected",
+      reviewed_by: context.user.id,
+      reviewed_at: new Date().toISOString(),
+    })
+    .eq("id", photoId);
+
+  if (error) {
+    return fail(error.message);
+  }
+
+  if (photo.storage_path) {
+    const admin = createSupabaseAdminClient();
+    const { error: storageError } = await admin.storage
+      .from(CAMP_PHOTOS_BUCKET)
+      .remove([photo.storage_path]);
+    if (storageError) {
+      console.error(
+        "[camp-design-actions] Failed to delete rejected camp photo:",
+        storageError,
+      );
+    }
+  }
+
+  return success();
+}
+
+export async function deleteCampPhotoAction(
+  photoId: string,
+): Promise<ActionResult> {
+  const context = await getUserContext();
+  const moderator = await requirePhotoModerator();
+  const supabase = await createSupabaseServerClient();
+
+  const { data: photo, error: fetchError } = await supabase
+    .from("photos")
+    .select("id, storage_path, status, uploaded_by")
+    .eq("id", photoId)
+    .maybeSingle();
+
+  if (fetchError) {
+    return fail(fetchError.message);
+  }
+  if (!photo?.id) {
+    return fail("Photo not found.");
+  }
+
+  const canDelete =
+    !!moderator ||
+    (photo.status === "pending" && photo.uploaded_by === context.user.id);
+  if (!canDelete) {
+    return fail("You do not have permission to delete this photo.");
+  }
+
+  const { error } = await supabase.from("photos").delete().eq("id", photoId);
+  if (error) {
+    return fail(error.message);
+  }
+
+  if (photo.storage_path) {
+    const admin = createSupabaseAdminClient();
+    const { error: storageError } = await admin.storage
+      .from(CAMP_PHOTOS_BUCKET)
+      .remove([photo.storage_path]);
+    if (storageError) {
+      console.error(
+        "[camp-design-actions] Failed to delete camp photo file:",
+        storageError,
+      );
+    }
   }
 
   return success();

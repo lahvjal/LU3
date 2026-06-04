@@ -37,7 +37,11 @@ import {
   addYoungManToAccountAction,
   moveYoungManAction,
   acknowledgeYoungManTransferAction,
+  approveCampPhotoAction,
+  createCampPhotosAction,
+  deleteCampPhotoAction,
   deleteYoungManAction,
+  rejectCampPhotoAction,
   updateParentWardAction,
 } from "@/lib/app/camp-design-actions";
 import { parseTimeLabel, timeLabelSortKey } from "@/lib/app/time-sort";
@@ -99,6 +103,7 @@ const Icon = ({ name, size = 20, color }) => {
     plus: <><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></>,
     x: <><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></>,
     chevRight: <><path d="M9 18l6-6-6-6"/></>,
+    chevLeft: <><path d="M15 18l-6-6 6-6"/></>,
     menu: <><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></>,
     flag: <><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></>,
     check: <><path d="M20 6L9 17l-5-5"/></>,
@@ -422,20 +427,23 @@ const Avatar = ({ name, src, size = 40, fontSize = 13 }) => {
 };
 
 const PROFILE_AVATAR_BUCKET = "profile-avatars";
+const CAMP_PHOTOS_BUCKET = "camp-photos";
 const DOCS_PDF_BUCKET = "documentation-pdfs";
+const MAX_CAMP_PHOTO_DIMENSION = 1200;
+const MAX_CAMP_PHOTO_OUTPUT_BYTES = 1024 * 1024;
 const MAX_AVATAR_FILE_BYTES = 40 * 1024 * 1024;
 const MAX_AVATAR_DIMENSION = 800;
 const MAX_AVATAR_OUTPUT_BYTES = 500 * 1024;
 const MAX_DOC_PDF_FILE_BYTES = 15 * 1024 * 1024;
 
-function parseAvatarObjectPath(avatarUrl) {
-  if (!avatarUrl) {
+function parseStorageObjectPath(url, bucket) {
+  if (!url) {
     return null;
   }
 
   try {
-    const parsed = new URL(avatarUrl);
-    const marker = `/storage/v1/object/public/${PROFILE_AVATAR_BUCKET}/`;
+    const parsed = new URL(url);
+    const marker = `/storage/v1/object/public/${bucket}/`;
     const markerIndex = parsed.pathname.indexOf(marker);
     if (markerIndex === -1) {
       return null;
@@ -445,6 +453,14 @@ function parseAvatarObjectPath(avatarUrl) {
   } catch {
     return null;
   }
+}
+
+function parseAvatarObjectPath(avatarUrl) {
+  return parseStorageObjectPath(avatarUrl, PROFILE_AVATAR_BUCKET);
+}
+
+function parseCampPhotoObjectPath(photoUrl) {
+  return parseStorageObjectPath(photoUrl, CAMP_PHOTOS_BUCKET);
 }
 
 function sanitizeStorageFileName(fileName) {
@@ -457,7 +473,7 @@ function sanitizeStorageFileName(fileName) {
   return normalized || "document.pdf";
 }
 
-async function compressAvatarImage(file) {
+async function compressImageFile(file, maxDimension, maxOutputBytes) {
   const objectUrl = URL.createObjectURL(file);
   try {
     const image = await new Promise((resolve, reject) => {
@@ -470,8 +486,8 @@ async function compressAvatarImage(file) {
     const sourceWidth = image.width || 1;
     const sourceHeight = image.height || 1;
     const longestSide = Math.max(sourceWidth, sourceHeight);
-    const scale = longestSide > MAX_AVATAR_DIMENSION
-      ? MAX_AVATAR_DIMENSION / longestSide
+    const scale = longestSide > maxDimension
+      ? maxDimension / longestSide
       : 1;
     const targetWidth = Math.max(1, Math.round(sourceWidth * scale));
     const targetHeight = Math.max(1, Math.round(sourceHeight * scale));
@@ -495,12 +511,12 @@ async function compressAvatarImage(file) {
       if (!blob) {
         throw new Error("Unable to compress image.");
       }
-      if (blob.size <= MAX_AVATAR_OUTPUT_BYTES) break;
+      if (blob.size <= maxOutputBytes) break;
       quality -= 0.1;
     }
 
-    if (blob && blob.size > MAX_AVATAR_OUTPUT_BYTES) {
-      const reductionFactor = Math.sqrt(MAX_AVATAR_OUTPUT_BYTES / blob.size);
+    if (blob && blob.size > maxOutputBytes) {
+      const reductionFactor = Math.sqrt(maxOutputBytes / blob.size);
       const reducedWidth = Math.max(1, Math.round(targetWidth * reductionFactor));
       const reducedHeight = Math.max(1, Math.round(targetHeight * reductionFactor));
       canvas.width = reducedWidth;
@@ -519,6 +535,14 @@ async function compressAvatarImage(file) {
   } finally {
     URL.revokeObjectURL(objectUrl);
   }
+}
+
+async function compressAvatarImage(file) {
+  return compressImageFile(file, MAX_AVATAR_DIMENSION, MAX_AVATAR_OUTPUT_BYTES);
+}
+
+async function compressCampPhotoImage(file) {
+  return compressImageFile(file, MAX_CAMP_PHOTO_DIMENSION, MAX_CAMP_PHOTO_OUTPUT_BYTES);
 }
 
 const EMPTY_ARRAY = [];
@@ -3650,27 +3674,627 @@ const OnboardingOverlay = ({
   );
 };
 
-const PhotosPage = ({ photos }) => (
-  <div>
-    <PageHeader icon="camera" title="Photo Gallery" subtitle="Camp memories" />
-    {!photos.length ? (
-      <EmptyState icon="camera" message="Photos will appear here during camp!" />
-    ) : (
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: "14px" }}>
-        {photos.map((photo) => (
-          <div key={photo.id} style={{ ...css.card, padding: "0", overflow: "hidden" }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={photo.image_url} alt={photo.caption || "Camp photo"} style={{ width: "100%", height: "170px", objectFit: "cover" }} />
-            <div style={{ padding: "14px" }}>
-              <p style={{ fontSize: "12px", color: T.textDim, margin: 0 }}>{photo.captured_on || "Date not provided"}</p>
-              <p style={{ fontSize: "13px", color: T.text, margin: "8px 0 0" }}>{photo.caption || "No caption provided."}</p>
+const PhotoGalleryLightbox = ({ photos, index, onClose, onNavigate, canDelete, onRequestDelete }) => {
+  const photo = photos[index];
+  const hasMultiple = photos.length > 1;
+
+  useEffect(() => {
+    if (index === null || !photo) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") onClose();
+      if (event.key === "ArrowLeft") onNavigate(-1);
+      if (event.key === "ArrowRight") onNavigate(1);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [index, photo, onClose, onNavigate]);
+
+  if (index === null || !photo) return null;
+
+  const navButtonStyle = {
+    position: "absolute",
+    top: "50%",
+    transform: "translateY(-50%)",
+    background: "rgba(26, 22, 18, 0.75)",
+    border: `1px solid ${T.border}`,
+    borderRadius: "50%",
+    width: 44,
+    height: 44,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+    zIndex: 2,
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 120,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "20px",
+      }}
+    >
+      <div
+        onClick={onClose}
+        style={{
+          position: "absolute",
+          inset: 0,
+          background: "rgba(0,0,0,0.88)",
+          backdropFilter: "blur(6px)",
+        }}
+      />
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close"
+        style={{
+          position: "absolute",
+          top: 16,
+          right: 16,
+          zIndex: 3,
+          background: "rgba(26, 22, 18, 0.75)",
+          border: `1px solid ${T.border}`,
+          borderRadius: "50%",
+          width: 40,
+          height: 40,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          cursor: "pointer",
+        }}
+      >
+        <Icon name="x" size={20} color={T.text} />
+      </button>
+      {hasMultiple ? (
+        <button
+          type="button"
+          aria-label="Previous photo"
+          onClick={(event) => { event.stopPropagation(); onNavigate(-1); }}
+          style={{ ...navButtonStyle, left: 16 }}
+        >
+          <Icon name="chevLeft" size={22} color={T.text} />
+        </button>
+      ) : null}
+      {hasMultiple ? (
+        <button
+          type="button"
+          aria-label="Next photo"
+          onClick={(event) => { event.stopPropagation(); onNavigate(1); }}
+          style={{ ...navButtonStyle, right: 16 }}
+        >
+          <Icon name="chevRight" size={22} color={T.text} />
+        </button>
+      ) : null}
+      <div
+        onClick={(event) => event.stopPropagation()}
+        style={{
+          position: "relative",
+          zIndex: 1,
+          width: "100%",
+          maxWidth: 960,
+          maxHeight: "calc(100vh - 48px)",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+        }}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={photo.image_url}
+          alt={photo.caption || "Camp photo"}
+          style={{
+            maxWidth: "100%",
+            maxHeight: "calc(100vh - 140px)",
+            width: "auto",
+            height: "auto",
+            objectFit: "contain",
+            borderRadius: T.radius,
+            boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
+          }}
+        />
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "16px",
+            width: "100%",
+            marginTop: "14px",
+            flexWrap: "wrap",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            {photo.uploader_name ? (
+              <Avatar name={photo.uploader_name} src={photo.uploader_avatar_url || null} size={36} fontSize={12} />
+            ) : null}
+            <div>
+              {photo.uploader_name ? (
+                <p style={{ color: T.text, fontSize: "14px", fontWeight: 600, margin: 0 }}>{photo.uploader_name}</p>
+              ) : null}
+              <p style={{ color: T.textMuted, fontSize: "12px", margin: photo.uploader_name ? "2px 0 0" : 0 }}>
+                {photo.captured_on ? formatDateLabel(photo.captured_on) : "Date not provided"}
+                {photo.status === "pending" ? " · Awaiting approval" : ""}
+              </p>
             </div>
           </div>
-        ))}
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginLeft: "auto" }}>
+            {hasMultiple ? (
+              <p style={{ color: T.textDim, fontSize: "13px", margin: 0 }}>
+                {index + 1} / {photos.length}
+              </p>
+            ) : null}
+            {canDelete && onRequestDelete ? (
+              <button
+                type="button"
+                onClick={() => onRequestDelete(photo.id)}
+                style={{ ...css.btn("ghost"), padding: "8px 14px", fontSize: "12px", color: T.red }}
+              >
+                <Icon name="trash" size={14} color={T.red} /> Delete
+              </button>
+            ) : null}
+          </div>
+        </div>
       </div>
-    )}
+    </div>
+  );
+};
+
+const PhotoCard = ({ photo, children, onOpen, canDelete, onRequestDelete }) => (
+  <div style={{ ...css.card, padding: "0", overflow: "hidden", position: "relative" }}>
+    {canDelete && onRequestDelete ? (
+      <button
+        type="button"
+        aria-label="Delete photo"
+        onClick={(event) => {
+          event.stopPropagation();
+          onRequestDelete(photo.id);
+        }}
+        style={{
+          position: "absolute",
+          top: 10,
+          right: 10,
+          zIndex: 3,
+          background: "rgba(26, 22, 18, 0.8)",
+          border: `1px solid ${T.border}`,
+          borderRadius: T.radiusSm,
+          padding: "6px 8px",
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Icon name="trash" size={14} color={T.red} />
+      </button>
+    ) : null}
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
+      style={{ position: "relative", cursor: "pointer" }}
+      aria-label={`View photo${photo.uploader_name ? ` by ${photo.uploader_name}` : ""}`}
+    >
+      {photo.status === "pending" ? (
+        <div style={{ position: "absolute", top: 10, left: 10, zIndex: 2, pointerEvents: "none" }}>
+          <Badge bg={T.yellowBg} text={T.yellow}>Awaiting approval</Badge>
+        </div>
+      ) : null}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={photo.image_url} alt={photo.caption || "Camp photo"} style={{ width: "100%", height: "170px", objectFit: "cover", display: "block" }} />
+      {photo.uploader_name ? (
+        <div
+          title={`Uploaded by ${photo.uploader_name}`}
+          style={{
+            position: "absolute",
+            right: 10,
+            bottom: 10,
+            zIndex: 2,
+            borderRadius: "50%",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.45)",
+            border: `2px solid ${T.bgCard}`,
+            background: T.bgCard,
+          }}
+        >
+          <Avatar name={photo.uploader_name} src={photo.uploader_avatar_url || null} size={32} fontSize={11} />
+        </div>
+      ) : null}
+    </div>
+    <div style={{ padding: "14px" }}>
+      <p style={{ fontSize: "12px", color: T.textDim, margin: 0 }}>
+        {photo.captured_on ? formatDateLabel(photo.captured_on) : "Date not provided"}
+      </p>
+      {children}
+    </div>
   </div>
 );
+
+const PhotosPage = ({
+  photos,
+  pendingPhotos,
+  applyResult,
+  canUpload,
+  canModerate,
+  isYouthUploader,
+}) => {
+  const fileInputRef = useRef(null);
+  const [modal, setModal] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(null);
+  const [dragActive, setDragActive] = useState(false);
+  const [busyId, setBusyId] = useState(null);
+  const [lightboxIndex, setLightboxIndex] = useState(null);
+  const [deletePhotoId, setDeletePhotoId] = useState(null);
+
+  const approvedPhotos = photos.filter((photo) => photo.status === "approved");
+  const myPendingPhotos = photos.filter((photo) => photo.status === "pending");
+  const moderationQueue = canModerate
+    ? pendingPhotos.filter((photo) => photo.status === "pending")
+    : [];
+
+  const browsePhotos = useMemo(() => {
+    const seen = new Set();
+    const list = [];
+    for (const photo of [...approvedPhotos, ...myPendingPhotos, ...moderationQueue]) {
+      if (seen.has(photo.id)) continue;
+      seen.add(photo.id);
+      list.push(photo);
+    }
+    return list;
+  }, [approvedPhotos, myPendingPhotos, moderationQueue]);
+
+  useEffect(() => {
+    if (lightboxIndex === null) return;
+    if (!browsePhotos.length) {
+      setLightboxIndex(null);
+    } else if (lightboxIndex >= browsePhotos.length) {
+      setLightboxIndex(browsePhotos.length - 1);
+    }
+  }, [browsePhotos.length, lightboxIndex]);
+
+  const openLightbox = (photoId) => {
+    const index = browsePhotos.findIndex((photo) => photo.id === photoId);
+    if (index >= 0) setLightboxIndex(index);
+  };
+
+  const closeLightbox = () => setLightboxIndex(null);
+
+  const navigateLightbox = (delta) => {
+    if (!browsePhotos.length) return;
+    setLightboxIndex((current) => {
+      if (current === null) return null;
+      return (current + delta + browsePhotos.length) % browsePhotos.length;
+    });
+  };
+
+  const resetFileInput = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const openUpload = () => {
+    resetFileInput();
+    setUploadProgress(null);
+    setModal(true);
+  };
+
+  const closeModal = () => {
+    if (uploading) return;
+    setModal(false);
+    setDragActive(false);
+    resetFileInput();
+    setUploadProgress(null);
+  };
+
+  const filterImageFiles = (fileList) => {
+    const files = Array.from(fileList || []);
+    const images = files.filter((file) => file.type.startsWith("image/"));
+    if (files.length && !images.length) {
+      window.alert("Please choose image files only.");
+      return [];
+    }
+    const oversized = images.find((file) => file.size > MAX_AVATAR_FILE_BYTES);
+    if (oversized) {
+      window.alert("Each image must be smaller than 40MB.");
+      return [];
+    }
+    return images;
+  };
+
+  const cleanupStoragePaths = async (paths) => {
+    if (!paths.length) return;
+    try {
+      const supabase = createSupabaseBrowserClient();
+      await supabase.storage.from(CAMP_PHOTOS_BUCKET).remove(paths);
+    } catch {
+      // best-effort cleanup
+    }
+  };
+
+  const handlePhotoFiles = async (fileList) => {
+    if (uploading) return;
+    const files = filterImageFiles(fileList);
+    if (!files.length) return;
+
+    setUploading(true);
+    setUploadProgress({ done: 0, total: files.length });
+    const uploadedPaths = [];
+    const payloads = [];
+
+    try {
+      const supabase = createSupabaseBrowserClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user?.id) {
+        throw new Error("You must be signed in to upload photos.");
+      }
+
+      for (let index = 0; index < files.length; index += 1) {
+        const file = files[index];
+        setUploadProgress({ done: index, total: files.length });
+
+        const compressed = await compressCampPhotoImage(file);
+        const objectPath = `${user.id}/${Date.now()}-${index}-${Math.random().toString(36).slice(2)}.webp`;
+        const { error: uploadError } = await supabase.storage
+          .from(CAMP_PHOTOS_BUCKET)
+          .upload(objectPath, compressed, { contentType: "image/webp", cacheControl: "3600", upsert: false });
+        if (uploadError) {
+          throw new Error(uploadError.message);
+        }
+
+        uploadedPaths.push(objectPath);
+        const { data: { publicUrl } } = supabase.storage.from(CAMP_PHOTOS_BUCKET).getPublicUrl(objectPath);
+        payloads.push({ imageUrl: publicUrl, storagePath: objectPath });
+      }
+
+      setUploadProgress({ done: files.length, total: files.length });
+      const result = await createCampPhotosAction(payloads);
+      if (!applyResult(result)) {
+        await cleanupStoragePaths(uploadedPaths);
+        return;
+      }
+      closeModal();
+    } catch (error) {
+      await cleanupStoragePaths(uploadedPaths);
+      window.alert(error instanceof Error ? error.message : "Unable to upload photos.");
+    } finally {
+      setUploading(false);
+      setUploadProgress(null);
+    }
+  };
+
+  const moderate = async (photoId, action) => {
+    if (busyId) return;
+    setBusyId(photoId);
+    try {
+      const result =
+        action === "approve"
+          ? await approveCampPhotoAction(photoId)
+          : await rejectCampPhotoAction(photoId);
+      applyResult(result);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const removePending = async (photoId) => {
+    if (busyId) return;
+    setBusyId(photoId);
+    try {
+      applyResult(await deleteCampPhotoAction(photoId));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const requestDeletePhoto = (photoId) => setDeletePhotoId(photoId);
+
+  const confirmDeletePhoto = async () => {
+    if (!deletePhotoId || busyId) return;
+    const photoId = deletePhotoId;
+    setBusyId(photoId);
+    try {
+      const result = await deleteCampPhotoAction(photoId);
+      if (applyResult(result)) {
+        setDeletePhotoId(null);
+      }
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <div>
+      <PageHeader
+        icon="camera"
+        title="Photo Gallery"
+        subtitle="Camp memories"
+        action={canUpload ? (
+          <button type="button" onClick={openUpload} style={css.btn()}>
+            <Icon name="plus" size={16} color="#1a1612" /> Add Photos
+          </button>
+        ) : null}
+      />
+
+      {isYouthUploader ? (
+        <p style={{ fontSize: "13px", color: T.textMuted, margin: "0 0 20px", lineHeight: 1.5 }}>
+          Your uploads are reviewed by camp leaders before they appear in the gallery.
+        </p>
+      ) : null}
+
+      {canModerate && moderationQueue.length ? (
+        <div style={{ marginBottom: "28px" }}>
+          <h3 style={{ color: T.text, fontFamily: T.fontDisplay, fontSize: "18px", margin: "0 0 12px" }}>
+            Pending approval ({moderationQueue.length})
+          </h3>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: "14px" }}>
+            {moderationQueue.map((photo) => (
+              <PhotoCard
+                key={photo.id}
+                photo={photo}
+                onOpen={() => openLightbox(photo.id)}
+                canDelete={canModerate}
+                onRequestDelete={requestDeletePhoto}
+              >
+                <div style={{ display: "flex", gap: "8px", marginTop: "12px", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    disabled={busyId === photo.id}
+                    onClick={() => moderate(photo.id, "approve")}
+                    style={{ ...css.btn("primary"), padding: "6px 12px", fontSize: "12px" }}
+                  >
+                    {busyId === photo.id ? <Spinner size={14} /> : "Approve"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busyId === photo.id}
+                    onClick={() => moderate(photo.id, "reject")}
+                    style={{ ...css.btn("ghost"), padding: "6px 12px", fontSize: "12px", color: T.red }}
+                  >
+                    Reject
+                  </button>
+                </div>
+              </PhotoCard>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {!approvedPhotos.length && !myPendingPhotos.length ? (
+        <EmptyState icon="camera" message="Photos will appear here during camp!" />
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: "14px" }}>
+          {[...approvedPhotos, ...myPendingPhotos].map((photo) => (
+            <PhotoCard
+              key={photo.id}
+              photo={photo}
+              onOpen={() => openLightbox(photo.id)}
+              canDelete={canModerate}
+              onRequestDelete={requestDeletePhoto}
+            >
+              {photo.status === "pending" && !canModerate ? (
+                <button
+                  type="button"
+                  disabled={busyId === photo.id}
+                  onClick={() => removePending(photo.id)}
+                  style={{ ...css.btn("ghost"), marginTop: "12px", padding: "6px 12px", fontSize: "12px", color: T.red }}
+                >
+                  {busyId === photo.id ? <Spinner size={14} color={T.red} /> : "Remove"}
+                </button>
+              ) : null}
+            </PhotoCard>
+          ))}
+        </div>
+      )}
+
+      <PhotoGalleryLightbox
+        photos={browsePhotos}
+        index={lightboxIndex}
+        onClose={closeLightbox}
+        onNavigate={navigateLightbox}
+        canDelete={canModerate}
+        onRequestDelete={requestDeletePhoto}
+      />
+
+      <ConfirmDeleteModal
+        open={!!deletePhotoId}
+        onClose={() => setDeletePhotoId(null)}
+        onConfirm={confirmDeletePhoto}
+        title="Delete photo"
+        message="Remove this photo permanently from the gallery? This cannot be undone."
+      />
+
+      {modal ? (
+        <Modal open={modal} title="Add photos" onClose={closeModal}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            style={{ display: "none" }}
+            onChange={(e) => {
+              const files = e.target.files;
+              if (files?.length) {
+                void handlePhotoFiles(files);
+              }
+            }}
+          />
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => { if (!uploading) fileInputRef.current?.click(); }}
+            onKeyDown={(event) => {
+              if ((event.key === "Enter" || event.key === " ") && !uploading) {
+                event.preventDefault();
+                fileInputRef.current?.click();
+              }
+            }}
+            onDragEnter={(event) => { event.preventDefault(); if (!uploading) setDragActive(true); }}
+            onDragOver={(event) => { event.preventDefault(); if (!uploading) setDragActive(true); }}
+            onDragLeave={(event) => {
+              event.preventDefault();
+              if (event.currentTarget === event.target) setDragActive(false);
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              setDragActive(false);
+              if (!uploading && event.dataTransfer.files?.length) {
+                void handlePhotoFiles(event.dataTransfer.files);
+              }
+            }}
+            style={{
+              border: `1px dashed ${dragActive ? T.accent : T.borderLight}`,
+              borderRadius: T.radius,
+              padding: "32px 20px",
+              textAlign: "center",
+              background: dragActive ? `${T.accent}1A` : T.bg,
+              cursor: uploading ? "not-allowed" : "pointer",
+              opacity: uploading ? 0.65 : 1,
+            }}
+          >
+            {uploading ? (
+              <>
+                <Spinner size={22} />
+                <p style={{ color: T.text, fontSize: "14px", margin: "14px 0 0" }}>
+                  Uploading {uploadProgress ? `${Math.min(uploadProgress.done + 1, uploadProgress.total)} of ${uploadProgress.total}` : "…"}
+                </p>
+              </>
+            ) : (
+              <>
+                <Icon name="camera" size={32} color={T.accent} />
+                <p style={{ color: T.text, fontSize: "14px", margin: "14px 0 6px" }}>
+                  Drop images here or click to choose
+                </p>
+                <p style={{ color: T.textDim, fontSize: "12px", margin: 0 }}>
+                  Select multiple files at once
+                </p>
+              </>
+            )}
+          </div>
+          <p style={{ fontSize: "12px", color: T.textDim, margin: "12px 0 0", lineHeight: 1.5 }}>
+            Images are compressed to WebP. The upload date is saved automatically.
+            {isYouthUploader ? " Leaders will approve your photos before they are shared." : null}
+          </p>
+        </Modal>
+      ) : null}
+    </div>
+  );
+};
 
 const DocsPage = ({ docs, applyResult, canManageContent }) => {
   const fileInputRef = useRef(null);
@@ -4051,6 +4675,9 @@ export default function CampDesignApp({ initialData, profile }) {
   const [inspiration, setInspiration] = useState(() => initialData?.inspiration ?? EMPTY_ARRAY);
   const [rules, setRules] = useState(() => initialData?.rules ?? EMPTY_ARRAY);
   const [photos, setPhotos] = useState(() => initialData?.photos ?? EMPTY_ARRAY);
+  const [pendingPhotos, setPendingPhotos] = useState(
+    () => initialData?.pendingPhotos ?? EMPTY_ARRAY,
+  );
   const [docs, setDocs] = useState(() => initialData?.docs ?? EMPTY_ARRAY);
   const [userProfiles, setUserProfiles] = useState(() => initialData?.userProfiles ?? EMPTY_ARRAY);
   const [leaderCallingOptions, setLeaderCallingOptions] = useState(
@@ -4103,6 +4730,7 @@ export default function CampDesignApp({ initialData, profile }) {
     setInspiration(data.inspiration ?? []);
     setRules(data.rules ?? []);
     setPhotos(data.photos ?? []);
+    setPendingPhotos(data.pendingPhotos ?? []);
     setDocs(data.docs ?? []);
     setUserProfiles(data.userProfiles ?? []);
     setLeaderCallingOptions(data.leaderCallingOptions ?? []);
@@ -4490,7 +5118,23 @@ export default function CampDesignApp({ initialData, profile }) {
       />
     ),
     registration: <RegistrationPage registrations={registrations} applyResult={applyResult} isLeader={isLeader} wards={profileOptions.wards} />,
-    photos: <PhotosPage photos={photos} />,
+    photos: (
+      <PhotosPage
+        photos={photos}
+        pendingPhotos={pendingPhotos}
+        applyResult={applyResult}
+        canUpload={
+          profileData.isLeader ||
+          profileData.isCamper ||
+          profileData.actingAsYouth
+        }
+        canModerate={profileData.isLeader}
+        isYouthUploader={
+          (profileData.isCamper || profileData.actingAsYouth) &&
+          !profileData.isLeader
+        }
+      />
+    ),
     contacts: <ContactsPage contacts={contacts} applyResult={applyResult} isLeader={isLeader} />,
     rules: <RulesPage rules={rules} applyResult={applyResult} isLeader={isLeader} />,
     inspiration: <InspirationPage inspiration={inspiration} />,

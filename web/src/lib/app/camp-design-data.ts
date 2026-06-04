@@ -1,5 +1,6 @@
 import "server-only";
 
+import { getUserContext } from "@/lib/auth/user-context";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type WardRow = {
@@ -128,6 +129,10 @@ type PhotoRow = {
   image_url: string;
   caption: string | null;
   captured_on: string | null;
+  status: "approved" | "pending" | "rejected";
+  uploaded_by: string | null;
+  young_man_id: string | null;
+  storage_path: string | null;
 };
 
 type DocumentationRow = {
@@ -277,6 +282,11 @@ type DesignPhoto = {
   image_url: string;
   caption: string;
   captured_on: string;
+  status: "approved" | "pending" | "rejected";
+  uploaded_by: string | null;
+  uploader_name: string;
+  uploader_avatar_url: string | null;
+  young_man_id: string | null;
 };
 
 type DesignDoc = {
@@ -332,6 +342,7 @@ export type CampDesignInitialData = {
   inspiration: DesignInspiration[];
   rules: string[];
   photos: DesignPhoto[];
+  pendingPhotos: DesignPhoto[];
   docs: DesignDoc[];
   userProfiles: DesignUserProfile[];
   leaderCallingOptions: string[];
@@ -479,9 +490,9 @@ function parseRules(content: string | null) {
 }
 
 export async function getCampDesignInitialData(): Promise<CampDesignInitialData> {
+  const userContext = await getUserContext();
   const supabase = await createSupabaseServerClient();
-  const { data: { user: currentUser } } = await supabase.auth.getUser();
-  const myUserId = currentUser?.id ?? null;
+  const myUserId = userContext.user.id;
 
   const [
     { data: wardRows },
@@ -577,7 +588,9 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
       .limit(1),
     supabase
       .from("photos")
-      .select("id, image_url, caption, captured_on")
+      .select(
+        "id, image_url, caption, captured_on, status, uploaded_by, young_man_id, storage_path",
+      )
       .order("created_at", { ascending: false }),
     supabase
       .from("documentation_pages")
@@ -833,12 +846,68 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
     ref: message.scripture ?? "",
   }));
 
-  const photos: DesignPhoto[] = photosRaw.map((photo) => ({
-    id: photo.id,
-    image_url: photo.image_url,
-    caption: photo.caption ?? "",
-    captured_on: photo.captured_on ?? "",
-  }));
+  const profileNameByUserId = new Map(
+    allProfiles.map((profile) => [
+      profile.user_id,
+      profile.display_name?.trim() ||
+        profile.user_email?.split("@")[0] ||
+        "Camper",
+    ]),
+  );
+  const profileAvatarByUserId = new Map(
+    allProfiles.map((profile) => [profile.user_id, profile.avatar_url ?? null]),
+  );
+  const youngManById = new Map(
+    youngMenRaw.map((ym) => [
+      ym.id,
+      {
+        name: `${ym.first_name} ${ym.last_name}`.trim(),
+        photo_url: ym.photo_url ?? null,
+      },
+    ]),
+  );
+
+  const allPhotos: DesignPhoto[] = photosRaw.map((photo) => {
+    const youngMan = photo.young_man_id
+      ? youngManById.get(photo.young_man_id)
+      : null;
+    const uploader_name = youngMan?.name
+      ? youngMan.name
+      : photo.uploaded_by
+        ? (profileNameByUserId.get(photo.uploaded_by) ?? "Unknown")
+        : "Unknown";
+    const uploader_avatar_url = youngMan?.photo_url
+      ? youngMan.photo_url
+      : photo.uploaded_by
+        ? (profileAvatarByUserId.get(photo.uploaded_by) ?? null)
+        : null;
+
+    return {
+      id: photo.id,
+      image_url: photo.image_url,
+      caption: photo.caption ?? "",
+      captured_on: photo.captured_on ?? "",
+      status: photo.status ?? "approved",
+      uploaded_by: photo.uploaded_by ?? null,
+      uploader_name,
+      uploader_avatar_url,
+      young_man_id: photo.young_man_id ?? null,
+    };
+  });
+
+  const isOwnPendingPhoto = (photo: DesignPhoto) =>
+    photo.status === "pending" &&
+    (photo.uploaded_by === myUserId ||
+      (userContext.actingAsYouth &&
+        userContext.actingYouthId &&
+        photo.young_man_id === userContext.actingYouthId));
+
+  const photos = allPhotos.filter(
+    (photo) => photo.status === "approved" || isOwnPendingPhoto(photo),
+  );
+  const pendingPhotos = userContext.isLeader
+    ? allPhotos.filter((photo) => photo.status === "pending")
+    : allPhotos.filter(isOwnPendingPhoto);
 
   const docs: DesignDoc[] = docsRaw.map((doc) => ({
     id: doc.id,
@@ -942,6 +1011,7 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
     inspiration,
     rules: parseRules(latestRules?.content ?? null),
     photos,
+    pendingPhotos,
     docs,
     userProfiles,
     leaderCallingOptions,
