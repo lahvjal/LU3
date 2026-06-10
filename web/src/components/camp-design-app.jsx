@@ -3762,13 +3762,21 @@ const OnboardingOverlay = ({
     const frame = requestAnimationFrame(() => {
       const overlay = document.querySelector("[data-onboarding-overlay]");
       const firstIssue =
-        overlay?.querySelector('[role="alert"]') ||
-        overlay?.querySelector('[data-field-error="true"]');
+        overlay?.querySelector('[data-field-error="true"]') ||
+        overlay?.querySelector('[role="alert"]');
       firstIssue?.scrollIntoView({ behavior: "smooth", block: "center" });
     });
 
     return () => cancelAnimationFrame(frame);
   }, [attemptedComplete, hasRequiredFields, overlayFieldErrors]);
+
+  const handleFollowupChoice = async (payload) => {
+    setSubmitError(null);
+    const result = await onComplete(payload);
+    if (result?.ok === false) {
+      setSubmitError(result.error || "Could not complete registration. Please try again.");
+    }
+  };
 
   const wrappedComplete = async () => {
     setAttemptedComplete(true);
@@ -3779,6 +3787,11 @@ const OnboardingOverlay = ({
     }
     if (offerParentFollowupPrompt && !shouldShowParentFollowupPrompt) {
       setShowParentFollowupPrompt(true);
+      requestAnimationFrame(() => {
+        document
+          .querySelector("[data-parent-followup-prompt]")
+          ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
       return;
     }
     const result = await onComplete({
@@ -3976,25 +3989,26 @@ const OnboardingOverlay = ({
 
         {shouldShowParentFollowupPrompt ? (
           <div
+            data-parent-followup-prompt
             style={{
               marginTop: "16px",
               padding: "14px",
               borderRadius: T.radiusSm,
-              border: `1px solid ${T.border}`,
-              background: T.bgInput,
+              border: `1px solid ${T.accent}55`,
+              background: `${T.accent}12`,
             }}
           >
             <p style={{ color: T.text, fontSize: "14px", margin: "0 0 10px", fontWeight: 600 }}>
-              Do you have young men attending camp?
+              One more step — do you have young men attending camp?
             </p>
-            <p style={{ color: T.textMuted, fontSize: "12px", margin: "0 0 12px" }}>
-              Choose Yes to continue into parent registration with your info already filled in.
+            <p style={{ color: T.textMuted, fontSize: "12px", margin: "0 0 12px", lineHeight: 1.5 }}>
+              Your profile info is ready. Choose <strong style={{ color: T.text }}>Yes</strong> to register your young men now, or <strong style={{ color: T.text }}>No</strong> to finish leader setup and add them later.
             </p>
             <div style={{ display: "flex", gap: "8px" }}>
               <button
                 type="button"
                 onClick={() => {
-                  onComplete({
+                  void handleFollowupChoice({
                     youngMen: [],
                     signatureName: "",
                     parentSignatureDate: "",
@@ -4005,12 +4019,12 @@ const OnboardingOverlay = ({
                 style={{ ...css.btn("ghost"), flex: 1, justifyContent: "center" }}
                 disabled={completing}
               >
-                No, Finish Setup
+                {completing ? "Saving…" : "No, Finish Setup"}
               </button>
               <button
                 type="button"
                 onClick={() => {
-                  onComplete({
+                  void handleFollowupChoice({
                     youngMen: [],
                     signatureName: "",
                     parentSignatureDate: "",
@@ -4020,10 +4034,16 @@ const OnboardingOverlay = ({
                 style={{ ...css.btn(), flex: 1, justifyContent: "center" }}
                 disabled={completing}
               >
-                Yes, Add Kids
+                {completing ? "Saving…" : "Yes, Add Kids"}
               </button>
             </div>
           </div>
+        ) : null}
+
+        {shouldShowParentFollowupPrompt ? (
+          <p style={{ color: T.textMuted, fontSize: "12px", marginTop: "10px", textAlign: "center" }}>
+            Choose Yes or No above to continue.
+          </p>
         ) : null}
 
         <button type="button" onClick={wrappedComplete} disabled={completing || uploadingAvatar || uploadingYoungManKey !== null || shouldShowParentFollowupPrompt} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "14px", marginTop: "16px", fontSize: "15px", opacity: completing || uploadingAvatar || uploadingYoungManKey !== null || shouldShowParentFollowupPrompt ? 0.55 : 1 }}>
@@ -5319,7 +5339,16 @@ export default function CampDesignApp({ initialData, profile }) {
         }
       }
 
+      const completedAt = new Date().toISOString();
+      const markOnboardingCompleteLocally = () => {
+        setProfileData((previous) => ({
+          ...previous,
+          onboardingCompletedAt: previous.onboardingCompletedAt ?? completedAt,
+        }));
+      };
+
       if (startParentOnboarding && !effectiveParentMode) {
+        markOnboardingCompleteLocally();
         const clearSnoozeResult = await setParentOnboardingSnoozeAction({
           snoozed: false,
         });
@@ -5342,6 +5371,7 @@ export default function CampDesignApp({ initialData, profile }) {
         applyResult(clearSnoozeResult);
       }
 
+      markOnboardingCompleteLocally();
       window.location.href = "/";
       return { ok: true };
     } catch (err) {

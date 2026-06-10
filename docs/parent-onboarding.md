@@ -1,115 +1,61 @@
-# Parent Onboarding and Child Claim Flow
+# Parent Onboarding Flow
 
-This project supports youth without email by letting parents manage registration.
+Parents register young men through an in-app onboarding overlay after signing in with a magic link.
 
 ## Overview
 
-- Youth can exist only as `participants` (no auth account required).
-- Leaders send parent invites by email, linked to a participant.
-- Parent creates/signs into account using same email.
-- Parent claims invites on `/register` and can update registration details for linked children.
+- Leaders add parents from **Registration** (`/registration`) with the parent's email.
+- The leader sends a **Send Invite** email with a magic sign-in link.
+- Parent opens the link, clicks **Continue to Camp** on `/auth/confirm`, then completes the **Complete Registration** overlay (profile, young men, medical release, signatures).
+- Youth without their own email can sign in later using the parent's email plus a 4-digit youth passcode set during parent onboarding.
 
-## Required migration
+## Leader flow
 
-Run:
+1. Sign in with registration management permissions.
+2. Open **Registration** in the sidebar.
+3. Click **Invite Parent**, enter name and email, and save.
+4. Click **Send Invite** (or **Resend**) on the parent row.
+   - If invite email fails, the UI shows an error (check `RESEND_API_KEY` and `SUPABASE_SERVICE_ROLE_KEY` on the server).
+5. Track invite status on the registration list.
 
-- `supabase/migrations/20260414013000_parent_guardian_claims.sql`
-- `supabase/migrations/20260414024000_registration_roster_and_invites.sql`
-- `supabase/migrations/20260414032000_registration_roster_contact_route.sql`
+## Parent flow
 
-## Leader roster + invite flow
+1. Open the invite email and follow the sign-in link.
+2. On `/auth/confirm`, click **Continue to Camp** (required — prevents email scanners from consuming the link).
+3. Complete the onboarding overlay:
+   - Profile photo, name, password, ward
+   - Each young man: photo, DOB, shirt size, medical questions, 4-digit youth passcode
+   - Terms, participant signatures, parent/guardian signature
+4. Click **Complete Registration**.
+5. After success, the app reloads and the overlay closes.
 
-### Preferred (UI, recommended)
+Parents who need to finish later can use **Remind Me Later** if they are leaders adding their own children; a banner on the dashboard prompts them to finish parent registration.
 
-1. Sign in as a role with registration management permissions.
-2. Open `/register`.
-3. Use **Registration List & Invite Actions**:
-   - Add youth to the registration list first.
-   - Mark each roster row contact type:
-     - **Youth has own email**, or
-     - **Parent email contact**.
-   - For each youth row, choose invite target:
-     - **Send to parent** (claim workflow), or
-     - **Send to youth** (direct youth email).
-   - Enter recipient email and send invite.
+## Parent sign-in after onboarding
 
-### SQL alternative
+- **Password:** `/login` → email + password
+- **Magic link:** `/login` → request a new sign-in link if needed
+- **Youth passcode:** `/login` → youth login with parent email, youth name, and 4-digit passcode
 
-```sql
-insert into public.parent_invitations (
-  email,
-  participant_id,
-  notes
-)
-values (
-  lower('parent@example.com'),
-  '<participant_uuid>',
-  'Primary guardian'
-);
-```
+## Required environment variables
 
-`ward_id` is auto-derived from the participant.
-
-For direct youth-email invites:
-
-```sql
-insert into public.registration_invites (
-  participant_id,
-  target_type,
-  recipient_email,
-  notes
-)
-values (
-  '<participant_uuid>',
-  'youth',
-  lower('youth@example.com'),
-  'Direct youth registration invite'
-);
-```
-
-## Parent account flow
-
-1. Parent goes to `/login`.
-2. Uses **Create Parent Account** (or signs in if already created).
-3. Goes to `/register`.
-4. Clicks **Claim My Invites**.
-5. Submits/updates child registration details.
-
-## Leader review flow
-
-- Leaders use `/register` queue to set status:
-  - `pending`
-  - `approved`
-  - `waitlisted`
-  - `declined`
-- Approving a linked registration syncs key fields into `participants`:
-  - `parent_guardian_name`
-  - `parent_guardian_phone`
-  - `medical_notes`
-  - `shirt_size_code`
+| Variable | Purpose |
+|----------|---------|
+| `SUPABASE_SERVICE_ROLE_KEY` | Magic links, parent password on onboarding complete |
+| `RESEND_API_KEY` | Invite and sign-in emails |
+| `NEXT_PUBLIC_APP_URL` | Must match Supabase redirect allowlist (`/auth/callback`, `/auth/confirm`) |
 
 ## Useful checks
 
 ```sql
--- Registration roster
-select roster_id, participant_id, ward_name, quorum_name, status, latest_invite_email
-from public.v_registration_roster
-order by ward_name, last_name, first_name;
-```
+-- Parents pending onboarding
+select user_id, user_email, display_name, invited_at, onboarding_completed_at
+from public.user_profiles
+where role = 'parent'
+order by invited_at desc nulls last;
 
-```sql
--- Pending invites
-select id, email, participant_id, status, invited_at
-from public.parent_invitations
-where status = 'pending'
-order by invited_at desc;
-```
-
-```sql
--- Linked parent-child relationships
-select pgl.id, pg.email, p.first_name, p.last_name, pgl.relationship, pgl.status
-from public.parent_guardian_links pgl
-join public.parent_guardians pg on pg.id = pgl.guardian_id
-join public.participants p on p.id = pgl.participant_id
-order by pg.email, p.last_name, p.first_name;
+-- Young men linked to a parent
+select id, parent_id, first_name, last_name, date_of_birth, shirt_size_code
+from public.young_men
+where parent_id = '<parent_user_uuid>';
 ```

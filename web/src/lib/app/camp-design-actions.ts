@@ -1173,14 +1173,24 @@ export async function sendParentInviteAction(
   }
 
   const { actionLink: parentLink } = await generateMagicLink(profile.user_email);
-  if (parentLink) {
-    const parentName = profile.display_name?.trim() || profile.user_email.split("@")[0] || "Parent";
-    const template = parentInviteEmail(parentName, parentLink);
-    await sendEmail({
-      to: profile.user_email,
-      subject: template.subject,
-      html: template.html,
-    });
+  if (!parentLink) {
+    return fail(
+      "Could not generate a sign-in link. Check SUPABASE_SERVICE_ROLE_KEY and try again.",
+    );
+  }
+
+  const parentName =
+    profile.display_name?.trim() || profile.user_email.split("@")[0] || "Parent";
+  const template = parentInviteEmail(parentName, parentLink);
+  const sent = await sendEmail({
+    to: profile.user_email,
+    subject: template.subject,
+    html: template.html,
+  });
+  if (!sent) {
+    return fail(
+      "The invite link was created but email could not be sent. Check RESEND_API_KEY configuration.",
+    );
   }
 
   const admin = createSupabaseAdminClient() as any;

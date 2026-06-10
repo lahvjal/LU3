@@ -1,5 +1,11 @@
 import { Resend } from "resend";
 
+if (typeof window === "undefined" && !process.env.RESEND_API_KEY) {
+  console.error(
+    "[email] RESEND_API_KEY is not configured — invite and password-reset emails will not be delivered.",
+  );
+}
+
 let resendInstance: Resend | null = null;
 
 function getResend(): Resend | null {
