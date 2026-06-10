@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AppRole } from "@/lib/auth/user-context";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
   ageOnCampReference,
   CAMP_AGE_REFERENCE_YMD,
@@ -229,6 +230,78 @@ export async function completeOnboardingProfileInDb(
     } catch (err) {
       console.error("[onboarding] failed to sync young_men_captain user_role:", err);
     }
+  }
+
+  return { ok: true };
+}
+
+async function setUserPasswordInDb(
+  userId: string,
+  password: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const trimmed = password.trim();
+  if (trimmed.length < 8) {
+    return { ok: false, error: "Password must be at least 8 characters." };
+  }
+
+  const admin = createSupabaseAdminClient();
+  const { error } = await admin.auth.admin.updateUserById(userId, {
+    password: trimmed,
+  });
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+
+  return { ok: true };
+}
+
+/**
+ * Parent onboarding: set password, save profile, save young men.
+ * Rolls back onboarding_completed_at if young men fail to save.
+ */
+export async function completeParentOnboardingInDb(
+  supabase: SupabaseClient,
+  userId: string,
+  userEmail: string | null | undefined,
+  input: {
+    password?: string;
+    skipPassword?: boolean;
+    profile: OnboardingProfileBody;
+    youngMen: YoungManPayload[];
+  },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!input.skipPassword) {
+    const passwordResult = await setUserPasswordInDb(userId, input.password ?? "");
+    if (!passwordResult.ok) {
+      return passwordResult;
+    }
+  }
+
+  const profileResult = await completeOnboardingProfileInDb(
+    supabase,
+    userId,
+    userEmail,
+    input.profile,
+  );
+  if (!profileResult.ok) {
+    return profileResult;
+  }
+
+  if (input.youngMen.length === 0) {
+    return { ok: true };
+  }
+
+  const youngMenResult = await insertParentYoungMenInDb(
+    supabase,
+    userId,
+    input.youngMen,
+  );
+  if (!youngMenResult.ok) {
+    await supabase
+      .from("user_profiles")
+      .update({ onboarding_completed_at: null })
+      .eq("user_id", userId);
+    return youngMenResult;
   }
 
   return { ok: true };

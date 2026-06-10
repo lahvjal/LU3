@@ -392,7 +392,9 @@ export async function updateMyProfileAction(
   const shouldCompleteOnboarding = input.markOnboardingComplete === true;
 
   const displayName =
-    (typeof input.displayName === "string" ? input.displayName : context.displayName).trim();
+    (typeof input.displayName === "string" && input.displayName.trim()
+      ? input.displayName
+      : context.displayName).trim();
   if (!displayName) {
     return fail("Display name is required.");
   }
@@ -1261,6 +1263,55 @@ export async function updateParentWardAction(
 
   if (error) {
     return fail(error.message);
+  }
+
+  return success();
+}
+
+export async function updateYoungManShirtSizeAction(input: {
+  youngManId: string;
+  shirtSizeCode: string | null;
+}): Promise<ActionResult> {
+  const context = await getUserContext();
+  if (!context.canManageRegistrations) {
+    return fail("You do not have permission to update young men.");
+  }
+
+  const shirtSizeCode = input.shirtSizeCode?.trim() || null;
+  const admin = createSupabaseAdminClient() as any;
+
+  if (shirtSizeCode) {
+    const { data: sizeRow, error: sizeErr } = await admin
+      .from("shirt_sizes")
+      .select("code")
+      .eq("code", shirtSizeCode)
+      .maybeSingle();
+
+    if (sizeErr) {
+      return fail(sizeErr.message);
+    }
+    if (!sizeRow?.code) {
+      return fail("Invalid shirt size. Please pick a size from the list.");
+    }
+  }
+
+  const { data: ym, error: fetchError } = await admin
+    .from("young_men")
+    .select("id")
+    .eq("id", input.youngManId)
+    .maybeSingle();
+
+  if (fetchError || !ym?.id) {
+    return fail(fetchError?.message ?? "Young man not found.");
+  }
+
+  const { error: updateError } = await admin
+    .from("young_men")
+    .update({ shirt_size_code: shirtSizeCode })
+    .eq("id", input.youngManId);
+
+  if (updateError) {
+    return fail(updateError.message);
   }
 
   return success();

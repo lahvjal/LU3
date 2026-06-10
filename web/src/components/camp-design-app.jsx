@@ -41,6 +41,7 @@ import {
   createCampPhotosAction,
   deleteCampPhotoAction,
   deleteYoungManAction,
+  updateYoungManShirtSizeAction,
   rejectCampPhotoAction,
   updateParentWardAction,
 } from "@/lib/app/camp-design-actions";
@@ -111,6 +112,7 @@ const Icon = ({ name, size = 20, color }) => {
     edit: <><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></>,
     user: <><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></>,
     logOut: <><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></>,
+    shirt: <><path d="M6 3l3-2 3 2 3-1 2 3v15H4V5l2-2z"/><path d="M9 3v3M15 3v3"/></>,
   };
   return <svg viewBox="0 0 24 24" style={s} xmlns="http://www.w3.org/2000/svg">{P[name] || P.star}</svg>;
 };
@@ -232,6 +234,7 @@ const NAV = [
   { section: "Leadership" },
   { key: "wards", label: "Wards", icon: "flag", leaderOnly: true },
   { key: "registration", label: "Registration", icon: "clipboard", leaderOnly: true },
+  { key: "shirtSizes", label: "Shirt Order", icon: "shirt", leaderOnly: true },
   { key: "leaders", label: "Leaders", icon: "star", leaderOnly: true },
   { key: "inspiration", label: "Daily Inspiration", icon: "sun", leaderOnly: true },
   { key: "meals", label: "Meals", icon: "utensils", leaderOnly: true },
@@ -245,6 +248,7 @@ const PAGE_TO_PATH = {
   wards: "/wards",
   competitions: "/competitions",
   registration: "/registration",
+  shirtSizes: "/shirt-order",
   photos: "/photos",
   contacts: "/contacts",
   rules: "/rules",
@@ -266,7 +270,7 @@ const YOUTH_ALLOWED_PAGES = new Set([
   "inspiration",
 ]);
 
-const LEADER_ONLY_PAGE_KEYS = new Set(["wards", "registration", "leaders", "inspiration", "meals"]);
+const LEADER_ONLY_PAGE_KEYS = new Set(["wards", "registration", "shirtSizes", "leaders", "inspiration", "meals"]);
 
 function isLeaderOnlyPageKey(key) {
   return LEADER_ONLY_PAGE_KEYS.has(key);
@@ -291,6 +295,7 @@ function resolvePageFromPathname(pathname) {
   if (pathname.startsWith("/documentation")) return "docs";
   if (pathname.startsWith("/profile")) return "profile";
   if (pathname.startsWith("/registration")) return "registration";
+  if (pathname.startsWith("/shirt-order")) return "shirtSizes";
 
   return "dashboard";
 }
@@ -366,7 +371,7 @@ function hasFirstAndLastName(value) {
 }
 
 const Field = ({ label, children, required, error, hint }) => (
-  <div style={{ marginBottom: "16px" }}>
+  <div style={{ marginBottom: "16px" }} data-field-error={error ? "true" : undefined}>
     <label style={css.label}>
       {label}
       {required ? <span style={{ color: T.red }} aria-hidden="true"> *</span> : null}
@@ -551,6 +556,14 @@ const EMPTY_PROFILE_OPTIONS = {
   wards: [],
   quorums: [],
   shirtSizes: [],
+};
+const EMPTY_SHIRT_ORDER = {
+  totals: [],
+  totalRegistered: 0,
+  totalWithSize: 0,
+  totalMissing: 0,
+  missing: [],
+  byWard: [],
 };
 
 const NOTE_EDITOR_LINE_HEIGHT = 1.45;
@@ -1928,13 +1941,283 @@ const MoveYoungManModal = ({ open, onClose, youngManId, youngManName, currentPar
   );
 };
 
-const RegistrationPage = ({ registrations, applyResult, isLeader, wards }) => {
+function formatShirtOrderSummary(totals, totalWithSize) {
+  const lines = totals
+    .filter((row) => row.count > 0)
+    .map((row) => `${row.label}: ${row.count}`);
+  lines.push("", `Total shirts: ${totalWithSize}`);
+  return lines.join("\n");
+}
+
+function formatShirtOrderCsv(totals, totalWithSize) {
+  const escape = (value) => `"${String(value).replace(/"/g, '""')}"`;
+  const rows = [
+    ["Size Code", "Size Label", "Order Size", "Quantity"],
+    ...totals.map((row) => [row.code, row.label, row.orderSize, String(row.count)]),
+    ["", "", "TOTAL", String(totalWithSize)],
+  ];
+  return rows.map((row) => row.map(escape).join(",")).join("\n");
+}
+
+const ShirtOrderTable = ({ totals, totalWithSize, compact = false }) => (
+  <div style={{ overflowX: "auto" }}>
+    <table
+      style={{
+        width: "100%",
+        borderCollapse: "collapse",
+        fontSize: compact ? "12px" : "14px",
+      }}
+    >
+      <thead>
+        <tr style={{ borderBottom: `2px solid ${T.border}` }}>
+          {["Size", "Label", "Qty"].map((heading) => (
+            <th
+              key={heading}
+              style={{
+                padding: compact ? "8px 10px" : "11px 14px",
+                textAlign: heading === "Qty" ? "right" : "left",
+                color: T.textMuted,
+                fontSize: "11px",
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+                fontWeight: 600,
+              }}
+            >
+              {heading}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {totals.map((row) => (
+          <tr
+            key={row.code}
+            style={{
+              borderBottom: `1px solid ${T.border}33`,
+              background: row.count > 0 ? `${T.accent}08` : "transparent",
+            }}
+          >
+            <td style={{ padding: compact ? "8px 10px" : "11px 14px", color: T.text, fontWeight: 700, fontFamily: "monospace" }}>
+              {row.orderSize}
+            </td>
+            <td style={{ padding: compact ? "8px 10px" : "11px 14px", color: T.textMuted }}>
+              {row.label}
+            </td>
+            <td
+              style={{
+                padding: compact ? "8px 10px" : "11px 14px",
+                textAlign: "right",
+                color: row.count > 0 ? T.accent : T.textDim,
+                fontWeight: row.count > 0 ? 700 : 400,
+                fontFamily: "monospace",
+              }}
+            >
+              {row.count}
+            </td>
+          </tr>
+        ))}
+        <tr style={{ borderTop: `2px solid ${T.border}`, background: `${T.accent}12` }}>
+          <td colSpan={2} style={{ padding: compact ? "8px 10px" : "11px 14px", color: T.text, fontWeight: 700 }}>
+            Total shirts
+          </td>
+          <td style={{ padding: compact ? "8px 10px" : "11px 14px", textAlign: "right", color: T.accent, fontWeight: 800, fontFamily: "monospace" }}>
+            {totalWithSize}
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+);
+
+const ShirtSizesPage = ({ shirtOrder, isLeader }) => {
+  const [copyState, setCopyState] = useState(null);
+  const [expandedWards, setExpandedWards] = useState({});
+
+  if (!isLeader) {
+    return <EmptyState icon="shirt" message="Leader access is required to view shirt order totals." />;
+  }
+
+  const copySummary = async () => {
+    const text = formatShirtOrderSummary(shirtOrder.totals, shirtOrder.totalWithSize);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyState("summary");
+      window.setTimeout(() => setCopyState(null), 2000);
+    } catch {
+      window.alert("Could not copy to clipboard.");
+    }
+  };
+
+  const copyCsv = async () => {
+    const text = formatShirtOrderCsv(shirtOrder.totals, shirtOrder.totalWithSize);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyState("csv");
+      window.setTimeout(() => setCopyState(null), 2000);
+    } catch {
+      window.alert("Could not copy to clipboard.");
+    }
+  };
+
+  const toggleWard = (wardId) => {
+    setExpandedWards((previous) => ({ ...previous, [wardId]: !previous[wardId] }));
+  };
+
+  return (
+    <div>
+      <PageHeader
+        icon="shirt"
+        title="Shirt Order"
+        subtitle={`${shirtOrder.totalWithSize} shirts across ${shirtOrder.totalRegistered} registered young men`}
+        action={
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+            <button type="button" onClick={copySummary} style={css.btn("ghost")}>
+              {copyState === "summary" ? "Copied!" : "Copy Summary"}
+            </button>
+            <button type="button" onClick={copyCsv} style={css.btn()}>
+              {copyState === "csv" ? "Copied!" : "Copy CSV"}
+            </button>
+          </div>
+        }
+      />
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "12px", marginBottom: "20px" }}>
+        {[
+          { label: "Registered", value: shirtOrder.totalRegistered, color: T.blue },
+          { label: "With size", value: shirtOrder.totalWithSize, color: T.green },
+          { label: "Missing size", value: shirtOrder.totalMissing, color: shirtOrder.totalMissing > 0 ? T.yellow : T.textDim },
+        ].map((stat) => (
+          <div key={stat.label} style={{ ...css.card, padding: "16px 18px" }}>
+            <div style={{ fontSize: "11px", fontWeight: 600, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "6px" }}>
+              {stat.label}
+            </div>
+            <div style={{ fontFamily: T.fontDisplay, fontSize: "28px", fontWeight: 700, color: stat.color }}>
+              {stat.value}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {shirtOrder.totalRegistered === 0 ? (
+        <EmptyState icon="shirt" message="No young men registered yet. Sizes will appear here as parents complete registration." />
+      ) : (
+        <>
+          <div style={{ ...css.card, padding: 0, overflow: "hidden", marginBottom: "20px" }}>
+            <div style={{ padding: "16px 18px", borderBottom: `1px solid ${T.border}` }}>
+              <h2 style={{ fontFamily: T.fontDisplay, fontSize: "18px", color: T.text, margin: 0 }}>Order totals</h2>
+              <p style={{ color: T.textMuted, fontSize: "13px", margin: "6px 0 0", lineHeight: 1.5 }}>
+                Counts for the whole stake. Use Copy Summary or Copy CSV when placing the shirt order.
+              </p>
+            </div>
+            <div style={{ padding: "8px 4px 4px" }}>
+              <ShirtOrderTable totals={shirtOrder.totals} totalWithSize={shirtOrder.totalWithSize} />
+            </div>
+          </div>
+
+          {shirtOrder.totalMissing > 0 ? (
+            <div style={{ ...css.card, borderLeft: `3px solid ${T.yellow}`, marginBottom: "20px" }}>
+              <h2 style={{ fontFamily: T.fontDisplay, fontSize: "18px", color: T.text, margin: "0 0 8px" }}>
+                Missing sizes ({shirtOrder.totalMissing})
+              </h2>
+              <p style={{ color: T.textMuted, fontSize: "13px", margin: "0 0 14px", lineHeight: 1.5 }}>
+                Follow up on Registration to collect a size for each camper below.
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                {shirtOrder.missing.map((camper) => (
+                  <div
+                    key={camper.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: "12px",
+                      padding: "10px 12px",
+                      borderRadius: T.radiusSm,
+                      background: T.bgInput,
+                      border: `1px solid ${T.border}`,
+                    }}
+                  >
+                    <div>
+                      <div style={{ color: T.text, fontWeight: 600, fontSize: "14px" }}>{camper.name}</div>
+                      <div style={{ color: T.textMuted, fontSize: "12px", marginTop: "2px" }}>
+                        Age {camper.age} · {camper.wardName}
+                      </div>
+                    </div>
+                    <Badge bg={T.yellowBg} text={T.yellow}>No size</Badge>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {shirtOrder.byWard.length > 0 ? (
+            <div style={{ ...css.card, padding: 0, overflow: "hidden" }}>
+              <div style={{ padding: "16px 18px", borderBottom: `1px solid ${T.border}` }}>
+                <h2 style={{ fontFamily: T.fontDisplay, fontSize: "18px", color: T.text, margin: 0 }}>By ward</h2>
+                <p style={{ color: T.textMuted, fontSize: "13px", margin: "6px 0 0", lineHeight: 1.5 }}>
+                  Expand a ward to see its size breakdown.
+                </p>
+              </div>
+              <div>
+                {shirtOrder.byWard.map((ward) => {
+                  const isExpanded = !!expandedWards[ward.wardId || "__unassigned"];
+                  const wardKey = ward.wardId || "__unassigned";
+                  return (
+                    <div key={wardKey} style={{ borderBottom: `1px solid ${T.border}33` }}>
+                      <button
+                        type="button"
+                        onClick={() => toggleWard(wardKey)}
+                        style={{
+                          width: "100%",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "12px",
+                          padding: "14px 18px",
+                          background: "none",
+                          border: "none",
+                          cursor: "pointer",
+                          textAlign: "left",
+                        }}
+                      >
+                        <MealWardLabel name={ward.wardName} color={ward.wardColor} />
+                        <span style={{ color: T.textMuted, fontSize: "12px" }}>
+                          {ward.totalWithSize} shirts
+                          {ward.missing.length > 0 ? ` · ${ward.missing.length} missing` : ""}
+                        </span>
+                        <div style={{ marginLeft: "auto", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>
+                          <Icon name="chevRight" size={16} color={T.textDim} />
+                        </div>
+                      </button>
+                      {isExpanded ? (
+                        <div style={{ padding: "0 18px 16px 36px" }}>
+                          <ShirtOrderTable totals={ward.totals} totalWithSize={ward.totalWithSize} compact />
+                          {ward.missing.length > 0 ? (
+                            <p style={{ color: T.yellow, fontSize: "12px", margin: "12px 0 0", lineHeight: 1.5 }}>
+                              Missing: {ward.missing.map((camper) => camper.name).join(", ")}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+        </>
+      )}
+    </div>
+  );
+};
+
+const RegistrationPage = ({ registrations, applyResult, isLeader, wards, shirtSizes }) => {
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ parentName: "", parentEmail: "" });
   const [formErrors, setFormErrors] = useState({});
   const [expanded, setExpanded] = useState({});
   const [sending, setSending] = useState({});
   const [saving, setSaving] = useState(false);
+  const [savingShirtSize, setSavingShirtSize] = useState({});
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [deleteYmConfirm, setDeleteYmConfirm] = useState(null); // { id, name }
   const [moveYmModal, setMoveYmModal] = useState(null); // { youngManId, youngManName, currentParentId }
@@ -2002,6 +2285,19 @@ const RegistrationPage = ({ registrations, applyResult, isLeader, wards }) => {
       }
     } finally {
       setSavingParentWard(false);
+    }
+  };
+
+  const saveShirtSize = async (youngManId, shirtSizeCode) => {
+    setSavingShirtSize((previous) => ({ ...previous, [youngManId]: true }));
+    try {
+      const result = await updateYoungManShirtSizeAction({
+        youngManId,
+        shirtSizeCode: shirtSizeCode || null,
+      });
+      applyResult(result);
+    } finally {
+      setSavingShirtSize((previous) => ({ ...previous, [youngManId]: false }));
     }
   };
 
@@ -2143,7 +2439,30 @@ const RegistrationPage = ({ registrations, applyResult, isLeader, wards }) => {
                             <span style={{ marginLeft: "8px", fontSize: "10px", color: T.yellow, background: `${T.yellow}20`, padding: "1px 6px", borderRadius: "8px" }}>Pending ack</span>
                           ) : null}
                         </div>
-                        {ym.shirtSize && <span style={{ color: T.textMuted, fontSize: "11px" }}>Shirt: {ym.shirtSize}</span>}
+                        {isLeader ? (
+                          <select
+                            value={ym.shirtSizeCode || ""}
+                            onChange={(event) => saveShirtSize(ym.id, event.target.value)}
+                            disabled={!!savingShirtSize[ym.id]}
+                            style={{
+                              ...css.select,
+                              fontSize: "11px",
+                              padding: "4px 8px",
+                              minWidth: "110px",
+                              opacity: savingShirtSize[ym.id] ? 0.6 : 1,
+                            }}
+                            title="Edit shirt size"
+                          >
+                            <option value="">No size</option>
+                            {(shirtSizes ?? []).map((size) => (
+                              <option key={size.code} value={size.code}>
+                                {size.label}
+                              </option>
+                            ))}
+                          </select>
+                        ) : ym.shirtSize ? (
+                          <span style={{ color: T.textMuted, fontSize: "11px" }}>Shirt: {ym.shirtSize}</span>
+                        ) : null}
                         {ym.medicalSummary && ym.medicalSummary !== "—" ? (
                           <span style={{ color: T.yellow, fontSize: "11px" }} title={ym.medicalSummary}>{ym.medicalSummary}</span>
                         ) : null}
@@ -3218,6 +3537,7 @@ const OnboardingOverlay = ({
   const [signatureName, setSignatureName] = useState("");
   const [parentSignatureDate, setParentSignatureDate] = useState(() => ymdTodayLocal());
   const [attemptedComplete, setAttemptedComplete] = useState(false);
+  const [submitError, setSubmitError] = useState(null);
   const [showParentFollowupPrompt, setShowParentFollowupPrompt] = useState(false);
   const shouldShowParentFollowupPrompt =
     showParentFollowupPrompt && offerParentFollowupPrompt && !isParent;
@@ -3434,27 +3754,67 @@ const OnboardingOverlay = ({
     showPasswordField,
   ]);
 
-  const wrappedComplete = () => {
+  useEffect(() => {
+    if (!attemptedComplete || hasRequiredFields) {
+      return undefined;
+    }
+
+    const frame = requestAnimationFrame(() => {
+      const overlay = document.querySelector("[data-onboarding-overlay]");
+      const firstIssue =
+        overlay?.querySelector('[role="alert"]') ||
+        overlay?.querySelector('[data-field-error="true"]');
+      firstIssue?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [attemptedComplete, hasRequiredFields, overlayFieldErrors]);
+
+  const wrappedComplete = async () => {
     setAttemptedComplete(true);
-    if (!hasRequiredFields) return;
+    setSubmitError(null);
+    if (!hasRequiredFields) {
+      setSubmitError("Please fix the highlighted fields below.");
+      return;
+    }
     if (offerParentFollowupPrompt && !shouldShowParentFollowupPrompt) {
       setShowParentFollowupPrompt(true);
       return;
     }
-    onComplete({
+    const result = await onComplete({
       youngMen: showYoungMen ? youngMen : [],
       signatureName: showTerms ? signatureName : "",
       parentSignatureDate: showTerms ? parentSignatureDate : "",
     });
+    if (result?.ok === false) {
+      setSubmitError(result.error || "Could not complete registration. Please try again.");
+    }
   };
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 140, background: "rgba(0,0,0,0.82)", backdropFilter: "blur(5px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}>
-      <div style={{ width: "100%", maxWidth: "720px", maxHeight: "90vh", overflowY: "auto", ...css.card, border: `1px solid ${T.borderLight}` }}>
+      <div data-onboarding-overlay style={{ width: "100%", maxWidth: "720px", maxHeight: "90vh", overflowY: "auto", ...css.card, border: `1px solid ${T.borderLight}` }}>
         <div style={{ marginBottom: "20px" }}>
           <h2 style={{ color: T.text, fontFamily: T.fontDisplay, fontSize: "30px", margin: 0 }}>{copy.title}</h2>
           <p style={{ color: T.textMuted, marginTop: "8px", fontSize: "14px", lineHeight: 1.6 }}>{copy.subtitle}</p>
         </div>
+
+        {submitError ? (
+          <div
+            role="alert"
+            style={{
+              ...css.card,
+              marginBottom: "16px",
+              background: T.redBg,
+              borderColor: T.red,
+              color: "#f2c0b8",
+              fontSize: "13px",
+              lineHeight: 1.5,
+            }}
+          >
+            {submitError}
+          </div>
+        ) : null}
 
         <div style={{ display: "flex", alignItems: "center", gap: "16px", marginBottom: "16px" }}>
           <Avatar name={form.displayName || "You"} src={avatarUrl || null} size={64} fontSize={22} />
@@ -3571,7 +3931,7 @@ const OnboardingOverlay = ({
                 >
                   <p style={{ fontSize: "12px", fontWeight: 700, color: T.accent, margin: "0 0 10px" }}>{labelName}</p>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-                    <Field label="Participant\u2019s signature (type full name)" required error={overlayFieldErrors.youngMen[i]?.participantSignatureName}>
+                    <Field label="Participant's signature (type full name)" required error={overlayFieldErrors.youngMen[i]?.participantSignatureName}>
                       <input
                         style={fieldStyle(css.input, overlayFieldErrors.youngMen[i]?.participantSignatureName)}
                         value={ym.participantSignatureName}
@@ -3594,7 +3954,7 @@ const OnboardingOverlay = ({
 
             <h4 style={{ fontFamily: T.fontDisplay, fontSize: "15px", color: T.text, margin: "18px 0 10px" }}>Parent / guardian</h4>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-              <Field label="Parent or guardian\u2019s signature (type full name)" required error={overlayFieldErrors.signatureName}>
+              <Field label="Parent or guardian's signature (type full name)" required error={overlayFieldErrors.signatureName}>
                 <input
                   style={{ ...fieldStyle(css.input, overlayFieldErrors.signatureName), fontFamily: "'Playfair Display', serif", fontSize: "18px", fontStyle: "italic" }}
                   value={signatureName}
@@ -3666,7 +4026,7 @@ const OnboardingOverlay = ({
           </div>
         ) : null}
 
-        <button type="button" onClick={wrappedComplete} disabled={!hasRequiredFields || completing || uploadingAvatar || uploadingYoungManKey !== null || shouldShowParentFollowupPrompt} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "14px", marginTop: "16px", fontSize: "15px", opacity: !hasRequiredFields || completing || uploadingAvatar || uploadingYoungManKey !== null || shouldShowParentFollowupPrompt ? 0.55 : 1 }}>
+        <button type="button" onClick={wrappedComplete} disabled={completing || uploadingAvatar || uploadingYoungManKey !== null || shouldShowParentFollowupPrompt} style={{ ...css.btn(), width: "100%", justifyContent: "center", padding: "14px", marginTop: "16px", fontSize: "15px", opacity: completing || uploadingAvatar || uploadingYoungManKey !== null || shouldShowParentFollowupPrompt ? 0.55 : 1 }}>
           {completing ? "Completing Registration..." : isParent ? "Complete Registration" : "Complete Setup"}
         </button>
       </div>
@@ -4686,6 +5046,9 @@ export default function CampDesignApp({ initialData, profile }) {
   const [profileOptions, setProfileOptions] = useState(
     () => initialData?.profileOptions ?? EMPTY_PROFILE_OPTIONS,
   );
+  const [shirtOrder, setShirtOrder] = useState(
+    () => initialData?.shirtOrder ?? EMPTY_SHIRT_ORDER,
+  );
   const defaultProfile = {
     userId: "",
     email: "Unknown",
@@ -4735,6 +5098,7 @@ export default function CampDesignApp({ initialData, profile }) {
     setUserProfiles(data.userProfiles ?? []);
     setLeaderCallingOptions(data.leaderCallingOptions ?? []);
     setProfileOptions(data.profileOptions ?? EMPTY_PROFILE_OPTIONS);
+    setShirtOrder(data.shirtOrder ?? EMPTY_SHIRT_ORDER);
   };
 
   const applyResult = (result) => {
@@ -4833,8 +5197,34 @@ export default function CampDesignApp({ initialData, profile }) {
     }
   };
 
+  const mapYoungMenPayload = (rows) =>
+    rows.map((ym) => ({
+      firstName: ym.firstName,
+      lastName: ym.lastName,
+      dateOfBirth: ym.dateOfBirth,
+      shirtSizeCode: ym.shirtSizeCode,
+      youthPasscode: ym.youthPasscode,
+      photoUrl: ym.photoUrl,
+      specialDietRequired: ym.specialDietRequired,
+      specialDietExplanation: ym.specialDietExplanation,
+      hasAllergies: ym.hasAllergies,
+      allergiesDetail: ym.allergiesDetail,
+      medications: ym.medications,
+      selfAdministerMedication: ym.selfAdministerMedication,
+      chronicIllness: ym.chronicIllness,
+      chronicIllnessExplanation: ym.chronicIllnessExplanation,
+      surgerySeriousIllnessPastYear: ym.surgerySeriousIllnessPastYear,
+      surgerySeriousIllnessExplanation: ym.surgerySeriousIllnessExplanation,
+      activityLimitsRestrictions: ym.activityLimitsRestrictions,
+      otherAccommodations: ym.otherAccommodations,
+      participantSignatureName: ym.participantSignatureName,
+      participantSignatureDate: ym.participantSignatureDate,
+    }));
+
   const handleCompleteOnboarding = async (extraData) => {
-    if (completingOnboarding) return;
+    if (completingOnboarding) {
+      return { ok: false, error: "Registration is already submitting." };
+    }
 
     const invType = profileData.inviteType || (profileData.isCamper ? "youth" : null);
     const isParent = invType === "parent";
@@ -4850,25 +5240,16 @@ export default function CampDesignApp({ initialData, profile }) {
       onboardingForm.wardId;
 
     if (!hasRequiredValues) {
-      window.alert(
-        parentFollowupMode
+      return {
+        ok: false,
+        error: parentFollowupMode
           ? "Please fill out all required fields, including a profile photo."
           : "Please fill out all required fields, including a profile photo. Password must be at least 8 characters.",
-      );
-      return;
+      };
     }
 
     setCompletingOnboarding(true);
     try {
-      if (!parentFollowupMode) {
-        const supabase = createSupabaseBrowserClient();
-        const { error: passwordError } = await supabase.auth.updateUser({ password });
-        if (passwordError) {
-          window.alert(passwordError.message || "Unable to set password.");
-          return;
-        }
-      }
-
       const completeProfileBody = {
         displayName: onboardingForm.displayName,
         avatarUrl: profileData.avatarUrl ?? "",
@@ -4884,90 +5265,57 @@ export default function CampDesignApp({ initialData, profile }) {
             : undefined,
       };
 
-      if (effectiveParentMode) {
-        const shirtSizeByCode = new Map(
-          (profileOptions?.shirtSizes ?? []).map((s) => [s.code, s.label]),
-        );
-        console.log("[parent onboarding] POST /api/onboarding/complete-profile body:", {
-          ...completeProfileBody,
-        });
-        console.log(
-          "[parent onboarding] shirt size dropdown options (verify codes match DB):",
-          (profileOptions?.shirtSizes ?? []).map((s) => ({ code: s.code, label: s.label })),
-        );
-        if (extraData?.youngMen?.length) {
-          console.log(
-            "[parent onboarding] young men raw form rows (before POST /api/onboarding/parent-young-men):",
-            extraData.youngMen.map((ym, i) => ({
-              index: i,
-              firstName: ym.firstName,
-              lastName: ym.lastName,
-              dateOfBirth: ym.dateOfBirth,
-              shirtSizeCode: ym.shirtSizeCode,
-              shirtSizeLabel: shirtSizeByCode.get(ym.shirtSizeCode) ?? "(no match in profileOptions — check code)",
-              photoUrl: ym.photoUrl,
-              participantSignatureDate: ym.participantSignatureDate,
-            })),
-          );
-        }
-      }
-
-      const profileRes = await fetch("/api/onboarding/complete-profile", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(completeProfileBody),
-      });
-      const profileJson = await profileRes.json().catch(() => ({}));
-      if (!profileRes.ok || !profileJson.ok) {
-        window.alert(
-          profileJson.error ||
-            (profileRes.status === 401
-              ? "Your session expired. Please sign in again."
-              : "Could not complete registration. Please try again."),
-        );
-        return;
-      }
-
       if (effectiveParentMode && extraData?.youngMen?.length) {
-        const youngMenPayload = extraData.youngMen.map((ym) => ({
-          firstName: ym.firstName,
-          lastName: ym.lastName,
-          dateOfBirth: ym.dateOfBirth,
-          shirtSizeCode: ym.shirtSizeCode,
-          youthPasscode: ym.youthPasscode,
-          photoUrl: ym.photoUrl,
-          specialDietRequired: ym.specialDietRequired,
-          specialDietExplanation: ym.specialDietExplanation,
-          hasAllergies: ym.hasAllergies,
-          allergiesDetail: ym.allergiesDetail,
-          medications: ym.medications,
-          selfAdministerMedication: ym.selfAdministerMedication,
-          chronicIllness: ym.chronicIllness,
-          chronicIllnessExplanation: ym.chronicIllnessExplanation,
-          surgerySeriousIllnessPastYear: ym.surgerySeriousIllnessPastYear,
-          surgerySeriousIllnessExplanation: ym.surgerySeriousIllnessExplanation,
-          activityLimitsRestrictions: ym.activityLimitsRestrictions,
-          otherAccommodations: ym.otherAccommodations,
-          participantSignatureName: ym.participantSignatureName,
-          participantSignatureDate: ym.participantSignatureDate,
-        }));
-        console.log(
-          "[parent onboarding] POST /api/onboarding/parent-young-men JSON body:",
-          JSON.stringify({ youngMen: youngMenPayload }, null, 2),
-        );
-        const ymRes = await fetch("/api/onboarding/parent-young-men", {
+        const parentRes = await fetch("/api/onboarding/complete-parent", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ youngMen: youngMenPayload }),
+          body: JSON.stringify({
+            password: parentFollowupMode ? undefined : password,
+            skipPassword: parentFollowupMode,
+            profile: completeProfileBody,
+            youngMen: mapYoungMenPayload(extraData.youngMen),
+          }),
         });
-        const ymJson = await ymRes.json().catch(() => ({}));
-        if (!ymRes.ok || !ymJson.ok) {
-          window.alert(
-            `${ymJson.error || "Could not save young men."}\n\nYour profile was saved. Refresh the page or contact support if this keeps happening.`,
-          );
-          return;
+        const parentJson = await parentRes.json().catch(() => ({}));
+        if (!parentRes.ok || !parentJson.ok) {
+          return {
+            ok: false,
+            error:
+              parentJson.error ||
+              (parentRes.status === 401
+                ? "Your session expired. Please sign in again."
+                : "Could not complete registration. Please try again."),
+          };
+        }
+      } else {
+        if (!parentFollowupMode) {
+          const supabase = createSupabaseBrowserClient();
+          const { error: passwordError } = await supabase.auth.updateUser({ password });
+          if (passwordError) {
+            return {
+              ok: false,
+              error: passwordError.message || "Unable to set password.",
+            };
+          }
+        }
+
+        const profileRes = await fetch("/api/onboarding/complete-profile", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(completeProfileBody),
+        });
+        const profileJson = await profileRes.json().catch(() => ({}));
+        if (!profileRes.ok || !profileJson.ok) {
+          return {
+            ok: false,
+            error:
+              profileJson.error ||
+              (profileRes.status === 401
+                ? "Your session expired. Please sign in again."
+                : "Could not complete registration. Please try again."),
+          };
         }
       }
 
@@ -4977,7 +5325,7 @@ export default function CampDesignApp({ initialData, profile }) {
         });
         applyResult(clearSnoozeResult);
         setParentFollowupMode(true);
-        return;
+        return { ok: true };
       }
 
       if (snoozeParentOnboarding && !effectiveParentMode) {
@@ -4995,8 +5343,12 @@ export default function CampDesignApp({ initialData, profile }) {
       }
 
       window.location.href = "/";
+      return { ok: true };
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : "Something went wrong.");
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : "Something went wrong.",
+      };
     } finally {
       setCompletingOnboarding(false);
     }
@@ -5117,7 +5469,8 @@ export default function CampDesignApp({ initialData, profile }) {
         }
       />
     ),
-    registration: <RegistrationPage registrations={registrations} applyResult={applyResult} isLeader={isLeader} wards={profileOptions.wards} />,
+    registration: <RegistrationPage registrations={registrations} applyResult={applyResult} isLeader={isLeader} wards={profileOptions.wards} shirtSizes={profileOptions.shirtSizes} />,
+    shirtSizes: <ShirtSizesPage shirtOrder={shirtOrder} isLeader={isLeader} />,
     photos: (
       <PhotosPage
         photos={photos}
