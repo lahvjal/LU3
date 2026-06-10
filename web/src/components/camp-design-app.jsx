@@ -52,6 +52,7 @@ import {
   parseYmd,
 } from "@/lib/camp-age";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { useOnboardingSessionKeepAlive } from "@/lib/auth/onboarding-session-keepalive";
 
 // ─── Design Tokens ───
 const T = {
@@ -263,10 +264,14 @@ const YOUTH_ALLOWED_PAGES = new Set([
   "dashboard",
   "activities",
   "agenda",
-  "meals",
+  "wardRosters",
+  "competitions",
   "photos",
   "contacts",
   "rules",
+  "docs",
+  "profile",
+  "meals",
   "inspiration",
 ]);
 
@@ -5159,6 +5164,10 @@ export default function CampDesignApp({ initialData, profile }) {
       setPage(routePage);
     }
   }, [pathname, page, profileData.actingAsYouth, profileData.isLeader, router]);
+
+  useOnboardingSessionKeepAlive(
+    !profileData.onboardingCompletedAt || parentFollowupMode,
+  );
 
 
   const goToPage = (nextPage) => {
