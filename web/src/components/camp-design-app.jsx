@@ -42,7 +42,6 @@ import {
   deleteCampPhotoAction,
   deleteYoungManAction,
   updateYoungManShirtSizeAction,
-  updateLeaderShirtSizeAction,
   rejectCampPhotoAction,
   updateParentWardAction,
 } from "@/lib/app/camp-design-actions";
@@ -2109,96 +2108,33 @@ const ShirtOrderTable = ({ totals, totalWithSize, compact = false }) => (
   </div>
 );
 
-const shirtOrderCamperDetail = (camper) => {
-  if (camper.kind === "leader") {
-    return `${camper.roleLabel || "Leader"} · ${camper.wardName}`;
-  }
-  return `Young man · Age ${camper.age} · ${camper.wardName}`;
-};
-
-const MissingShirtSizeList = ({ campers, shirtSizes, applyResult, compact = false }) => {
-  const [savingIds, setSavingIds] = useState({});
-
-  const saveSize = async (camper, shirtSizeCode) => {
-    if (savingIds[camper.id]) return;
-    setSavingIds((previous) => ({ ...previous, [camper.id]: true }));
-    try {
-      const result =
-        camper.kind === "leader"
-          ? await updateLeaderShirtSizeAction({
-              leaderUserId: camper.id,
-              shirtSizeCode: shirtSizeCode || null,
-            })
-          : await updateYoungManShirtSizeAction({
-              youngManId: camper.id,
-              shirtSizeCode: shirtSizeCode || null,
-            });
-      applyResult(result);
-    } finally {
-      setSavingIds((previous) => {
-        const next = { ...previous };
-        delete next[camper.id];
-        return next;
-      });
-    }
-  };
-
+const MissingShirtSizeNames = ({ campers }) => {
   if (!campers.length) return null;
 
   return (
-    <div
+    <ul
       style={{
-        marginTop: compact ? "12px" : 0,
-        padding: compact ? "12px 14px" : "14px 16px",
+        margin: "10px 0 0",
+        padding: "12px 14px 12px 32px",
         borderRadius: T.radiusSm,
         background: T.yellowBg,
         border: `1px solid ${T.yellow}44`,
+        color: T.text,
+        fontSize: "13px",
+        lineHeight: 1.6,
       }}
     >
-      <div style={{ color: T.yellow, fontWeight: 700, fontSize: compact ? "12px" : "13px", marginBottom: "10px" }}>
-        No shirt size selected ({campers.length})
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-        {campers.map((camper) => (
-          <div
-            key={`${camper.kind}-${camper.id}`}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: "12px",
-              padding: compact ? "8px 10px" : "10px 12px",
-              borderRadius: T.radiusSm,
-              background: T.bgInput,
-              border: `1px solid ${T.border}`,
-              flexWrap: "wrap",
-            }}
-          >
-            <div style={{ flex: "1 1 180px", minWidth: 0 }}>
-              <div style={{ color: T.text, fontWeight: 600, fontSize: compact ? "13px" : "14px" }}>{camper.name}</div>
-              <div style={{ color: T.textMuted, fontSize: "12px", marginTop: "2px" }}>{shirtOrderCamperDetail(camper)}</div>
-            </div>
-            <select
-              value=""
-              disabled={!!savingIds[camper.id]}
-              onChange={(event) => saveSize(camper, event.target.value)}
-              style={{ ...css.select, minWidth: "140px", opacity: savingIds[camper.id] ? 0.7 : 1 }}
-            >
-              <option value="">{savingIds[camper.id] ? "Saving…" : "Assign size…"}</option>
-              {(shirtSizes ?? []).map((size) => (
-                <option key={size.code} value={size.code}>{size.label}</option>
-              ))}
-            </select>
-          </div>
-        ))}
-      </div>
-    </div>
+      {campers.map((camper) => (
+        <li key={`${camper.kind}-${camper.id}`}>{camper.name}</li>
+      ))}
+    </ul>
   );
 };
 
-const ShirtSizesPage = ({ shirtOrder, shirtSizes, applyResult, isLeader }) => {
+const ShirtSizesPage = ({ shirtOrder, isLeader }) => {
   const [copyState, setCopyState] = useState(null);
   const [expandedWards, setExpandedWards] = useState({});
+  const [expandedMissing, setExpandedMissing] = useState({});
 
   if (!isLeader) {
     return <EmptyState icon="shirt" message="Leader access is required to view shirt order totals." />;
@@ -2228,6 +2164,10 @@ const ShirtSizesPage = ({ shirtOrder, shirtSizes, applyResult, isLeader }) => {
 
   const toggleWard = (wardId) => {
     setExpandedWards((previous) => ({ ...previous, [wardId]: !previous[wardId] }));
+  };
+
+  const toggleMissing = (wardId) => {
+    setExpandedMissing((previous) => ({ ...previous, [wardId]: !previous[wardId] }));
   };
 
   return (
@@ -2281,33 +2221,18 @@ const ShirtSizesPage = ({ shirtOrder, shirtSizes, applyResult, isLeader }) => {
             </div>
           </div>
 
-          {shirtOrder.totalMissing > 0 ? (
-            <div style={{ ...css.card, borderLeft: `3px solid ${T.yellow}`, marginBottom: "20px" }}>
-              <h2 style={{ fontFamily: T.fontDisplay, fontSize: "18px", color: T.text, margin: "0 0 8px" }}>
-                Missing sizes ({shirtOrder.totalMissing})
-              </h2>
-              <p style={{ color: T.textMuted, fontSize: "13px", margin: "0 0 14px", lineHeight: 1.5 }}>
-                Assign a size below, or follow up on Registration for young men and ask leaders to set their size.
-              </p>
-              <MissingShirtSizeList
-                campers={shirtOrder.missing}
-                shirtSizes={shirtSizes}
-                applyResult={applyResult}
-              />
-            </div>
-          ) : null}
-
           {shirtOrder.byWard.length > 0 ? (
             <div style={{ ...css.card, padding: 0, overflow: "hidden" }}>
               <div style={{ padding: "16px 18px", borderBottom: `1px solid ${T.border}` }}>
                 <h2 style={{ fontFamily: T.fontDisplay, fontSize: "18px", color: T.text, margin: 0 }}>By ward</h2>
                 <p style={{ color: T.textMuted, fontSize: "13px", margin: "6px 0 0", lineHeight: 1.5 }}>
-                  Includes young men and active leaders. Shirt counts only include people with a size selected. Expand a ward to see its size breakdown.
+                  Includes young men and active leaders. Expand a ward to see its size breakdown and anyone without a size.
                 </p>
               </div>
               <div>
                 {shirtOrder.byWard.map((ward) => {
                   const isExpanded = !!expandedWards[ward.wardId || "__unassigned"];
+                  const isMissingExpanded = !!expandedMissing[ward.wardId || "__unassigned"];
                   const wardKey = ward.wardId || "__unassigned";
                   return (
                     <div key={wardKey} style={{ borderBottom: `1px solid ${T.border}33` }}>
@@ -2337,19 +2262,37 @@ const ShirtSizesPage = ({ shirtOrder, shirtSizes, applyResult, isLeader }) => {
                           <Icon name="chevRight" size={16} color={T.textDim} />
                         </div>
                       </button>
-                      {ward.missing.length > 0 ? (
-                        <div style={{ padding: "0 18px 14px 36px" }}>
-                          <MissingShirtSizeList
-                            campers={ward.missing}
-                            shirtSizes={shirtSizes}
-                            applyResult={applyResult}
-                            compact
-                          />
-                        </div>
-                      ) : null}
                       {isExpanded ? (
                         <div style={{ padding: "0 18px 16px 36px" }}>
                           <ShirtOrderTable totals={ward.totals} totalWithSize={ward.totalWithSize} compact />
+                          {ward.missing.length > 0 ? (
+                            <div style={{ marginTop: "16px" }}>
+                              <button
+                                type="button"
+                                onClick={() => toggleMissing(wardKey)}
+                                style={{
+                                  width: "100%",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "10px",
+                                  padding: "10px 12px",
+                                  background: T.yellowBg,
+                                  border: `1px solid ${T.yellow}44`,
+                                  borderRadius: T.radiusSm,
+                                  cursor: "pointer",
+                                  textAlign: "left",
+                                }}
+                              >
+                                <span style={{ color: T.yellow, fontWeight: 700, fontSize: "13px" }}>
+                                  No shirt size ({ward.missing.length})
+                                </span>
+                                <div style={{ marginLeft: "auto", transform: isMissingExpanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>
+                                  <Icon name="chevRight" size={14} color={T.yellow} />
+                                </div>
+                              </button>
+                              {isMissingExpanded ? <MissingShirtSizeNames campers={ward.missing} /> : null}
+                            </div>
+                          ) : null}
                         </div>
                       ) : null}
                     </div>
@@ -5658,7 +5601,7 @@ export default function CampDesignApp({ initialData, profile }) {
       />
     ),
     registration: <RegistrationPage registrations={registrations} applyResult={applyResult} isLeader={isLeader} wards={profileOptions.wards} shirtSizes={profileOptions.shirtSizes} />,
-    shirtSizes: <ShirtSizesPage shirtOrder={shirtOrder} shirtSizes={profileOptions.shirtSizes} applyResult={applyResult} isLeader={isLeader} />,
+    shirtSizes: <ShirtSizesPage shirtOrder={shirtOrder} isLeader={isLeader} />,
     photos: (
       <PhotosPage
         photos={photos}
