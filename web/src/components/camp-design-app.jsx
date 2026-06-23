@@ -42,6 +42,7 @@ import {
   deleteCampPhotoAction,
   deleteYoungManAction,
   updateYoungManShirtSizeAction,
+  updateLeaderShirtSizeAction,
   rejectCampPhotoAction,
   updateParentWardAction,
 } from "@/lib/app/camp-design-actions";
@@ -828,7 +829,16 @@ const AgendaPage = ({ agenda, applyResult, isLeader }) => {
     setFormErrors(e);
     return Object.keys(e).length === 0;
   };
-  const items = agenda[activeDate] || [];
+  const items = useMemo(
+    () =>
+      [...(agenda[activeDate] || [])].sort((a, b) => {
+        const ta = timeLabelSortKey(a.time);
+        const tb = timeLabelSortKey(b.time);
+        if (ta !== tb) return ta - tb;
+        return a.item.localeCompare(b.item);
+      }),
+    [agenda, activeDate],
+  );
   const openCreate = () => { setEditItem(null); setForm({ ...emptyForm, date: activeDate || todayDateStr() }); setFormErrors({}); setModal(true); };
   const openEdit = (a) => { setEditItem(a); setForm({ date: a.date, time: a.time, item: a.item, location: a.location }); setFormErrors({}); setModal(true); };
   const closeModal = () => { setModal(false); setEditItem(null); setFormErrors({}); };
@@ -1687,6 +1697,8 @@ const CompetitionsPage = ({
 };
 
 const WardRostersPage = ({ wards, leaders }) => {
+  const [expandedWards, setExpandedWards] = useState({});
+
   const leadersByWard = useMemo(() => {
     const map = {};
     (leaders || []).forEach(l => {
@@ -1701,6 +1713,10 @@ const WardRostersPage = ({ wards, leaders }) => {
   const totalYoungMen = wards.reduce((sum, w) => sum + w.campers.length, 0);
   const totalLeaders = Object.values(leadersByWard).reduce((sum, arr) => sum + arr.length, 0);
 
+  const toggleWard = (wardId) => {
+    setExpandedWards((previous) => ({ ...previous, [wardId]: !previous[wardId] }));
+  };
+
   return (
     <div>
       <PageHeader icon="users" title="Ward Rosters" subtitle={`${wards.length} wards · ${totalLeaders} leaders · ${totalYoungMen} young men`} />
@@ -1712,44 +1728,67 @@ const WardRostersPage = ({ wards, leaders }) => {
             const wardColor = ward.color || T.accent;
             const wardLeaders = leadersByWard[ward.id] || [];
             const memberCount = wardLeaders.length + ward.campers.length;
+            const isExpanded = !!expandedWards[ward.id];
             return (
-              <div key={ward.id} style={{ ...css.card, padding: 0, borderLeft: `3px solid ${wardColor}` }}>
-                <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: "12px" }}>
+              <div key={ward.id} style={{ ...css.card, padding: 0, borderLeft: `3px solid ${wardColor}`, overflow: "hidden" }}>
+                <button
+                  type="button"
+                  onClick={() => toggleWard(ward.id)}
+                  style={{
+                    width: "100%",
+                    padding: "16px 20px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "12px",
+                    background: "none",
+                    border: "none",
+                    borderBottom: isExpanded ? `1px solid ${T.border}` : "none",
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                >
                   <div style={{ width: "12px", height: "12px", borderRadius: "50%", background: wardColor, flexShrink: 0 }} />
                   <div style={{ flex: 1 }}>
                     <h3 style={{ fontFamily: T.fontDisplay, fontSize: "17px", color: T.text, margin: 0 }}>{ward.name}</h3>
                   </div>
                   <Badge bg={`${wardColor}22`} text={wardColor}>{memberCount} {memberCount === 1 ? "member" : "members"}</Badge>
-                </div>
-                {wardLeaders.length > 0 && (
-                  <div style={{ padding: "10px 20px", borderBottom: `1px solid ${T.border}`, background: "rgba(255,255,255,0.015)" }}>
-                    <p style={{ fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em", color: T.textDim, fontWeight: 600, margin: "0 0 6px" }}>Leaders ({wardLeaders.length})</p>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                      {wardLeaders.map(l => (
-                        <div key={l.id} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "6px 0" }}>
-                          <Avatar name={l.name} src={l.avatar_url || null} size={28} fontSize={11} />
-                          <span style={{ color: T.text, fontSize: "13px", fontWeight: 600 }}>{l.name}</span>
-                          {l.role_label && <span style={{ color: T.textMuted, fontSize: "12px" }}>{l.role_label}</span>}
+                  <div style={{ transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>
+                    <Icon name="chevRight" size={16} color={T.textDim} />
+                  </div>
+                </button>
+                {isExpanded ? (
+                  <>
+                    {wardLeaders.length > 0 && (
+                      <div style={{ padding: "10px 20px", borderBottom: `1px solid ${T.border}`, background: "rgba(255,255,255,0.015)" }}>
+                        <p style={{ fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em", color: T.textDim, fontWeight: 600, margin: "0 0 6px" }}>Leaders ({wardLeaders.length})</p>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                          {wardLeaders.map(l => (
+                            <div key={l.id} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "6px 0" }}>
+                              <Avatar name={l.name} src={l.avatar_url || null} size={28} fontSize={11} />
+                              <span style={{ color: T.text, fontSize: "13px", fontWeight: 600 }}>{l.name}</span>
+                              {l.role_label && <span style={{ color: T.textMuted, fontSize: "12px" }}>{l.role_label}</span>}
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {ward.campers.length > 0 ? (
-                  <div style={{ padding: "0" }}>
-                    <div style={{ padding: "10px 20px 4px" }}>
-                      <p style={{ fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em", color: T.textDim, fontWeight: 600, margin: 0 }}>Young Men ({ward.campers.length})</p>
-                    </div>
-                    {ward.campers.map((camper, ci) => (
-                      <div key={camper.id} style={{ padding: "6px 20px", display: "flex", alignItems: "center", gap: "10px", borderBottom: ci < ward.campers.length - 1 ? `1px solid ${T.border}22` : "none" }}>
-                        <Avatar name={camper.name} src={camper.photo_url || null} size={28} fontSize={11} />
-                        <span style={{ color: T.text, fontSize: "13px" }}>{camper.name}</span>
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p style={{ padding: "16px 20px", color: T.textDim, fontSize: "13px" }}>No young men registered yet.</p>
-                )}
+                    )}
+                    {ward.campers.length > 0 ? (
+                      <div style={{ padding: "0" }}>
+                        <div style={{ padding: "10px 20px 4px" }}>
+                          <p style={{ fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em", color: T.textDim, fontWeight: 600, margin: 0 }}>Young Men ({ward.campers.length})</p>
+                        </div>
+                        {ward.campers.map((camper, ci) => (
+                          <div key={camper.id} style={{ padding: "6px 20px", display: "flex", alignItems: "center", gap: "10px", borderBottom: ci < ward.campers.length - 1 ? `1px solid ${T.border}22` : "none" }}>
+                            <Avatar name={camper.name} src={camper.photo_url || null} size={28} fontSize={11} />
+                            <span style={{ color: T.text, fontSize: "13px" }}>{camper.name}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p style={{ padding: "16px 20px", color: T.textDim, fontSize: "13px" }}>No young men registered yet.</p>
+                    )}
+                  </>
+                ) : null}
               </div>
             );
           })}
@@ -2034,7 +2073,94 @@ const ShirtOrderTable = ({ totals, totalWithSize, compact = false }) => (
   </div>
 );
 
-const ShirtSizesPage = ({ shirtOrder, isLeader }) => {
+const shirtOrderCamperDetail = (camper) => {
+  if (camper.kind === "leader") {
+    return `${camper.roleLabel || "Leader"} · ${camper.wardName}`;
+  }
+  return `Young man · Age ${camper.age} · ${camper.wardName}`;
+};
+
+const MissingShirtSizeList = ({ campers, shirtSizes, applyResult, compact = false }) => {
+  const [savingIds, setSavingIds] = useState({});
+
+  const saveSize = async (camper, shirtSizeCode) => {
+    if (savingIds[camper.id]) return;
+    setSavingIds((previous) => ({ ...previous, [camper.id]: true }));
+    try {
+      const result =
+        camper.kind === "leader"
+          ? await updateLeaderShirtSizeAction({
+              leaderUserId: camper.id,
+              shirtSizeCode: shirtSizeCode || null,
+            })
+          : await updateYoungManShirtSizeAction({
+              youngManId: camper.id,
+              shirtSizeCode: shirtSizeCode || null,
+            });
+      applyResult(result);
+    } finally {
+      setSavingIds((previous) => {
+        const next = { ...previous };
+        delete next[camper.id];
+        return next;
+      });
+    }
+  };
+
+  if (!campers.length) return null;
+
+  return (
+    <div
+      style={{
+        marginTop: compact ? "12px" : 0,
+        padding: compact ? "12px 14px" : "14px 16px",
+        borderRadius: T.radiusSm,
+        background: T.yellowBg,
+        border: `1px solid ${T.yellow}44`,
+      }}
+    >
+      <div style={{ color: T.yellow, fontWeight: 700, fontSize: compact ? "12px" : "13px", marginBottom: "10px" }}>
+        No shirt size selected ({campers.length})
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+        {campers.map((camper) => (
+          <div
+            key={`${camper.kind}-${camper.id}`}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "12px",
+              padding: compact ? "8px 10px" : "10px 12px",
+              borderRadius: T.radiusSm,
+              background: T.bgInput,
+              border: `1px solid ${T.border}`,
+              flexWrap: "wrap",
+            }}
+          >
+            <div style={{ flex: "1 1 180px", minWidth: 0 }}>
+              <div style={{ color: T.text, fontWeight: 600, fontSize: compact ? "13px" : "14px" }}>{camper.name}</div>
+              <div style={{ color: T.textMuted, fontSize: "12px", marginTop: "2px" }}>{shirtOrderCamperDetail(camper)}</div>
+            </div>
+            <select
+              value=""
+              disabled={!!savingIds[camper.id]}
+              onChange={(event) => saveSize(camper, event.target.value)}
+              style={{ ...css.select, minWidth: "140px", opacity: savingIds[camper.id] ? 0.7 : 1 }}
+            >
+              <option value="">{savingIds[camper.id] ? "Saving…" : "Assign size…"}</option>
+              {(shirtSizes ?? []).map((size) => (
+                <option key={size.code} value={size.code}>{size.label}</option>
+              ))}
+            </select>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const ShirtSizesPage = ({ shirtOrder, shirtSizes, applyResult, isLeader }) => {
   const [copyState, setCopyState] = useState(null);
   const [expandedWards, setExpandedWards] = useState({});
 
@@ -2073,7 +2199,7 @@ const ShirtSizesPage = ({ shirtOrder, isLeader }) => {
       <PageHeader
         icon="shirt"
         title="Shirt Order"
-        subtitle={`${shirtOrder.totalWithSize} shirts across ${shirtOrder.totalRegistered} registered young men`}
+        subtitle={`${shirtOrder.totalWithSize} shirts sized · ${shirtOrder.totalRegistered} young men and leaders registered`}
         action={
           <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
             <button type="button" onClick={copySummary} style={css.btn("ghost")}>
@@ -2104,7 +2230,7 @@ const ShirtSizesPage = ({ shirtOrder, isLeader }) => {
       </div>
 
       {shirtOrder.totalRegistered === 0 ? (
-        <EmptyState icon="shirt" message="No young men registered yet. Sizes will appear here as parents complete registration." />
+        <EmptyState icon="shirt" message="No young men or leaders registered yet. Sizes will appear here as registration completes." />
       ) : (
         <>
           <div style={{ ...css.card, padding: 0, overflow: "hidden", marginBottom: "20px" }}>
@@ -2125,33 +2251,13 @@ const ShirtSizesPage = ({ shirtOrder, isLeader }) => {
                 Missing sizes ({shirtOrder.totalMissing})
               </h2>
               <p style={{ color: T.textMuted, fontSize: "13px", margin: "0 0 14px", lineHeight: 1.5 }}>
-                Follow up on Registration to collect a size for each camper below.
+                Assign a size below, or follow up on Registration for young men and ask leaders to set their size.
               </p>
-              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                {shirtOrder.missing.map((camper) => (
-                  <div
-                    key={camper.id}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: "12px",
-                      padding: "10px 12px",
-                      borderRadius: T.radiusSm,
-                      background: T.bgInput,
-                      border: `1px solid ${T.border}`,
-                    }}
-                  >
-                    <div>
-                      <div style={{ color: T.text, fontWeight: 600, fontSize: "14px" }}>{camper.name}</div>
-                      <div style={{ color: T.textMuted, fontSize: "12px", marginTop: "2px" }}>
-                        Age {camper.age} · {camper.wardName}
-                      </div>
-                    </div>
-                    <Badge bg={T.yellowBg} text={T.yellow}>No size</Badge>
-                  </div>
-                ))}
-              </div>
+              <MissingShirtSizeList
+                campers={shirtOrder.missing}
+                shirtSizes={shirtSizes}
+                applyResult={applyResult}
+              />
             </div>
           ) : null}
 
@@ -2160,7 +2266,7 @@ const ShirtSizesPage = ({ shirtOrder, isLeader }) => {
               <div style={{ padding: "16px 18px", borderBottom: `1px solid ${T.border}` }}>
                 <h2 style={{ fontFamily: T.fontDisplay, fontSize: "18px", color: T.text, margin: 0 }}>By ward</h2>
                 <p style={{ color: T.textMuted, fontSize: "13px", margin: "6px 0 0", lineHeight: 1.5 }}>
-                  Expand a ward to see its size breakdown.
+                  Includes young men and active leaders. Shirt counts only include people with a size selected. Expand a ward to see its size breakdown.
                 </p>
               </div>
               <div>
@@ -2185,22 +2291,29 @@ const ShirtSizesPage = ({ shirtOrder, isLeader }) => {
                         }}
                       >
                         <MealWardLabel name={ward.wardName} color={ward.wardColor} />
-                        <span style={{ color: T.textMuted, fontSize: "12px" }}>
-                          {ward.totalWithSize} shirts
-                          {ward.missing.length > 0 ? ` · ${ward.missing.length} missing` : ""}
+                        <span style={{ color: T.textMuted, fontSize: "12px", lineHeight: 1.5 }}>
+                          {ward.totalRegistered} registered · {ward.totalWithSize} with size
+                          {ward.missing.length > 0 ? (
+                            <span style={{ color: T.yellow }}> · {ward.missing.length} missing</span>
+                          ) : null}
                         </span>
                         <div style={{ marginLeft: "auto", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>
                           <Icon name="chevRight" size={16} color={T.textDim} />
                         </div>
                       </button>
+                      {ward.missing.length > 0 ? (
+                        <div style={{ padding: "0 18px 14px 36px" }}>
+                          <MissingShirtSizeList
+                            campers={ward.missing}
+                            shirtSizes={shirtSizes}
+                            applyResult={applyResult}
+                            compact
+                          />
+                        </div>
+                      ) : null}
                       {isExpanded ? (
                         <div style={{ padding: "0 18px 16px 36px" }}>
                           <ShirtOrderTable totals={ward.totals} totalWithSize={ward.totalWithSize} compact />
-                          {ward.missing.length > 0 ? (
-                            <p style={{ color: T.yellow, fontSize: "12px", margin: "12px 0 0", lineHeight: 1.5 }}>
-                              Missing: {ward.missing.map((camper) => camper.name).join(", ")}
-                            </p>
-                          ) : null}
                         </div>
                       ) : null}
                     </div>
@@ -5509,7 +5622,7 @@ export default function CampDesignApp({ initialData, profile }) {
       />
     ),
     registration: <RegistrationPage registrations={registrations} applyResult={applyResult} isLeader={isLeader} wards={profileOptions.wards} shirtSizes={profileOptions.shirtSizes} />,
-    shirtSizes: <ShirtSizesPage shirtOrder={shirtOrder} isLeader={isLeader} />,
+    shirtSizes: <ShirtSizesPage shirtOrder={shirtOrder} shirtSizes={profileOptions.shirtSizes} applyResult={applyResult} isLeader={isLeader} />,
     photos: (
       <PhotosPage
         photos={photos}

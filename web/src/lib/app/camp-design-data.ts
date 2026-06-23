@@ -2,6 +2,7 @@ import "server-only";
 
 import { getUserContext } from "@/lib/auth/user-context";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { timeLabelSortKey } from "@/lib/app/time-sort";
 
 type WardRow = {
   id: string;
@@ -158,6 +159,7 @@ type UserProfileRow = {
   terms_accepted_at: string | null;
   signature_name: string | null;
   onboarding_completed_at: string | null;
+  shirt_size_code: string | null;
   calling: { name: string } | { name: string }[] | null;
   ward: { name: string } | { name: string }[] | null;
 };
@@ -333,11 +335,13 @@ export type DesignShirtSizeCount = {
 export type DesignShirtOrderCamper = {
   id: string;
   name: string;
-  age: number;
+  age: number | null;
   shirtSizeCode: string | null;
   shirtSizeLabel: string;
   wardId: string | null;
   wardName: string;
+  kind: "young_man" | "leader";
+  roleLabel: string | null;
 };
 
 export type DesignShirtOrderWardBreakdown = {
@@ -345,6 +349,7 @@ export type DesignShirtOrderWardBreakdown = {
   wardName: string;
   wardColor: string;
   totals: DesignShirtSizeCount[];
+  totalRegistered: number;
   totalWithSize: number;
   missing: DesignShirtOrderCamper[];
 };
@@ -536,15 +541,15 @@ function resolveShirtSizeLabel(
 }
 
 function buildShirtSizeTotals(
-  rows: YoungManRow[],
+  campers: DesignShirtOrderCamper[],
   shirtSizesRaw: ShirtSizeRow[],
 ): DesignShirtSizeCount[] {
   const countByCode = new Map<string, number>();
-  rows.forEach((ym) => {
-    if (ym.shirt_size_code) {
+  campers.forEach((camper) => {
+    if (camper.shirtSizeCode) {
       countByCode.set(
-        ym.shirt_size_code,
-        (countByCode.get(ym.shirt_size_code) ?? 0) + 1,
+        camper.shirtSizeCode,
+        (countByCode.get(camper.shirtSizeCode) ?? 0) + 1,
       );
     }
   });
@@ -556,7 +561,7 @@ function buildShirtSizeTotals(
   }));
 }
 
-function buildShirtOrderCamper(
+function buildShirtOrderCamperFromYoungMan(
   ym: YoungManRow,
   parentWardMap: Map<string, string>,
   wardById: Map<string, DesignWard>,
@@ -572,11 +577,39 @@ function buildShirtOrderCamper(
     shirtSizeLabel: resolveShirtSizeLabel(ym.shirt_size_code, sizeMeta),
     wardId,
     wardName: ward?.name ?? "Unassigned",
+    kind: "young_man",
+    roleLabel: null,
+  };
+}
+
+function buildShirtOrderCamperFromLeader(
+  profile: UserProfileRow,
+  wardById: Map<string, DesignWard>,
+  sizeMeta: Map<string, { label: string }>,
+): DesignShirtOrderCamper {
+  const wardId = profile.ward_id ?? null;
+  const ward = wardId ? wardById.get(wardId) : undefined;
+  const name =
+    profile.display_name?.trim() ||
+    profile.user_email?.split("@")[0] ||
+    "Leader";
+  const role = profile.role ?? "";
+  return {
+    id: profile.user_id,
+    name,
+    age: null,
+    shirtSizeCode: profile.shirt_size_code ?? null,
+    shirtSizeLabel: resolveShirtSizeLabel(profile.shirt_size_code ?? null, sizeMeta),
+    wardId,
+    wardName: ward?.name ?? "Unassigned",
+    kind: "leader",
+    roleLabel: LEADER_ROLE_LABELS[role] ?? (role || "Leader"),
   };
 }
 
 function buildShirtOrder(
   youngMenRaw: YoungManRow[],
+  activeLeaderProfiles: UserProfileRow[],
   parentWardMap: Map<string, string>,
   wardById: Map<string, DesignWard>,
   shirtSizesRaw: ShirtSizeRow[],
@@ -585,22 +618,28 @@ function buildShirtOrder(
     shirtSizesRaw.map((size) => [size.code, { label: size.label }]),
   );
 
-  const missing: DesignShirtOrderCamper[] = [];
-  const countByCode = new Map<string, number>();
+  const allCampers: DesignShirtOrderCamper[] = [
+    ...youngMenRaw.map((ym) =>
+      buildShirtOrderCamperFromYoungMan(ym, parentWardMap, wardById, sizeMeta),
+    ),
+    ...activeLeaderProfiles.map((profile) =>
+      buildShirtOrderCamperFromLeader(profile, wardById, sizeMeta),
+    ),
+  ];
 
-  youngMenRaw.forEach((ym) => {
-    const camper = buildShirtOrderCamper(ym, parentWardMap, wardById, sizeMeta);
-    if (ym.shirt_size_code) {
+  const missing = allCampers
+    .filter((camper) => !camper.shirtSizeCode)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const countByCode = new Map<string, number>();
+  allCampers.forEach((camper) => {
+    if (camper.shirtSizeCode) {
       countByCode.set(
-        ym.shirt_size_code,
-        (countByCode.get(ym.shirt_size_code) ?? 0) + 1,
+        camper.shirtSizeCode,
+        (countByCode.get(camper.shirtSizeCode) ?? 0) + 1,
       );
-    } else {
-      missing.push(camper);
     }
   });
-
-  missing.sort((a, b) => a.name.localeCompare(b.name));
 
   const totals: DesignShirtSizeCount[] = shirtSizesRaw.map((size) => ({
     code: size.code,
@@ -610,8 +649,8 @@ function buildShirtOrder(
   }));
 
   const wardIds = [...new Set(
-    youngMenRaw
-      .map((ym) => parentWardMap.get(ym.parent_id))
+    allCampers
+      .map((camper) => camper.wardId)
       .filter((wardId): wardId is string => Boolean(wardId)),
   )].sort((a, b) =>
     (wardById.get(a)?.name ?? "").localeCompare(wardById.get(b)?.name ?? ""),
@@ -619,34 +658,34 @@ function buildShirtOrder(
 
   const byWard: DesignShirtOrderWardBreakdown[] = [];
 
-  const unassignedRows = youngMenRaw.filter((ym) => !parentWardMap.get(ym.parent_id));
-  if (unassignedRows.length > 0) {
-    const wardMissing = unassignedRows
-      .filter((ym) => !ym.shirt_size_code)
-      .map((ym) => buildShirtOrderCamper(ym, parentWardMap, wardById, sizeMeta))
+  const unassignedCampers = allCampers.filter((camper) => !camper.wardId);
+  if (unassignedCampers.length > 0) {
+    const wardMissing = unassignedCampers
+      .filter((camper) => !camper.shirtSizeCode)
       .sort((a, b) => a.name.localeCompare(b.name));
     byWard.push({
       wardId: "",
       wardName: "Unassigned ward",
       wardColor: FALLBACK_WARD_COLORS[0],
-      totals: buildShirtSizeTotals(unassignedRows, shirtSizesRaw),
-      totalWithSize: unassignedRows.length - wardMissing.length,
+      totals: buildShirtSizeTotals(unassignedCampers, shirtSizesRaw),
+      totalRegistered: unassignedCampers.length,
+      totalWithSize: unassignedCampers.length - wardMissing.length,
       missing: wardMissing,
     });
   }
 
   wardIds.forEach((wardId) => {
     const ward = wardById.get(wardId);
-    const rows = youngMenRaw.filter((ym) => parentWardMap.get(ym.parent_id) === wardId);
+    const rows = allCampers.filter((camper) => camper.wardId === wardId);
     const wardMissing = rows
-      .filter((ym) => !ym.shirt_size_code)
-      .map((ym) => buildShirtOrderCamper(ym, parentWardMap, wardById, sizeMeta))
+      .filter((camper) => !camper.shirtSizeCode)
       .sort((a, b) => a.name.localeCompare(b.name));
     byWard.push({
       wardId,
       wardName: ward?.name ?? "Ward",
       wardColor: ward?.color ?? FALLBACK_WARD_COLORS[0],
       totals: buildShirtSizeTotals(rows, shirtSizesRaw),
+      totalRegistered: rows.length,
       totalWithSize: rows.length - wardMissing.length,
       missing: wardMissing,
     });
@@ -654,8 +693,8 @@ function buildShirtOrder(
 
   return {
     totals,
-    totalRegistered: youngMenRaw.length,
-    totalWithSize: youngMenRaw.length - missing.length,
+    totalRegistered: allCampers.length,
+    totalWithSize: allCampers.length - missing.length,
     totalMissing: missing.length,
     missing,
     byWard,
@@ -689,7 +728,7 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
     supabase
       .from("user_profiles")
       .select(
-        "user_id, user_email, display_name, avatar_url, phone, ward_id, role, calling_id, invited_by, invited_at, terms_accepted_at, signature_name, onboarding_completed_at, calling:leader_callings(name), ward:wards(name)",
+        "user_id, user_email, display_name, avatar_url, phone, ward_id, role, calling_id, invited_by, invited_at, terms_accepted_at, signature_name, onboarding_completed_at, shirt_size_code, calling:leader_callings(name), ward:wards(name)",
       )
       .order("display_name"),
     supabase
@@ -986,6 +1025,14 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
       location: item.location ?? "",
     });
   });
+  for (const dateKey of Object.keys(agenda)) {
+    agenda[dateKey].sort((a, b) => {
+      const ta = timeLabelSortKey(a.time);
+      const tb = timeLabelSortKey(b.time);
+      if (ta !== tb) return ta - tb;
+      return a.item.localeCompare(b.item);
+    });
+  }
 
   const mealsRaw = (wardMealRows ?? []) as WardMealRow[];
   const meals: DesignMeal[] = mealsRaw.map((row) => {
@@ -1172,8 +1219,13 @@ export async function getCampDesignInitialData(): Promise<CampDesignInitialData>
     })),
   };
 
+  const activeLeaderProfiles = leaderProfiles.filter((profile) =>
+    Boolean(profile.onboarding_completed_at),
+  );
+
   const shirtOrder = buildShirtOrder(
     youngMenRaw,
+    activeLeaderProfiles,
     parentWardMap,
     wardById,
     shirtSizesRaw,

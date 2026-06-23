@@ -123,6 +123,14 @@ export type CampStaffRole =
   | "ward_leader"
   | "camp_committee";
 
+const LEADERSHIP_ROLES = new Set([
+  "stake_leader",
+  "stake_camp_director",
+  "ward_leader",
+  "camp_committee",
+  "young_men_captain",
+]);
+
 type InviteLeaderInput = {
   email: string;
   fullName?: string;
@@ -1319,6 +1327,59 @@ export async function updateYoungManShirtSizeAction(input: {
     .from("young_men")
     .update({ shirt_size_code: shirtSizeCode })
     .eq("id", input.youngManId);
+
+  if (updateError) {
+    return fail(updateError.message);
+  }
+
+  return success();
+}
+
+export async function updateLeaderShirtSizeAction(input: {
+  leaderUserId: string;
+  shirtSizeCode: string | null;
+}): Promise<ActionResult> {
+  const context = await getUserContext();
+  if (!context.canManageRegistrations && context.user.id !== input.leaderUserId) {
+    return fail("You do not have permission to update this shirt size.");
+  }
+
+  const shirtSizeCode = input.shirtSizeCode?.trim() || null;
+  const admin = createSupabaseAdminClient() as any;
+
+  if (shirtSizeCode) {
+    const { data: sizeRow, error: sizeErr } = await admin
+      .from("shirt_sizes")
+      .select("code")
+      .eq("code", shirtSizeCode)
+      .maybeSingle();
+
+    if (sizeErr) {
+      return fail(sizeErr.message);
+    }
+    if (!sizeRow?.code) {
+      return fail("Invalid shirt size. Please pick a size from the list.");
+    }
+  }
+
+  const { data: profile, error: fetchError } = await admin
+    .from("user_profiles")
+    .select("user_id, role")
+    .eq("user_id", input.leaderUserId)
+    .maybeSingle();
+
+  if (fetchError || !profile?.user_id) {
+    return fail(fetchError?.message ?? "Leader not found.");
+  }
+
+  if (!profile.role || !LEADERSHIP_ROLES.has(profile.role)) {
+    return fail("This user is not a camp leader.");
+  }
+
+  const { error: updateError } = await admin
+    .from("user_profiles")
+    .update({ shirt_size_code: shirtSizeCode })
+    .eq("user_id", input.leaderUserId);
 
   if (updateError) {
     return fail(updateError.message);
