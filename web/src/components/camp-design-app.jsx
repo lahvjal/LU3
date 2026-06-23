@@ -54,6 +54,7 @@ import {
 } from "@/lib/camp-age";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { useOnboardingSessionKeepAlive } from "@/lib/auth/onboarding-session-keepalive";
+import { downloadWardRostersPdf } from "@/lib/app/ward-rosters-pdf";
 
 // ─── Design Tokens ───
 const T = {
@@ -115,6 +116,7 @@ const Icon = ({ name, size = 20, color }) => {
     user: <><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></>,
     logOut: <><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></>,
     shirt: <><path d="M6 3l3-2 3 2 3-1 2 3v15H4V5l2-2z"/><path d="M9 3v3M15 3v3"/></>,
+    download: <><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></>,
   };
   return <svg viewBox="0 0 24 24" style={s} xmlns="http://www.w3.org/2000/svg">{P[name] || P.star}</svg>;
 };
@@ -1698,6 +1700,7 @@ const CompetitionsPage = ({
 
 const WardRostersPage = ({ wards, leaders }) => {
   const [expandedWards, setExpandedWards] = useState({});
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   const leadersByWard = useMemo(() => {
     const map = {};
@@ -1717,9 +1720,42 @@ const WardRostersPage = ({ wards, leaders }) => {
     setExpandedWards((previous) => ({ ...previous, [wardId]: !previous[wardId] }));
   };
 
+  const handleDownloadPdf = () => {
+    if (downloadingPdf || !wards.length) return;
+    setDownloadingPdf(true);
+    try {
+      downloadWardRostersPdf({ wards, leaders });
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Could not generate PDF.");
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
+
   return (
     <div>
-      <PageHeader icon="users" title="Ward Rosters" subtitle={`${wards.length} wards · ${totalLeaders} leaders · ${totalYoungMen} young men`} />
+      <PageHeader
+        icon="users"
+        title="Ward Rosters"
+        subtitle={`${wards.length} wards · ${totalLeaders} leaders · ${totalYoungMen} young men`}
+        action={
+          wards.length ? (
+            <button type="button" onClick={handleDownloadPdf} disabled={downloadingPdf} style={{ ...css.btn(), opacity: downloadingPdf ? 0.7 : 1 }}>
+              {downloadingPdf ? (
+                <>
+                  <Spinner size={16} color="#1a1612" />
+                  Preparing…
+                </>
+              ) : (
+                <>
+                  <Icon name="download" size={16} color="#1a1612" />
+                  Download PDF
+                </>
+              )}
+            </button>
+          ) : null
+        }
+      />
       {!wards.length ? (
         <EmptyState icon="users" message="No wards have been created yet." />
       ) : (
